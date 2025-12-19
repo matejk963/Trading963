@@ -564,111 +564,131 @@ def main():
     st.title("📊 CFTC Commitments of Traders - Analysis Dashboard")
 
     try:
-        # Sidebar controls (outside tabs - applies to all tabs)
-        with st.sidebar:
-            st.header("⚙️ Settings")
+        # Initialize session state first
+        if 'active_section' not in st.session_state:
+            st.session_state.active_section = "positioning"
 
-            lookback_years = st.slider(
-                "Lookback Period (years)",
-                min_value=1,
-                max_value=20,
-                value=5,
-                help="Historical period for calculating Z-scores, percentiles, and status in tables. Charts always show full history (2005-2025)."
-            )
-            logger.info(f"User selected lookback period: {lookback_years} years")
+        # Navigation buttons for different sections
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns([2, 2, 2, 4])
 
-            st.markdown("---")
+        with col1:
+            if st.button("📈 **Futures Positioning**", use_container_width=True,
+                        type="primary" if st.session_state.active_section == "positioning" else "secondary"):
+                st.session_state.active_section = "positioning"
+        with col2:
+            if st.button("🌍 Macro", use_container_width=True,
+                        type="primary" if st.session_state.active_section == "macro" else "secondary"):
+                st.session_state.active_section = "macro"
+        with col3:
+            if st.button("📊 More Analysis", use_container_width=True,
+                        type="primary" if st.session_state.active_section == "more_analysis" else "secondary"):
+                st.session_state.active_section = "more_analysis"
 
-            trader_category = st.selectbox(
-                "📊 Primary Trader Category",
-                options=['Commercial', 'Non-Commercial', 'Non-Reportable'],
-                index=0,
-                help="Which trader type to use for sorting and ranking",
-                key='trader_category_selector'
-            )
-            logger.info(f"User selected trader category: {trader_category}")
+        st.markdown("---")
 
-            st.markdown("""
-            **Trader Types:**
-            - **Commercial**: Producers, hedgers (smart money)
-            - **Non-Commercial**: Large speculators, funds
-            - **Non-Reportable**: Small retail traders
-            """)
+        # ========== SECTION 1: FUTURES POSITIONING DASHBOARD ==========
+        if st.session_state.active_section == "positioning":
+            # Sidebar controls for Futures Positioning section
+            with st.sidebar:
+                st.header("⚙️ Settings")
 
-            st.markdown("---")
+                lookback_years = st.slider(
+                    "Lookback Period (years)",
+                    min_value=1,
+                    max_value=20,
+                    value=5,
+                    help="Historical period for calculating Z-scores, percentiles, and status in tables. Charts always show full history (2005-2025)."
+                )
+                logger.info(f"User selected lookback period: {lookback_years} years")
 
-            category_filter = st.multiselect(
-                "Filter by Asset Category",
-                options=['All'] + sorted(list(set([v['category'] for v in CONTRACTS.values()]))),
-                default=['All']
-            )
+                st.markdown("---")
 
-            # Handle Streamlit state bug where multiselect returns integers
-            if isinstance(category_filter, list) and len(category_filter) > 0 and isinstance(category_filter[0], int):
-                category_options = ['All'] + sorted(list(set([v['category'] for v in CONTRACTS.values()])))
-                category_filter = [category_options[i] for i in category_filter]
-                logger.warning(f"category_filter contained integers, converted to: {category_filter}")
+                trader_category = st.selectbox(
+                    "📊 Primary Trader Category",
+                    options=['Commercial', 'Non-Commercial', 'Non-Reportable'],
+                    index=0,
+                    help="Which trader type to use for sorting and ranking",
+                    key='trader_category_selector'
+                )
+                logger.info(f"User selected trader category: {trader_category}")
 
-            logger.info(f"User selected asset filters: {category_filter}")
+                st.markdown("""
+                **Trader Types:**
+                - **Commercial**: Producers, hedgers (smart money)
+                - **Non-Commercial**: Large speculators, funds
+                - **Non-Reportable**: Small retail traders
+                """)
 
-            st.markdown("---")
+                st.markdown("---")
 
-            sort_options = ['Symbol', 'Z-Score', 'Percentile', 'Current %']
-            sort_by = st.selectbox(
-                "Sort By",
-                options=sort_options,
-                index=1
-            )
-            # Handle case where sort_by might be int (Streamlit state bug)
-            if isinstance(sort_by, int):
-                sort_by = sort_options[sort_by]
-                logger.warning(f"sort_by was int, converted to: {sort_by}")
-            logger.info(f"User selected sort by: {sort_by}")
+                category_filter = st.multiselect(
+                    "Filter by Asset Category",
+                    options=['All'] + sorted(list(set([v['category'] for v in CONTRACTS.values()]))),
+                    default=['All']
+                )
 
-            sort_ascending = st.checkbox("Ascending", value=False)
+                # Handle Streamlit state bug where multiselect returns integers
+                if isinstance(category_filter, list) and len(category_filter) > 0 and isinstance(category_filter[0], int):
+                    category_options = ['All'] + sorted(list(set([v['category'] for v in CONTRACTS.values()])))
+                    category_filter = [category_options[i] for i in category_filter]
+                    logger.warning(f"category_filter contained integers, converted to: {category_filter}")
 
-            st.markdown("---")
-            st.markdown("### 📖 Legend")
-            st.markdown("""
-            🟢 **EXTREME LONG** (>95th percentile)
-            🟩 **Strong Long** (>80th percentile)
-            ⚪ **Neutral** (20-80th percentile)
-            🟥 **Strong Short** (<20th percentile)
-            🔴 **EXTREME SHORT** (<5th percentile)
-            """)
+                logger.info(f"User selected asset filters: {category_filter}")
 
-            st.markdown("---")
-            st.markdown("### 🔄 Database Update")
+                st.markdown("---")
 
-            # Show current database status
-            from src.data_fetchers.cot_database_updater import COTDatabaseUpdater
-            updater = COTDatabaseUpdater(PROJECT_ROOT)
-            status = updater.get_current_status()
+                sort_options = ['Symbol', 'Z-Score', 'Percentile', 'Current %']
+                sort_by = st.selectbox(
+                    "Sort By",
+                    options=sort_options,
+                    index=1
+                )
+                # Handle case where sort_by might be int (Streamlit state bug)
+                if isinstance(sort_by, int):
+                    sort_by = sort_options[sort_by]
+                    logger.warning(f"sort_by was int, converted to: {sort_by}")
+                logger.info(f"User selected sort by: {sort_by}")
 
-            if status['exists']:
-                st.info(f"**Current Status:**\n- Records: {status['records']:,}\n- Latest: {status['latest_date'].strftime('%Y-%m-%d')}\n- Days behind: {status['days_behind']}")
+                sort_ascending = st.checkbox("Ascending", value=False)
 
-            # Update button
-            if st.button("🔄 Update Data", key="update_db_button", help="Download and integrate latest CFTC data"):
-                with st.spinner("Updating database..."):
-                    logger.info("User initiated database update")
-                    success, message = updater.update_database()
+                st.markdown("---")
+                st.markdown("### 📖 Legend")
+                st.markdown("""
+                🟢 **EXTREME LONG** (>95th percentile)
+                🟩 **Strong Long** (>80th percentile)
+                ⚪ **Neutral** (20-80th percentile)
+                🟥 **Strong Short** (<20th percentile)
+                🔴 **EXTREME SHORT** (<5th percentile)
+                """)
 
-                    if success:
-                        st.success("✅ " + message)
-                        logger.info(f"Database update successful: {message}")
-                        st.info("🔄 Clearing cache and reloading data...")
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error("❌ " + message)
-                        logger.error(f"Database update failed: {message}")
+                st.markdown("---")
+                st.markdown("### 🔄 Database Update")
 
-        # Create horizontal tabs for different analysis sections
-        main_tabs = st.tabs(["📈 Futures Positioning", "📊 More Analysis (Coming Soon)"])
+                # Show current database status
+                from src.data_fetchers.cot_database_updater import COTDatabaseUpdater
+                updater = COTDatabaseUpdater(PROJECT_ROOT)
+                status = updater.get_current_status()
 
-        # ========== TAB 1: FUTURES POSITIONING DASHBOARD ==========
-        with main_tabs[0]:
+                if status['exists']:
+                    st.info(f"**Current Status:**\n- Records: {status['records']:,}\n- Latest: {status['latest_date'].strftime('%Y-%m-%d')}\n- Days behind: {status['days_behind']}")
+
+                # Update button
+                if st.button("🔄 Update Data", key="update_db_button", help="Download and integrate latest CFTC data"):
+                    with st.spinner("Updating database..."):
+                        logger.info("User initiated database update")
+                        success, message = updater.update_database()
+
+                        if success:
+                            st.success("✅ " + message)
+                            logger.info(f"Database update successful: {message}")
+                            st.info("🔄 Clearing cache and reloading data...")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("❌ " + message)
+                            logger.error(f"Database update failed: {message}")
+
             st.markdown("**All Trader Categories Analysis Across 41 Futures Contracts**")
             st.markdown("*Commercial | Non-Commercial | Non-Reportable*")
             st.info("💡 Charts display full historical data (2005-2025). Use the slider to adjust lookback period for table statistics only.")
@@ -971,9 +991,189 @@ def main():
             logger.info(f"  - Average Z-Score ({trader_category}): {avg_z:.2f}")
             logger.info("="*60)
 
-        # ========== TAB 2: MORE ANALYSIS (PLACEHOLDER) ==========
-        with main_tabs[1]:
-            st.info("📊 Additional analysis features will be added here")
+        # ========== SECTION 2: MACRO DASHBOARD ==========
+        elif st.session_state.active_section == "macro":
+            # Sidebar for Macro section (currently empty)
+            with st.sidebar:
+                st.header("⚙️ Macro Settings")
+                st.info("Macro dashboard settings will be added here")
+
+            st.header("🌍 Macro Economic Dashboard")
+
+            # Tabs for different regions
+            tab1, tab2 = st.tabs(["🇺🇸 US", "🌐 More Regions (Coming Soon)"])
+
+            with tab1:
+                st.markdown("**US Economic Indicators - 4 Quadrant View**")
+                st.markdown("*Real GDP | Headline CPI | Core CPI | OECD Leading Index*")
+
+                try:
+                    # Load economic data
+                    gdp_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_real_gdp_10q.csv'), index_col=0, parse_dates=True)
+                    cpi_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_cpi_data.csv'), index_col=0, parse_dates=True)
+                    cli_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/oecd_cli_usa.csv'), index_col=0, parse_dates=True)
+
+                    # Create 4-quadrant layout
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        # Q1: Real GDP YoY Growth
+                        fig_gdp = go.Figure()
+                        fig_gdp.add_trace(go.Scatter(
+                            x=gdp_df.index,
+                            y=gdp_df['YoY_Growth_%'],
+                            mode='lines+markers',
+                            name='GDP YoY Growth',
+                            line=dict(color='#2E86AB', width=2),
+                            marker=dict(size=6),
+                            hovertemplate='%{x|%Y-Q%q}<br>YoY Growth: %{y:.2f}%<extra></extra>'
+                        ))
+                        # Add 0% reference line
+                        fig_gdp.add_hline(y=0, line_dash="dash", line_color="gray",
+                                         annotation_text="0%", annotation_position="right")
+                        fig_gdp.update_layout(
+                            title='US Real GDP Growth (YoY %, 10 Years)',
+                            xaxis_title='Quarter',
+                            yaxis_title='YoY Growth %',
+                            height=350,
+                            hovermode='x unified',
+                            template='plotly_white'
+                        )
+                        st.plotly_chart(fig_gdp, use_container_width=True)
+
+                        # Q3: Core CPI
+                        fig_core = go.Figure()
+                        fig_core.add_trace(go.Scatter(
+                            x=cpi_df.index,
+                            y=cpi_df['Core_YoY_%'],
+                            mode='lines+markers',
+                            name='Core CPI YoY',
+                            line=dict(color='#E97451', width=2),
+                            marker=dict(size=3),
+                            hovertemplate='%{x|%b %Y}<br>Core CPI: %{y:.2f}%<extra></extra>'
+                        ))
+                        # Add 2% Fed target line
+                        fig_core.add_hline(y=2.0, line_dash="dash", line_color="gray",
+                                          annotation_text="Fed Target 2%", annotation_position="right")
+                        fig_core.update_layout(
+                            title='Core CPI (YoY %, Excl. Food & Energy, 10 Years)',
+                            xaxis_title='Month',
+                            yaxis_title='YoY %',
+                            height=350,
+                            hovermode='x unified',
+                            template='plotly_white'
+                        )
+                        st.plotly_chart(fig_core, use_container_width=True)
+
+                    with col2:
+                        # Q2: Headline CPI
+                        fig_headline = go.Figure()
+                        fig_headline.add_trace(go.Scatter(
+                            x=cpi_df.index,
+                            y=cpi_df['Headline_YoY_%'],
+                            mode='lines+markers',
+                            name='Headline CPI YoY',
+                            line=dict(color='#6BAA75', width=2),
+                            marker=dict(size=3),
+                            hovertemplate='%{x|%b %Y}<br>Headline CPI: %{y:.2f}%<extra></extra>'
+                        ))
+                        # Add 2% Fed target line
+                        fig_headline.add_hline(y=2.0, line_dash="dash", line_color="gray",
+                                              annotation_text="Fed Target 2%", annotation_position="right")
+                        fig_headline.update_layout(
+                            title='Headline CPI (YoY %, All Items, 10 Years)',
+                            xaxis_title='Month',
+                            yaxis_title='YoY %',
+                            height=350,
+                            hovermode='x unified',
+                            template='plotly_white'
+                        )
+                        st.plotly_chart(fig_headline, use_container_width=True)
+
+                        # Q4: OECD Leading Index
+                        fig_cli = go.Figure()
+                        fig_cli.add_trace(go.Scatter(
+                            x=cli_df.index,
+                            y=cli_df['OECD_CLI'],
+                            mode='lines+markers',
+                            name='OECD CLI',
+                            line=dict(color='#A23B72', width=2),
+                            marker=dict(size=3),
+                            hovertemplate='%{x|%b %Y}<br>CLI: %{y:.2f}<extra></extra>'
+                        ))
+                        # Add trend line (100)
+                        fig_cli.add_hline(y=100, line_dash="dash", line_color="gray",
+                                         annotation_text="Trend (100)", annotation_position="right")
+                        fig_cli.update_layout(
+                            title='OECD Composite Leading Indicator (6-9mo lead, 10 Years)',
+                            xaxis_title='Month',
+                            yaxis_title='Index (100 = Trend)',
+                            height=350,
+                            hovermode='x unified',
+                            template='plotly_white'
+                        )
+                        st.plotly_chart(fig_cli, use_container_width=True)
+
+                    # Summary metrics
+                    st.markdown("---")
+                    st.markdown("**Current Values**")
+                    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+                    with metric_col1:
+                        gdp_yoy = gdp_df['YoY_Growth_%'].iloc[-1]
+                        gdp_qoq = gdp_df['QoQ_Growth_%'].iloc[-1]
+                        st.metric(
+                            "Real GDP Growth",
+                            f"{gdp_yoy:.2f}% YoY",
+                            f"{gdp_qoq:+.2f}% QoQ"
+                        )
+
+                    with metric_col2:
+                        latest_headline = cpi_df['Headline_YoY_%'].iloc[-1]
+                        headline_mom = cpi_df['Headline_MoM_%'].iloc[-1]
+                        st.metric(
+                            "Headline CPI",
+                            f"{latest_headline:.2f}% YoY",
+                            f"{headline_mom:+.2f}% MoM"
+                        )
+
+                    with metric_col3:
+                        latest_core = cpi_df['Core_YoY_%'].iloc[-1]
+                        core_mom = cpi_df['Core_MoM_%'].iloc[-1]
+                        st.metric(
+                            "Core CPI",
+                            f"{latest_core:.2f}% YoY",
+                            f"{core_mom:+.2f}% MoM"
+                        )
+
+                    with metric_col4:
+                        latest_cli = cli_df['OECD_CLI'].iloc[-1]
+                        cli_change = cli_df['MoM_Change'].iloc[-1]
+                        st.metric(
+                            "OECD CLI",
+                            f"{latest_cli:.2f}",
+                            f"{cli_change:+.2f} MoM"
+                        )
+
+                except FileNotFoundError as e:
+                    st.error(f"❌ Economic data files not found. Please run the data fetcher scripts first.")
+                    st.info("""
+                    Run these scripts in the sandbox folder:
+                    - `python fetch_fred_gdp.py`
+                    - `python fetch_fred_cpi.py`
+                    - `python fetch_oecd_cli.py`
+                    """)
+                except Exception as e:
+                    st.error(f"Error loading economic data: {str(e)}")
+                    logger.error(f"Error in macro section: {str(e)}\n{traceback.format_exc()}")
+
+            with tab2:
+                st.info("🚧 Additional regions (EU, China, Japan) will be added here")
+
+        # ========== SECTION 3: MORE ANALYSIS (PLACEHOLDER) ==========
+        elif st.session_state.active_section == "more_analysis":
+            st.header("📊 More Analysis Tools")
+            st.info("🚧 Additional analysis features will be added here")
             st.markdown("""
             **Planned Features:**
             - Cross-asset correlation analysis
