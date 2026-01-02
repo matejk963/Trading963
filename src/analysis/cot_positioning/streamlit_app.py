@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import os
 import sys
@@ -1004,168 +1005,463 @@ def main():
             tab1, tab2 = st.tabs(["🇺🇸 US", "🌐 More Regions (Coming Soon)"])
 
             with tab1:
-                st.markdown("**US Economic Indicators - 4 Quadrant View**")
-                st.markdown("*Real GDP | Headline CPI | Core CPI | OECD Leading Index*")
+                # Create sub-tabs for US economic indicators
+                us_subtab1, us_subtab2 = st.tabs(["📊 4-Quadrant View", "📈 Leading Indices"])
 
-                try:
-                    # Load economic data
-                    gdp_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_real_gdp_10q.csv'), index_col=0, parse_dates=True)
-                    cpi_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_cpi_data.csv'), index_col=0, parse_dates=True)
-                    cli_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/oecd_cli_usa.csv'), index_col=0, parse_dates=True)
+                # ========== US SUB-TAB 1: 4-QUADRANT VIEW ==========
+                with us_subtab1:
+                    st.markdown("**US Economic Indicators - 4 Quadrant View**")
+                    st.markdown("*Real GDP | Headline CPI | Core CPI | Nominal GDP*")
 
-                    # Create 4-quadrant layout
-                    col1, col2 = st.columns(2)
+                    try:
+                        # Load economic data (all available history)
+                        gdp_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_real_gdp_all.csv'), index_col=0, parse_dates=True)
+                        nominal_gdp_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_nominal_gdp_all.csv'), index_col=0, parse_dates=True)
+                        cpi_df = pd.read_csv(os.path.join(PROJECT_ROOT, 'data/economic/fred_cpi_quarterly.csv'), index_col=0, parse_dates=True)
 
-                    with col1:
-                        # Q1: Real GDP YoY Growth
-                        fig_gdp = go.Figure()
-                        fig_gdp.add_trace(go.Scatter(
-                            x=gdp_df.index,
-                            y=gdp_df['YoY_Growth_%'],
-                            mode='lines+markers',
-                            name='GDP YoY Growth',
-                            line=dict(color='#2E86AB', width=2),
-                            marker=dict(size=6),
-                            hovertemplate='%{x|%Y-Q%q}<br>YoY Growth: %{y:.2f}%<extra></extra>'
-                        ))
-                        # Add 0% reference line
-                        fig_gdp.add_hline(y=0, line_dash="dash", line_color="gray",
-                                         annotation_text="0%", annotation_position="right")
-                        fig_gdp.update_layout(
-                            title='US Real GDP Growth (YoY %, 10 Years)',
-                            xaxis_title='Quarter',
-                            yaxis_title='YoY Growth %',
-                            height=350,
-                            hovermode='x unified',
-                            template='plotly_white'
+                        # Create 2x2 subplot figure with shared x-axis
+                        fig_quad = make_subplots(
+                            rows=2, cols=2,
+                            subplot_titles=('Nominal GDP Growth (YoY %)',
+                                          'Headline CPI (YoY %, All Items)',
+                                          'Real GDP Growth (YoY %)',
+                                          'Core CPI (YoY %, Excl. Food & Energy)'),
+                            shared_xaxes=True,
+                            vertical_spacing=0.12,
+                            horizontal_spacing=0.10,
+                            specs=[[{"secondary_y": False}, {"secondary_y": False}],
+                                   [{"secondary_y": False}, {"secondary_y": False}]]
                         )
-                        st.plotly_chart(fig_gdp, use_container_width=True)
 
-                        # Q3: Core CPI
-                        fig_core = go.Figure()
-                        fig_core.add_trace(go.Scatter(
-                            x=cpi_df.index,
-                            y=cpi_df['Core_YoY_%'],
-                            mode='lines+markers',
-                            name='Core CPI YoY',
-                            line=dict(color='#E97451', width=2),
-                            marker=dict(size=3),
-                            hovertemplate='%{x|%b %Y}<br>Core CPI: %{y:.2f}%<extra></extra>'
-                        ))
-                        # Add 2% Fed target line
-                        fig_core.add_hline(y=2.0, line_dash="dash", line_color="gray",
-                                          annotation_text="Fed Target 2%", annotation_position="right")
-                        fig_core.update_layout(
-                            title='Core CPI (YoY %, Excl. Food & Energy, 10 Years)',
-                            xaxis_title='Month',
-                            yaxis_title='YoY %',
-                            height=350,
-                            hovermode='x unified',
-                            template='plotly_white'
-                        )
-                        st.plotly_chart(fig_core, use_container_width=True)
+                        # Q1: Nominal GDP YoY Growth (row 1, col 1)
+                        fig_quad.add_trace(go.Scatter(
+                            x=nominal_gdp_df.index,
+                            y=nominal_gdp_df['YoY_Growth_%'],
+                            mode='lines',
+                            name='Nominal GDP YoY',
+                            line=dict(color='#A23B72', width=2),
+                            hovertemplate='%{x|%Y-Q%q}<br>Nominal GDP YoY: %{y:.2f}%<extra></extra>',
+                            showlegend=False
+                        ), row=1, col=1)
 
-                    with col2:
-                        # Q2: Headline CPI
-                        fig_headline = go.Figure()
-                        fig_headline.add_trace(go.Scatter(
+                        fig_quad.add_hline(y=0, line_dash="dash", line_color="gray",
+                                         opacity=0.5, row=1, col=1)
+
+                        # Q2: Headline CPI (row 1, col 2)
+                        fig_quad.add_trace(go.Scatter(
                             x=cpi_df.index,
                             y=cpi_df['Headline_YoY_%'],
                             mode='lines+markers',
                             name='Headline CPI YoY',
                             line=dict(color='#6BAA75', width=2),
                             marker=dict(size=3),
-                            hovertemplate='%{x|%b %Y}<br>Headline CPI: %{y:.2f}%<extra></extra>'
-                        ))
-                        # Add 2% Fed target line
-                        fig_headline.add_hline(y=2.0, line_dash="dash", line_color="gray",
-                                              annotation_text="Fed Target 2%", annotation_position="right")
-                        fig_headline.update_layout(
-                            title='Headline CPI (YoY %, All Items, 10 Years)',
-                            xaxis_title='Month',
-                            yaxis_title='YoY %',
-                            height=350,
-                            hovermode='x unified',
-                            template='plotly_white'
-                        )
-                        st.plotly_chart(fig_headline, use_container_width=True)
+                            hovertemplate='%{x|%Y-Q%q}<br>Headline CPI: %{y:.2f}%<extra></extra>',
+                            showlegend=False
+                        ), row=1, col=2)
 
-                        # Q4: OECD Leading Index
-                        fig_cli = go.Figure()
-                        fig_cli.add_trace(go.Scatter(
-                            x=cli_df.index,
-                            y=cli_df['OECD_CLI'],
+                        fig_quad.add_hline(y=2.0, line_dash="dash", line_color="gray",
+                                         opacity=0.5, row=1, col=2)
+
+                        # Q3: Real GDP YoY Growth (row 2, col 1)
+                        fig_quad.add_trace(go.Scatter(
+                            x=gdp_df.index,
+                            y=gdp_df['YoY_Growth_%'],
+                            mode='lines',
+                            name='Real GDP YoY Growth',
+                            line=dict(color='#2E86AB', width=2),
+                            hovertemplate='%{x|%Y-Q%q}<br>Real GDP YoY: %{y:.2f}%<extra></extra>',
+                            showlegend=False
+                        ), row=2, col=1)
+
+                        fig_quad.add_hline(y=0, line_dash="dash", line_color="gray",
+                                         opacity=0.5, row=2, col=1)
+
+                        # Q4: Core CPI (row 2, col 2)
+                        fig_quad.add_trace(go.Scatter(
+                            x=cpi_df.index,
+                            y=cpi_df['Core_YoY_%'],
                             mode='lines+markers',
-                            name='OECD CLI',
-                            line=dict(color='#A23B72', width=2),
+                            name='Core CPI YoY',
+                            line=dict(color='#E97451', width=2),
                             marker=dict(size=3),
-                            hovertemplate='%{x|%b %Y}<br>CLI: %{y:.2f}<extra></extra>'
-                        ))
-                        # Add trend line (100)
-                        fig_cli.add_hline(y=100, line_dash="dash", line_color="gray",
-                                         annotation_text="Trend (100)", annotation_position="right")
-                        fig_cli.update_layout(
-                            title='OECD Composite Leading Indicator (6-9mo lead, 10 Years)',
-                            xaxis_title='Month',
-                            yaxis_title='Index (100 = Trend)',
-                            height=350,
+                            hovertemplate='%{x|%Y-Q%q}<br>Core CPI: %{y:.2f}%<extra></extra>',
+                            showlegend=False
+                        ), row=2, col=2)
+
+                        fig_quad.add_hline(y=2.0, line_dash="dash", line_color="gray",
+                                         opacity=0.5, row=2, col=2)
+
+                        # Update axes labels
+                        fig_quad.update_yaxes(title_text="YoY Growth %", row=1, col=1)  # Nominal GDP
+                        fig_quad.update_yaxes(title_text="YoY %", row=1, col=2)  # Headline CPI
+                        fig_quad.update_yaxes(title_text="YoY Growth %", row=2, col=1)  # Real GDP
+                        fig_quad.update_yaxes(title_text="YoY %", row=2, col=2)  # Core CPI
+
+                        fig_quad.update_xaxes(title_text="Quarter", row=2, col=1)
+                        fig_quad.update_xaxes(title_text="Quarter", row=2, col=2)
+
+                        # Update layout with shared x-axis
+                        fig_quad.update_xaxes(matches='x')
+                        fig_quad.update_layout(
+                            height=750,
+                            template='plotly_white',
+                            hovermode='x unified'
+                        )
+
+                        st.plotly_chart(fig_quad, use_container_width=True)
+    
+                        # Summary metrics
+                        st.markdown("---")
+                        st.markdown("**Current Values**")
+                        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    
+                        with metric_col1:
+                            nominal_gdp_yoy = nominal_gdp_df['YoY_Growth_%'].iloc[-1]
+                            nominal_gdp_qoq = nominal_gdp_df['QoQ_Growth_%'].iloc[-1]
+                            st.metric(
+                                "Nominal GDP Growth",
+                                f"{nominal_gdp_yoy:.2f}% YoY",
+                                f"{nominal_gdp_qoq:+.2f}% QoQ"
+                            )
+
+                        with metric_col2:
+                            latest_headline = cpi_df['Headline_YoY_%'].iloc[-1]
+                            headline_mom = cpi_df['Headline_MoM_%'].iloc[-1]
+                            st.metric(
+                                "Headline CPI",
+                                f"{latest_headline:.2f}% YoY",
+                                f"{headline_mom:+.2f}% MoM"
+                            )
+
+                        with metric_col3:
+                            gdp_yoy = gdp_df['YoY_Growth_%'].iloc[-1]
+                            gdp_qoq = gdp_df['QoQ_Growth_%'].iloc[-1]
+                            st.metric(
+                                "Real GDP Growth",
+                                f"{gdp_yoy:.2f}% YoY",
+                                f"{gdp_qoq:+.2f}% QoQ"
+                            )
+
+                        with metric_col4:
+                            latest_core = cpi_df['Core_YoY_%'].iloc[-1]
+                            core_mom = cpi_df['Core_MoM_%'].iloc[-1]
+                            st.metric(
+                                "Core CPI",
+                                f"{latest_core:.2f}% YoY",
+                                f"{core_mom:+.2f}% MoM"
+                            )
+    
+                    except FileNotFoundError as e:
+                        st.error(f"❌ Economic data files not found. Please run the data fetcher scripts first.")
+                        st.info("""
+                        Run these scripts in the sandbox folder:
+                        - `python fetch_fred_gdp.py`
+                        - `python fetch_nominal_gdp.py`
+                        - `python fetch_fred_cpi.py`
+                        """)
+                    except Exception as e:
+                        st.error(f"Error loading economic data: {str(e)}")
+                        logger.error(f"Error in macro section: {str(e)}\n{traceback.format_exc()}")
+
+                # ========== US SUB-TAB 2: LEADING INDICES ==========
+                with us_subtab2:
+                    st.markdown("**Leading Economic Indicators**")
+                    st.markdown("*Duncan Index (interest-rate sensitive) | OECD CLI (6-9 month lead)*")
+
+                    try:
+                        # Load leading indices data
+                        duncan_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic_indicators/duncan_leading_index.csv'),
+                            index_col=0, parse_dates=True
+                        )
+                        equip_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic_indicators/equipment_subcomponents.csv'),
+                            index_col=0, parse_dates=True
+                        )
+                        res_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic_indicators/residential_subcomponents.csv'),
+                            index_col=0, parse_dates=True
+                        )
+                        cli_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic/oecd_cli_usa.csv'),
+                            index_col=0, parse_dates=True
+                        )
+                        nominal_gdp_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic/fred_nominal_gdp_all.csv'),
+                            index_col=0, parse_dates=True
+                        )
+
+                        # Recession periods for shading
+                        recession_periods = [
+                            ('2001-03-01', '2001-11-01'),
+                            ('2007-12-01', '2009-06-01'),
+                            ('2020-02-01', '2020-04-01')
+                        ]
+
+                        # Create subplot figure with shared x-axis
+                        fig_leading = make_subplots(
+                            rows=2, cols=1,
+                            subplot_titles=('Leading Indices vs GDP Growth',
+                                          'Duncan Index - Component Breakdown'),
+                            vertical_spacing=0.12,
+                            specs=[[{"secondary_y": True}],
+                                   [{"secondary_y": False}]],
+                            row_heights=[0.5, 0.5]
+                        )
+
+                        # ===== SUBPLOT 1: Leading Indices vs GDP Growth =====
+                        # Duncan Index (left y-axis)
+                        fig_leading.add_trace(go.Scatter(
+                            x=duncan_df.index,
+                            y=duncan_df['duncan_index'],
+                            mode='lines',
+                            name='Duncan Leading Index',
+                            line=dict(color='#2c3e50', width=3),
+                            hovertemplate='%{x|%Y-Q%q}<br>Duncan Index: %{y:.2f}% of GDP<extra></extra>'
+                        ), row=1, col=1, secondary_y=False)
+
+                        # OECD CLI (left y-axis) - rescaled to match Duncan Index scale
+                        # Normalize OECD CLI to similar range as Duncan Index for visualization
+                        cli_normalized = ((cli_df['OECD_CLI'] - 100) * 0.2) + duncan_df['duncan_index'].mean()
+                        fig_leading.add_trace(go.Scatter(
+                            x=cli_df.index,
+                            y=cli_normalized,
+                            mode='lines',
+                            name='OECD CLI (normalized)',
+                            line=dict(color='#A23B72', width=2.5),
+                            hovertemplate='%{x|%b %Y}<br>OECD CLI: ' + cli_df['OECD_CLI'].astype(str) + '<extra></extra>'
+                        ), row=1, col=1, secondary_y=False)
+
+                        # Real GDP YoY (right y-axis)
+                        fig_leading.add_trace(go.Scatter(
+                            x=duncan_df.index,
+                            y=duncan_df['gdp_yoy'],
+                            mode='lines',
+                            name='Real GDP YoY',
+                            line=dict(color='#27ae60', width=2),
+                            hovertemplate='%{x|%Y-Q%q}<br>Real GDP YoY: %{y:.2f}%<extra></extra>'
+                        ), row=1, col=1, secondary_y=True)
+
+                        # Nominal GDP YoY (right y-axis, hidden by default)
+                        fig_leading.add_trace(go.Scatter(
+                            x=nominal_gdp_df.index,
+                            y=nominal_gdp_df['YoY_Growth_%'],
+                            mode='lines',
+                            name='Nominal GDP YoY',
+                            line=dict(color='#e67e22', width=2, dash='dash'),
+                            visible='legendonly',
+                            hovertemplate='%{x|%Y-Q%q}<br>Nominal GDP YoY: %{y:.2f}%<extra></extra>'
+                        ), row=1, col=1, secondary_y=True)
+
+                        # Add recession shading to first subplot
+                        for start, end in recession_periods:
+                            fig_leading.add_vrect(
+                                x0=start, x1=end,
+                                fillcolor="red", opacity=0.1,
+                                layer="below", line_width=0,
+                                row=1, col=1
+                            )
+
+                        # ===== SUBPLOT 2: Components Breakdown (Overlayed) =====
+                        fig_leading.add_trace(go.Scatter(
+                            x=duncan_df.index,
+                            y=duncan_df['durable_goods_pct'],
+                            mode='lines',
+                            name='Durable Goods',
+                            line=dict(color='#3498db', width=2.5),
+                            hovertemplate='%{x|%Y-Q%q}<br>Durable Goods: %{y:.2f}%<extra></extra>'
+                        ), row=2, col=1)
+
+                        fig_leading.add_trace(go.Scatter(
+                            x=duncan_df.index,
+                            y=duncan_df['residential_pct'],
+                            mode='lines',
+                            name='Residential',
+                            line=dict(color='#e74c3c', width=2.5),
+                            hovertemplate='%{x|%Y-Q%q}<br>Residential: %{y:.2f}%<extra></extra>'
+                        ), row=2, col=1)
+
+                        fig_leading.add_trace(go.Scatter(
+                            x=duncan_df.index,
+                            y=duncan_df['equipment_pct'],
+                            mode='lines',
+                            name='Equipment',
+                            line=dict(color='#f39c12', width=2.5),
+                            hovertemplate='%{x|%Y-Q%q}<br>Equipment: %{y:.2f}%<extra></extra>'
+                        ), row=2, col=1)
+
+                        # Add recession shading to second subplot
+                        for start, end in recession_periods:
+                            fig_leading.add_vrect(
+                                x0=start, x1=end,
+                                fillcolor="red", opacity=0.1,
+                                layer="below", line_width=0,
+                                row=2, col=1
+                            )
+
+                        # Update y-axes labels
+                        fig_leading.update_yaxes(title_text="Leading Indices (% of GDP / Normalized)",
+                                              row=1, col=1, secondary_y=False)
+                        fig_leading.update_yaxes(title_text="GDP YoY %",
+                                              row=1, col=1, secondary_y=True)
+                        fig_leading.update_yaxes(title_text="% of GDP", row=2, col=1)
+
+                        # Update x-axes with shared zoom
+                        fig_leading.update_xaxes(title_text="Quarter", row=2, col=1)
+                        fig_leading.update_xaxes(matches='x')
+
+                        # Update layout
+                        fig_leading.update_layout(
+                            height=900,
+                            template='plotly_white',
                             hovermode='x unified',
-                            template='plotly_white'
-                        )
-                        st.plotly_chart(fig_cli, use_container_width=True)
-
-                    # Summary metrics
-                    st.markdown("---")
-                    st.markdown("**Current Values**")
-                    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-                    with metric_col1:
-                        gdp_yoy = gdp_df['YoY_Growth_%'].iloc[-1]
-                        gdp_qoq = gdp_df['QoQ_Growth_%'].iloc[-1]
-                        st.metric(
-                            "Real GDP Growth",
-                            f"{gdp_yoy:.2f}% YoY",
-                            f"{gdp_qoq:+.2f}% QoQ"
+                            legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.8)')
                         )
 
-                    with metric_col2:
-                        latest_headline = cpi_df['Headline_YoY_%'].iloc[-1]
-                        headline_mom = cpi_df['Headline_MoM_%'].iloc[-1]
-                        st.metric(
-                            "Headline CPI",
-                            f"{latest_headline:.2f}% YoY",
-                            f"{headline_mom:+.2f}% MoM"
-                        )
+                        st.plotly_chart(fig_leading, use_container_width=True)
 
-                    with metric_col3:
-                        latest_core = cpi_df['Core_YoY_%'].iloc[-1]
-                        core_mom = cpi_df['Core_MoM_%'].iloc[-1]
-                        st.metric(
-                            "Core CPI",
-                            f"{latest_core:.2f}% YoY",
-                            f"{core_mom:+.2f}% MoM"
-                        )
+                        # ===== METRICS =====
+                        st.markdown("---")
+                        st.markdown("**Current Values (Latest Quarter)**")
 
-                    with metric_col4:
-                        latest_cli = cli_df['OECD_CLI'].iloc[-1]
-                        cli_change = cli_df['MoM_Change'].iloc[-1]
-                        st.metric(
-                            "OECD CLI",
-                            f"{latest_cli:.2f}",
-                            f"{cli_change:+.2f} MoM"
-                        )
+                        metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
 
-                except FileNotFoundError as e:
-                    st.error(f"❌ Economic data files not found. Please run the data fetcher scripts first.")
-                    st.info("""
-                    Run these scripts in the sandbox folder:
-                    - `python fetch_fred_gdp.py`
-                    - `python fetch_fred_cpi.py`
-                    - `python fetch_oecd_cli.py`
-                    """)
-                except Exception as e:
-                    st.error(f"Error loading economic data: {str(e)}")
-                    logger.error(f"Error in macro section: {str(e)}\n{traceback.format_exc()}")
+                        with metric_col1:
+                            current_duncan = duncan_df['duncan_index'].iloc[-1]
+                            peak_duncan = duncan_df['duncan_index'].max()
+                            st.metric(
+                                "Duncan Index",
+                                f"{current_duncan:.2f}%",
+                                f"Peak: {peak_duncan:.2f}%"
+                            )
+
+                        with metric_col2:
+                            current_durable = duncan_df['durable_goods_pct'].iloc[-1]
+                            st.metric(
+                                "Durable Goods",
+                                f"{current_durable:.2f}%",
+                                f"{(current_durable / current_duncan * 100):.1f}% of index"
+                            )
+
+                        with metric_col3:
+                            current_residential = duncan_df['residential_pct'].iloc[-1]
+                            st.metric(
+                                "Residential",
+                                f"{current_residential:.2f}%",
+                                f"{(current_residential / current_duncan * 100):.1f}% of index"
+                            )
+
+                        with metric_col4:
+                            current_equipment = duncan_df['equipment_pct'].iloc[-1]
+                            st.metric(
+                                "Equipment",
+                                f"{current_equipment:.2f}%",
+                                f"{(current_equipment / current_duncan * 100):.1f}% of index"
+                            )
+
+                        with metric_col5:
+                            latest_cli = cli_df['OECD_CLI'].iloc[-1]
+                            cli_change = cli_df['MoM_Change'].iloc[-1]
+                            st.metric(
+                                "OECD CLI",
+                                f"{latest_cli:.2f}",
+                                f"{cli_change:+.2f} MoM"
+                            )
+
+                        # ===== SUB-COMPONENTS (EXPANDABLE) =====
+                        st.markdown("---")
+                        with st.expander("📊 View Detailed Sub-Components"):
+                            # Create combined subplot for sub-components
+                            fig_sub = make_subplots(
+                                rows=2, cols=1,
+                                subplot_titles=('Equipment Investment Sub-Components',
+                                              'Residential Investment Sub-Components'),
+                                vertical_spacing=0.15,
+                                row_heights=[0.5, 0.5]
+                            )
+
+                            # Equipment sub-components
+                            fig_sub.add_trace(go.Scatter(
+                                x=equip_df.index,
+                                y=equip_df['info_processing_pct'],
+                                mode='lines',
+                                name='Info Processing',
+                                line=dict(color='#3498db', width=2),
+                                hovertemplate='%{x|%Y-Q%q}<br>Info Processing: %{y:.2f}%<extra></extra>'
+                            ), row=1, col=1)
+
+                            fig_sub.add_trace(go.Scatter(
+                                x=equip_df.index,
+                                y=equip_df['transportation_pct'],
+                                mode='lines',
+                                name='Transportation',
+                                line=dict(color='#9b59b6', width=2),
+                                hovertemplate='%{x|%Y-Q%q}<br>Transportation: %{y:.2f}%<extra></extra>'
+                            ), row=1, col=1)
+
+                            # Residential sub-components
+                            fig_sub.add_trace(go.Scatter(
+                                x=res_df.index,
+                                y=res_df['single_family_pct'],
+                                mode='lines',
+                                name='Single-Family',
+                                line=dict(color='#3498db', width=2),
+                                hovertemplate='%{x|%Y-Q%q}<br>Single-Family: %{y:.2f}%<extra></extra>'
+                            ), row=2, col=1)
+
+                            fig_sub.add_trace(go.Scatter(
+                                x=res_df.index,
+                                y=res_df['multi_family_pct'],
+                                mode='lines',
+                                name='Multi-Family',
+                                line=dict(color='#e74c3c', width=2),
+                                hovertemplate='%{x|%Y-Q%q}<br>Multi-Family: %{y:.2f}%<extra></extra>'
+                            ), row=2, col=1)
+
+                            # Update axes
+                            fig_sub.update_yaxes(title_text="% of GDP", row=1, col=1)
+                            fig_sub.update_yaxes(title_text="% of GDP", row=2, col=1)
+                            fig_sub.update_xaxes(title_text="Quarter", row=2, col=1)
+                            fig_sub.update_xaxes(matches='x')
+
+                            # Update layout
+                            fig_sub.update_layout(
+                                height=600,
+                                template='plotly_white',
+                                hovermode='x unified',
+                                legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.8)')
+                            )
+
+                            st.plotly_chart(fig_sub, use_container_width=True)
+
+                            # Metrics
+                            st.markdown("**Latest Values**")
+                            col1, col2, col3, col4 = st.columns(4)
+
+                            with col1:
+                                latest_info = equip_df['info_processing_pct'].iloc[-1]
+                                st.metric("Info Processing", f"{latest_info:.2f}%")
+                            with col2:
+                                latest_trans = equip_df['transportation_pct'].iloc[-1]
+                                st.metric("Transportation", f"{latest_trans:.2f}%")
+                            with col3:
+                                latest_single = res_df['single_family_pct'].iloc[-1]
+                                st.metric("Single-Family", f"{latest_single:.2f}%")
+                            with col4:
+                                latest_multi = res_df['multi_family_pct'].iloc[-1]
+                                st.metric("Multi-Family", f"{latest_multi:.2f}%")
+
+                    except FileNotFoundError as e:
+                        st.error(f"❌ Leading indices data files not found.")
+                        st.info("""
+                        Run these scripts in the sandbox folder:
+                        - `python calculate_duncan_leading_index.py`
+                        - `python export_subcomponents_for_streamlit.py`
+                        - `python fetch_oecd_cli.py`
+                        """)
+                    except Exception as e:
+                        st.error(f"Error loading leading indices data: {str(e)}")
+                        logger.error(f"Error in leading indices section: {str(e)}\n{traceback.format_exc()}")
 
             with tab2:
                 st.info("🚧 Additional regions (EU, China, Japan) will be added here")
