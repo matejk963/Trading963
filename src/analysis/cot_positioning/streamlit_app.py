@@ -124,13 +124,11 @@ CONTRACTS = {
     'GF': {'name': 'FEEDER CATTLE', 'category': 'Meats', 'cftc_name': 'FEEDER CATTLE - CHICAGO MERCANTILE EXCHANGE'},
     'HE': {'name': 'LEAN HOGS', 'category': 'Meats', 'cftc_name': 'LEAN HOGS - CHICAGO MERCANTILE EXCHANGE'},
 
-    # Bonds (ordered by maturity: 2Y, 5Y, 10Y, 30Y, Ultra 10Y, Ultra 30Y)
+    # Bonds (ordered by maturity: 2Y, 5Y, 10Y, 30Y)
     'ZT': {'name': '2-YEAR NOTE', 'category': 'Bonds', 'cftc_name': 'UST 2Y NOTE - CHICAGO BOARD OF TRADE', 'sort_order': 1},
     'ZF': {'name': '5-YEAR NOTE', 'category': 'Bonds', 'cftc_name': 'UST 5Y NOTE - CHICAGO BOARD OF TRADE', 'sort_order': 2},
     'ZN': {'name': '10-YEAR NOTE', 'category': 'Bonds', 'cftc_name': 'UST 10Y NOTE - CHICAGO BOARD OF TRADE', 'sort_order': 3},
     'ZB': {'name': '30-YEAR BOND', 'category': 'Bonds', 'cftc_name': 'UST BOND - CHICAGO BOARD OF TRADE', 'sort_order': 4},
-    'TN': {'name': 'ULTRA 10-YEAR NOTE', 'category': 'Bonds', 'cftc_name': 'ULTRA UST 10Y - CHICAGO BOARD OF TRADE', 'sort_order': 5},
-    'UB': {'name': 'ULTRA 30-YEAR BOND', 'category': 'Bonds', 'cftc_name': 'ULTRA UST BOND - CHICAGO BOARD OF TRADE', 'sort_order': 6},
 }
 
 @st.cache_data(ttl=3600)
@@ -419,6 +417,29 @@ def calculate_positioning(df, contract_name, lookback_years):
                 status = "Neutral"
                 color = "⚪"
 
+            # Calculate period changes (weekly, monthly, quarterly, yearly)
+            weekly_change = None
+            monthly_change = None
+            quarterly_change = None
+            yearly_change = None
+
+            if len(contract_df) >= 2:
+                # Weekly change (1 week ago = approximately 1 data point ago, since COT is weekly)
+                if len(contract_df) >= 2:
+                    weekly_change = current - contract_df.iloc[-2][category_col]
+
+                # Monthly change (4 weeks ago)
+                if len(contract_df) >= 5:
+                    monthly_change = current - contract_df.iloc[-5][category_col]
+
+                # Quarterly change (13 weeks ago)
+                if len(contract_df) >= 14:
+                    quarterly_change = current - contract_df.iloc[-14][category_col]
+
+                # Yearly change (52 weeks ago)
+                if len(contract_df) >= 53:
+                    yearly_change = current - contract_df.iloc[-53][category_col]
+
             return {
                 'current': current,
                 'mean': mean,
@@ -428,7 +449,11 @@ def calculate_positioning(df, contract_name, lookback_years):
                 'z_score': z,
                 'percentile': pct,
                 'status': status,
-                'color': color
+                'color': color,
+                'weekly_change': weekly_change,
+                'monthly_change': monthly_change,
+                'quarterly_change': quarterly_change,
+                'yearly_change': yearly_change
             }
 
         logger.info(f"  - Calculating stats for 3 trader categories...")
@@ -594,25 +619,16 @@ def main():
             with st.sidebar:
                 st.header("⚙️ Settings")
 
-                lookback_years = st.slider(
-                    "Lookback Period (years)",
-                    min_value=1,
-                    max_value=20,
-                    value=5,
-                    help="Historical period for calculating Z-scores, percentiles, and status in tables. Charts always show full history (2005-2025)."
-                )
-                logger.info(f"User selected lookback period: {lookback_years} years")
-
-                st.markdown("---")
-
                 trader_category = st.selectbox(
-                    "📊 Primary Trader Category",
+                    "📊 Trader Category",
                     options=['Commercial', 'Non-Commercial', 'Non-Reportable'],
                     index=0,
-                    help="Which trader type to use for sorting and ranking",
+                    help="Which trader type to display in tables",
                     key='trader_category_selector'
                 )
                 logger.info(f"User selected trader category: {trader_category}")
+
+                st.markdown("---")
 
                 st.markdown("""
                 **Trader Types:**
@@ -636,22 +652,6 @@ def main():
                     logger.warning(f"category_filter contained integers, converted to: {category_filter}")
 
                 logger.info(f"User selected asset filters: {category_filter}")
-
-                st.markdown("---")
-
-                sort_options = ['Symbol', 'Z-Score', 'Percentile', 'Current %']
-                sort_by = st.selectbox(
-                    "Sort By",
-                    options=sort_options,
-                    index=1
-                )
-                # Handle case where sort_by might be int (Streamlit state bug)
-                if isinstance(sort_by, int):
-                    sort_by = sort_options[sort_by]
-                    logger.warning(f"sort_by was int, converted to: {sort_by}")
-                logger.info(f"User selected sort by: {sort_by}")
-
-                sort_ascending = st.checkbox("Ascending", value=False)
 
                 st.markdown("---")
                 st.markdown("### 📖 Legend")
@@ -690,12 +690,11 @@ def main():
                             st.error("❌ " + message)
                             logger.error(f"Database update failed: {message}")
 
-            st.markdown("**All Trader Categories Analysis Across 41 Futures Contracts**")
-            st.markdown("*Commercial | Non-Commercial | Non-Reportable*")
-            st.info("💡 Charts display full historical data (2005-2025). Use the slider to adjust lookback period for table statistics only.")
+            st.markdown("**Futures Positioning Analysis Across 41 Contracts**")
+            st.markdown(f"*Showing {trader_category} positioning with lookback analysis*")
 
             # Load data
-            logger.info(f"Loading CFTC data with lookback={lookback_years}")
+            logger.info(f"Loading CFTC data")
             with st.spinner("Loading CFTC data..."):
                 df = load_cftc_data()
 
@@ -708,37 +707,6 @@ def main():
             logger.info(f"Successfully loaded {len(df):,} records from CFTC")
             st.success(f"✅ Loaded {len(df):,} records from CFTC")
 
-            # Calculate positioning for all contracts
-            total_contracts = len(CONTRACTS)
-            logger.info("="*60)
-            logger.info(f"CALCULATING POSITIONING FOR {total_contracts} CONTRACTS")
-            logger.info("="*60)
-
-            results = {}
-            start_time = time.time()
-
-            for idx, (code, info) in enumerate(CONTRACTS.items(), 1):
-                logger.info(f"[{idx}/{total_contracts}] Processing {code} - {info['name']}...")
-                data = calculate_positioning(df, info['cftc_name'], lookback_years)
-                if data:
-                    results[code] = {**data, 'info': info}
-                    logger.info(f"  ✓ {code} completed")
-                else:
-                    logger.warning(f"  ✗ {code} failed - no data returned")
-
-            elapsed = time.time() - start_time
-            logger.info("="*60)
-            logger.info(f"✓ POSITIONING CALCULATION COMPLETE")
-            logger.info(f"  Success: {len(results)}/{total_contracts} contracts")
-            logger.info(f"  Time: {elapsed:.2f}s ({elapsed/total_contracts:.2f}s per contract)")
-            logger.info("="*60)
-
-            # Filter by category
-            if 'All' not in category_filter and len(category_filter) > 0:
-                before_filter = len(results)
-                results = {k: v for k, v in results.items() if v['info']['category'] in category_filter}
-                logger.info(f"Filtered from {before_filter} to {len(results)} contracts")
-
             # Map trader category to data key
             # Handle case where trader_category might be int (Streamlit state bug)
             if isinstance(trader_category, int):
@@ -749,154 +717,326 @@ def main():
             category_key = trader_category.lower().replace('-', '')
             logger.info(f"Using category key: {category_key}")
 
-            # Create summary dataframe with all three trader categories
-            summary_data = []
-            for code, data in results.items():
-                primary = data[category_key]  # Selected category for sorting
-                summary_data.append({
-                    'Symbol': code,
-                    'Name': data['info']['name'],
-                    'Asset Cat': data['info']['category'],
-                    'Status': primary['color'],
-                    # Primary category (selected)
-                    'Current %': primary['current'],
-                    'Z-Score': primary['z_score'],
-                    'Percentile': primary['percentile'],
-                    # All three categories for comparison
-                    'COM %': data['commercial']['current'],
-                    'NC %': data['noncommercial']['current'],
-                    'NR %': data['nonreportable']['current'],
-                    'Latest': data['latest_date'].strftime('%Y-%m-%d')
-                })
+            # Calculate results once for charts (using 5-year lookback)
+            logger.info("="*60)
+            logger.info(f"PRE-CALCULATING DATA FOR CHARTS (5Y lookback)")
+            logger.info("="*60)
 
-            summary_df = pd.DataFrame(summary_data)
-            logger.info(f"Created summary dataframe with {len(summary_df)} rows")
+            results_for_charts = {}
+            for code, info in CONTRACTS.items():
+                data = calculate_positioning(df, info['cftc_name'], 5)
+                if data:
+                    results_for_charts[code] = {**data, 'info': info}
 
-            # Check if dataframe is empty
-            if len(summary_df) == 0:
-                st.warning(f"⚠️ No contracts available with the selected filters. Try adjusting the lookback period or asset category filters.")
-                logger.warning("Summary dataframe is empty - cannot display table")
-                return
+            # Filter for charts
+            if 'All' not in category_filter and len(category_filter) > 0:
+                results_for_charts = {k: v for k, v in results_for_charts.items() if v['info']['category'] in category_filter}
 
-            # Sort by selected category
-            sort_col_map = {
-                'Symbol': 'Symbol',
-                'Z-Score': 'Z-Score',
-                'Percentile': 'Percentile',
-                'Current %': 'Current %'
-            }
-            summary_df = summary_df.sort_values(sort_col_map[sort_by], ascending=sort_ascending)
-            logger.info(f"Sorted by {sort_by} (ascending={sort_ascending})")
+            # Create main tabs for lookback periods
+            tab_1yr, tab_2yr, tab_3yr, tab_5yr = st.tabs(["📅 1 Year", "📅 2 Years", "📅 3 Years", "📅 5 Years"])
 
-            # Display summary table
-            st.header(f"📋 Market Summary - Sorted by {trader_category}")
+            # Function to calculate and display data for a lookback period
+            def display_lookback_data(lookback_years, tab_container, cftc_df):
+                with tab_container:
+                    # Calculate positioning for all contracts
+                    total_contracts = len(CONTRACTS)
+                    logger.info("="*60)
+                    logger.info(f"CALCULATING POSITIONING FOR {total_contracts} CONTRACTS - {lookback_years}Y LOOKBACK")
+                    logger.info("="*60)
 
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                extreme_longs = len([d for d in results.values() if d[category_key]['percentile'] >= 95])
-                st.metric(f"{trader_category} - Extreme Longs", extreme_longs)
-            with col2:
-                extreme_shorts = len([d for d in results.values() if d[category_key]['percentile'] <= 5])
-                st.metric(f"{trader_category} - Extreme Shorts", extreme_shorts)
-            with col3:
-                avg_z = np.mean([d[category_key]['z_score'] for d in results.values()])
-                st.metric(f"{trader_category} - Avg Z", f"{avg_z:.2f}")
-            with col4:
-                st.metric("Total Contracts", len(results))
+                    results = {}
+                    start_time = time.time()
 
-            # Create tabs for different views
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 All Contracts", "🟢 Top 10 Longs", "🔴 Top 10 Shorts", "📈 Group Stats"])
+                    for idx, (code, info) in enumerate(CONTRACTS.items(), 1):
+                        logger.info(f"[{idx}/{total_contracts}] Processing {code} - {info['name']}...")
+                        data = calculate_positioning(cftc_df, info['cftc_name'], lookback_years)
+                        if data:
+                            results[code] = {**data, 'info': info}
+                            logger.info(f"  ✓ {code} completed")
+                        else:
+                            logger.warning(f"  ✗ {code} failed - no data returned")
 
-            # Common column config
-            column_config = {
-                'Status': st.column_config.TextColumn('Status', width='small'),
-                'Asset Cat': st.column_config.TextColumn('Asset Cat', width='small'),
-                'Current %': st.column_config.NumberColumn(f'{trader_category} %', format="%.2f"),
-                'Z-Score': st.column_config.NumberColumn(f'{trader_category} Z', format="%.2f"),
-                'Percentile': st.column_config.NumberColumn(f'{trader_category} Pctl', format="%.1f"),
-                'COM %': st.column_config.NumberColumn('COM %', format="%.2f", help="Commercial net %"),
-                'NC %': st.column_config.NumberColumn('NC %', format="%.2f", help="Non-Commercial net %"),
-                'NR %': st.column_config.NumberColumn('NR %', format="%.2f", help="Non-Reportable net %"),
-            }
+                    elapsed = time.time() - start_time
+                    logger.info("="*60)
+                    logger.info(f"✓ POSITIONING CALCULATION COMPLETE - {lookback_years}Y")
+                    logger.info(f"  Success: {len(results)}/{total_contracts} contracts")
+                    logger.info(f"  Time: {elapsed:.2f}s ({elapsed/total_contracts:.2f}s per contract)")
+                    logger.info("="*60)
 
-            with tab1:
-                st.markdown(f"**All {len(summary_df)} contracts** sorted by {trader_category} {sort_by}")
-                st.dataframe(
-                    summary_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config=column_config
-                )
+                    # Filter by category
+                    if 'All' not in category_filter and len(category_filter) > 0:
+                        before_filter = len(results)
+                        results = {k: v for k, v in results.items() if v['info']['category'] in category_filter}
+                        logger.info(f"Filtered from {before_filter} to {len(results)} contracts")
 
-            with tab2:
-                # Top 10 Longs (highest percentiles)
-                top_longs = summary_df.nlargest(10, 'Percentile')
-                st.markdown(f"**Top 10 Long Positions** - Highest {trader_category} percentiles (most bullish)")
-                st.dataframe(
-                    top_longs,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config=column_config
-                )
+                    # Check if any results
+                    if len(results) == 0:
+                        st.warning(f"⚠️ No contracts available with selected filters for {lookback_years}Y lookback")
+                        return
 
-            with tab3:
-                # Top 10 Shorts (lowest percentiles)
-                top_shorts = summary_df.nsmallest(10, 'Percentile')
-                st.markdown(f"**Top 10 Short Positions** - Lowest {trader_category} percentiles (most bearish)")
-                st.dataframe(
-                    top_shorts,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config=column_config
-                )
+                    # Create summary dataframe for selected trader category only
+                    summary_data = []
+                    for code, data in results.items():
+                        actor_data = data[category_key]  # Selected actor
+                        summary_data.append({
+                            'Symbol': code,
+                            'Name': data['info']['name'],
+                            'Asset Cat': data['info']['category'],
+                            'Current %': actor_data['current'],
+                            'Percentile': actor_data['percentile'],
+                            'Weekly Δ': actor_data['weekly_change'],
+                            'Monthly Δ': actor_data['monthly_change'],
+                            'Quarterly Δ': actor_data['quarterly_change'],
+                            'Yearly Δ': actor_data['yearly_change'],
+                        })
 
-            with tab4:
-                # Asset category statistics
-                st.markdown(f"**Average Statistics by Asset Category** - Based on {trader_category}")
-                st.caption("*Note: Dollar Index excluded from Currencies average*")
+                    summary_df = pd.DataFrame(summary_data)
+                    logger.info(f"Created summary dataframe with {len(summary_df)} rows")
 
-                # Calculate stats by asset category
-                category_stats = {}
-                for code, data in results.items():
-                    cat = data['info']['category']
+                    # Create sub-tabs for All Contracts and Group
+                    subtab_all, subtab_group = st.tabs(["📊 All Contracts", "📈 Group"])
 
-                    # Skip Dollar Index when calculating Currencies average
-                    if cat == 'Currencies' and code == 'DXY':
-                        continue
+                    with subtab_all:
+                        st.markdown(f"**All {len(summary_df)} contracts** - {trader_category} positioning")
+                        st.dataframe(
+                            summary_df.sort_values('Percentile', ascending=False),
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                'Symbol': st.column_config.TextColumn('Code', width='small'),
+                                'Name': st.column_config.TextColumn('Name'),
+                                'Asset Cat': st.column_config.TextColumn('Category', width='small'),
+                                'Current %': st.column_config.NumberColumn(f'{trader_category} %', format="%.2f"),
+                                'Percentile': st.column_config.NumberColumn('Percentile', format="%.1f%%"),
+                                'Weekly Δ': st.column_config.NumberColumn('Weekly Δ', format="%.2f%%"),
+                                'Monthly Δ': st.column_config.NumberColumn('Monthly Δ', format="%.2f%%"),
+                                'Quarterly Δ': st.column_config.NumberColumn('Quarterly Δ', format="%.2f%%"),
+                                'Yearly Δ': st.column_config.NumberColumn('Yearly Δ', format="%.2f%%"),
+                            }
+                        )
 
-                    if cat not in category_stats:
-                        category_stats[cat] = {
-                            'z_scores': [],
-                            'percentiles': [],
-                            'current_pcts': [],
-                            'count': 0
+                    with subtab_group:
+                        st.markdown(f"**Average by Asset Category** - {trader_category} positioning")
+
+                        # Calculate group statistics with percentile of average positioning
+                        category_data = {}
+                        category_col = f'{trader_category.replace("-", "")}_Net_Pct'
+
+                        for code, data in results.items():
+                            cat = data['info']['category']
+                            if cat == 'Currencies' and code == 'DXY':
+                                continue  # Skip Dollar Index
+
+                            if cat not in category_data:
+                                category_data[cat] = {
+                                    'contracts': [],
+                                    'lookback_dfs': [],
+                                    'current_values': []
+                                }
+
+                            category_data[cat]['contracts'].append(code)
+                            category_data[cat]['lookback_dfs'].append(data['lookback_data'])
+                            category_data[cat]['current_values'].append(data[category_key]['current'])
+
+                        # Calculate average positioning and percentiles for each category
+                        group_stats = []
+                        plot_data = []
+                        time_series_data = {}
+
+                        # Define all actor categories (must match selectbox options)
+                        all_actors = ['Commercial', 'Non-Commercial', 'Non-Reportable']
+
+                        for cat in sorted(category_data.keys()):
+                            cat_info = category_data[cat]
+
+                            # Calculate current average positioning for selected actor
+                            avg_current = np.mean(cat_info['current_values'])
+
+                            # Combine all lookback data for this category to calculate historical averages
+                            # For each time point, calculate the average across all contracts in the category
+                            all_dates = set()
+                            for df in cat_info['lookback_dfs']:
+                                all_dates.update(df['Date'].values)
+
+                            # Calculate average positioning at each historical point for ALL actors
+                            time_series_data[cat] = {}
+
+                            for actor in all_actors:
+                                actor_col = f'{actor.replace("-", "")}_Net_Pct'
+                                historical_averages = []
+                                historical_dates = []
+
+                                for date in sorted(all_dates):
+                                    date_values = []
+                                    for df in cat_info['lookback_dfs']:
+                                        date_row = df[df['Date'] == date]
+                                        if len(date_row) > 0 and actor_col in date_row.columns:
+                                            date_values.append(date_row.iloc[0][actor_col])
+                                    if date_values:
+                                        historical_averages.append(np.mean(date_values))
+                                        historical_dates.append(date)
+
+                                time_series_data[cat][actor] = {
+                                    'dates': historical_dates,
+                                    'averages': historical_averages
+                                }
+
+                            # Get historical averages for the selected actor for percentile calculation
+                            historical_averages = time_series_data[cat][trader_category]['averages']
+                            historical_dates = time_series_data[cat][trader_category]['dates']
+
+                            # Calculate percentile of current average
+                            if historical_averages:
+                                percentile = (np.array(historical_averages) < avg_current).sum() / len(historical_averages) * 100
+                            else:
+                                percentile = 50.0
+
+                            # Calculate period changes
+                            weekly_change = None
+                            monthly_change = None
+                            quarterly_change = None
+                            yearly_change = None
+
+                            if len(historical_averages) >= 2:
+                                weekly_change = avg_current - historical_averages[-2]
+                            if len(historical_averages) >= 5:
+                                monthly_change = avg_current - historical_averages[-5]
+                            if len(historical_averages) >= 14:
+                                quarterly_change = avg_current - historical_averages[-14]
+                            if len(historical_averages) >= 53:
+                                yearly_change = avg_current - historical_averages[-53]
+
+                            group_stats.append({
+                                'Asset Category': cat,
+                                'Contracts': len(cat_info['contracts']),
+                                'Avg Position %': f"{avg_current:.2f}%",
+                                'Percentile': f"{percentile:.1f}%",
+                                'Weekly Δ': f"{weekly_change:.2f}%" if weekly_change is not None else 'N/A',
+                                'Monthly Δ': f"{monthly_change:.2f}%" if monthly_change is not None else 'N/A',
+                                'Quarterly Δ': f"{quarterly_change:.2f}%" if quarterly_change is not None else 'N/A',
+                                'Yearly Δ': f"{yearly_change:.2f}%" if yearly_change is not None else 'N/A',
+                            })
+
+                            # Data for plot
+                            plot_data.append({
+                                'category': cat,
+                                'avg_position': avg_current,
+                                'percentile': percentile
+                            })
+
+                        # Create bar chart of average group positioning
+                        fig_group = go.Figure()
+
+                        plot_df = pd.DataFrame(plot_data).sort_values('avg_position', ascending=False)
+
+                        # Color bars by percentile
+                        colors = []
+                        for pct in plot_df['percentile']:
+                            if pct >= 95:
+                                colors.append('#00CC00')  # Extreme long - bright green
+                            elif pct >= 80:
+                                colors.append('#66FF66')  # Strong long - light green
+                            elif pct <= 5:
+                                colors.append('#CC0000')  # Extreme short - bright red
+                            elif pct <= 20:
+                                colors.append('#FF6666')  # Strong short - light red
+                            else:
+                                colors.append('#CCCCCC')  # Neutral - gray
+
+                        fig_group.add_trace(go.Bar(
+                            x=plot_df['category'],
+                            y=plot_df['avg_position'],
+                            marker_color=colors,
+                            text=[f"{v:.2f}%" for v in plot_df['avg_position']],
+                            textposition='outside',
+                            hovertemplate='%{x}<br>Avg Position: %{y:.2f}%<extra></extra>'
+                        ))
+
+                        fig_group.update_layout(
+                            title=f'Average {trader_category} Positioning by Asset Category',
+                            xaxis_title='Asset Category',
+                            yaxis_title=f'{trader_category} Net Position %',
+                            template='plotly_white',
+                            height=400,
+                            showlegend=False
+                        )
+
+                        fig_group.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+
+                        st.plotly_chart(fig_group, use_container_width=True)
+
+                        # Display time series plots for each group
+                        st.markdown("---")
+                        st.subheader(f"Average Positioning Over Time by Group")
+
+                        # Define colors for each actor
+                        actor_colors = {
+                            'Commercial': '#1f77b4',       # Blue
+                            'Non-Commercial': '#ff7f0e',   # Orange
+                            'Non-Reportable': '#2ca02c'    # Green
                         }
-                    category_stats[cat]['z_scores'].append(data[category_key]['z_score'])
-                    category_stats[cat]['percentiles'].append(data[category_key]['percentile'])
-                    category_stats[cat]['current_pcts'].append(data[category_key]['current'])
-                    category_stats[cat]['count'] += 1
 
-                # Build table
-                group_stats = []
-                for cat in sorted(category_stats.keys()):
-                    stats = category_stats[cat]
-                    group_stats.append({
-                        'Asset Category': cat,
-                        'Contracts': stats['count'],
-                        'Avg Z-Score': f"{np.mean(stats['z_scores']):.2f}",
-                        'Avg Percentile': f"{np.mean(stats['percentiles']):.1f}%",
-                        'Avg Current %': f"{np.mean(stats['current_pcts']):.2f}%"
-                    })
+                        for cat in sorted(time_series_data.keys()):
+                            # Create time series plot
+                            fig_ts = go.Figure()
 
-                group_stats_df = pd.DataFrame(group_stats)
-                st.dataframe(group_stats_df, use_container_width=True, hide_index=True)
+                            # Add trace for each actor
+                            for actor in all_actors:
+                                ts_data = time_series_data[cat][actor]
+
+                                # Convert dates to datetime if needed
+                                dates = pd.to_datetime(ts_data['dates'])
+
+                                fig_ts.add_trace(go.Scatter(
+                                    x=dates,
+                                    y=ts_data['averages'],
+                                    mode='lines',
+                                    name=actor,
+                                    line=dict(width=2, color=actor_colors[actor]),
+                                    hovertemplate=f'{actor}<br>%{{x|%Y-%m-%d}}<br>Avg Position: %{{y:.2f}}%<extra></extra>'
+                                ))
+
+                            # Add zero line
+                            fig_ts.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+
+                            # Update layout
+                            fig_ts.update_layout(
+                                title=f'{cat}',
+                                xaxis_title='Date',
+                                yaxis_title='Average Net Position %',
+                                template='plotly_white',
+                                height=350,
+                                showlegend=True,
+                                legend=dict(
+                                    orientation="h",
+                                    yanchor="bottom",
+                                    y=1.02,
+                                    xanchor="right",
+                                    x=1
+                                ),
+                                margin=dict(l=50, r=50, t=60, b=50)
+                            )
+
+                            st.plotly_chart(fig_ts, use_container_width=True)
+
+                        # Display group statistics table
+                        st.markdown("---")
+                        group_stats_df = pd.DataFrame(group_stats)
+                        st.dataframe(group_stats_df, use_container_width=True, hide_index=True)
+
+            # Call function for each lookback period
+            display_lookback_data(1, tab_1yr, df)
+            display_lookback_data(2, tab_2yr, df)
+            display_lookback_data(3, tab_3yr, df)
+            display_lookback_data(5, tab_5yr, df)
 
             # Individual contract charts
             st.header("📈 Individual Contract Charts")
+            st.caption("*Charts display full historical data with metrics based on 5-year lookback*")
 
             # Group by category
             categories = {}
-            for code, data in results.items():
+            for code, data in results_for_charts.items():
                 cat = data['info']['category']
                 if cat not in categories:
                     categories[cat] = []
@@ -976,20 +1116,19 @@ def main():
             # Final summary logging
             logger.info("="*60)
             logger.info("DASHBOARD RENDERING COMPLETE")
-            logger.info(f"  - Lookback period: {lookback_years} years")
-            logger.info(f"  - Primary trader category: {trader_category}")
-            logger.info(f"  - Contracts displayed: {len(results)}")
+            logger.info(f"  - Lookback periods: 1, 2, 3, 5 years")
+            logger.info(f"  - Trader category: {trader_category}")
+            logger.info(f"  - Contracts displayed: {len(results_for_charts)}")
             logger.info(f"  - Asset filters: {category_filter}")
-            logger.info(f"  - Sorted by: {sort_by} (ascending={sort_ascending})")
 
-            # Count extremes for final summary
-            extreme_longs = sum(1 for d in results.values() if d[category_key]['percentile'] >= 95)
-            extreme_shorts = sum(1 for d in results.values() if d[category_key]['percentile'] <= 5)
-            avg_z = np.mean([d[category_key]['z_score'] for d in results.values()])
+            # Count extremes for final summary (using 5-year lookback data for charts)
+            extreme_longs = sum(1 for d in results_for_charts.values() if d[category_key]['percentile'] >= 95)
+            extreme_shorts = sum(1 for d in results_for_charts.values() if d[category_key]['percentile'] <= 5)
+            avg_z = np.mean([d[category_key]['z_score'] for d in results_for_charts.values()])
 
-            logger.info(f"  - Extreme Longs ({trader_category}): {extreme_longs}")
-            logger.info(f"  - Extreme Shorts ({trader_category}): {extreme_shorts}")
-            logger.info(f"  - Average Z-Score ({trader_category}): {avg_z:.2f}")
+            logger.info(f"  - Extreme Longs ({trader_category}, 5Y): {extreme_longs}")
+            logger.info(f"  - Extreme Shorts ({trader_category}, 5Y): {extreme_shorts}")
+            logger.info(f"  - Average Z-Score ({trader_category}, 5Y): {avg_z:.2f}")
             logger.info("="*60)
 
         # ========== SECTION 2: MACRO DASHBOARD ==========
