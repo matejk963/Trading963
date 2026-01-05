@@ -14,6 +14,7 @@ import logging
 import traceback
 import time
 from functools import wraps
+import yfinance as yf
 
 # Setup logging
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -130,6 +131,132 @@ CONTRACTS = {
     'ZN': {'name': '10-YEAR NOTE', 'category': 'Bonds', 'cftc_name': 'UST 10Y NOTE - CHICAGO BOARD OF TRADE', 'sort_order': 3},
     'ZB': {'name': '30-YEAR BOND', 'category': 'Bonds', 'cftc_name': 'UST BOND - CHICAGO BOARD OF TRADE', 'sort_order': 4},
 }
+
+# Ticker symbol mapping for price data (yfinance)
+PRICE_TICKERS = {
+    # Indices
+    'ES': 'ES=F',    # E-mini S&P 500
+    'NQ': 'NQ=F',    # E-mini NASDAQ-100
+    'RTY': 'RTY=F',  # E-mini Russell 2000
+    'YM': 'YM=F',    # E-mini Dow
+    'DXY': 'DX-Y.NYB',  # US Dollar Index
+
+    # Energies
+    'CL': 'CL=F',    # Crude Oil WTI
+    'RB': 'RB=F',    # RBOB Gasoline
+    'HO': 'HO=F',    # Heating Oil
+    'NG': 'NG=F',    # Natural Gas
+
+    # Metals
+    'GC': 'GC=F',    # Gold
+    'SI': 'SI=F',    # Silver
+    'HG': 'HG=F',    # Copper
+    'PL': 'PL=F',    # Platinum
+
+    # Grains
+    'ZC': 'ZC=F',    # Corn
+    'ZS': 'ZS=F',    # Soybeans
+    'ZW': 'ZW=F',    # Wheat
+    'ZL': 'ZL=F',    # Soybean Oil
+    'ZM': 'ZM=F',    # Soybean Meal
+
+    # Softs
+    'KC': 'KC=F',    # Coffee
+    'SB': 'SB=F',    # Sugar
+    'CC': 'CC=F',    # Cocoa
+    'CT': 'CT=F',    # Cotton
+    'OJ': 'OJ=F',    # Orange Juice
+
+    # Meats
+    'LE': 'LE=F',    # Live Cattle
+    'GF': 'GF=F',    # Feeder Cattle
+    'HE': 'HE=F',    # Lean Hogs
+
+    # Bonds
+    'ZT': 'ZT=F',    # 2-Year Note
+    'ZF': 'ZF=F',    # 5-Year Note
+    'ZN': 'ZN=F',    # 10-Year Note
+    'ZB': 'ZB=F',    # 30-Year Bond
+
+    # Currencies (using FX pairs vs USD) - keys must match CONTRACTS dictionary
+    'DXY': 'DX-Y.NYB',   # US Dollar Index
+    '6E': 'EURUSD=X',    # Euro
+    '6J': 'JPY=X',       # Japanese Yen (USD/JPY)
+    '6B': 'GBPUSD=X',    # British Pound
+    '6A': 'AUDUSD=X',    # Australian Dollar
+    '6C': 'CAD=X',       # Canadian Dollar (USD/CAD)
+    '6S': 'CHF=X',       # Swiss Franc (USD/CHF)
+    '6N': 'NZDUSD=X',    # New Zealand Dollar
+    '6L': 'BRL=X',       # Brazilian Real (USD/BRL)
+}
+
+@st.cache_data(ttl=3600)
+@log_function
+def fetch_price_data(contract_code, start_date, end_date):
+    """Fetch price data for a contract from yfinance"""
+    try:
+        ticker = PRICE_TICKERS.get(contract_code)
+        if not ticker:
+            logger.warning(f"No ticker mapping for {contract_code}")
+            return None
+
+        logger.info(f"Fetching price data for {contract_code} ({ticker}) from {start_date} to {end_date}")
+
+        # Download data
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+
+        if data.empty:
+            logger.warning(f"No price data returned for {contract_code} ({ticker})")
+            return None
+
+        # Reset index to get Date as a column
+        data = data.reset_index()
+
+        # Rename columns - yfinance returns multiindex columns sometimes
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = [col[0] if isinstance(col, tuple) else col for col in data.columns]
+
+        logger.info(f"Successfully fetched {len(data)} price records for {contract_code}")
+        logger.info(f"  Columns: {list(data.columns)}")
+        logger.info(f"  Date range: {data['Date'].min()} to {data['Date'].max()}")
+
+        # Check if Close column exists
+        if 'Close' not in data.columns:
+            logger.error(f"'Close' column not found in data for {contract_code}. Available columns: {list(data.columns)}")
+            return None
+
+        result = data[['Date', 'Close']].rename(columns={'Close': 'Price'}).copy()
+
+        # Clean outliers using IQR method
+        Q1 = result['Price'].quantile(0.01)  # 1st percentile
+        Q3 = result['Price'].quantile(0.99)  # 99th percentile
+        IQR = Q3 - Q1
+
+        # Define outlier bounds
+        lower_bound = Q1 - 3 * IQR
+        upper_bound = Q3 + 3 * IQR
+
+        # Count outliers before removal
+        outliers = ((result['Price'] < lower_bound) | (result['Price'] > upper_bound)).sum()
+
+        if outliers > 0:
+            logger.warning(f"  Found {outliers} outliers in price data for {contract_code}")
+            logger.warning(f"  Price range before cleaning: {result['Price'].min():.4f} to {result['Price'].max():.4f}")
+
+            # Remove outliers
+            result = result[(result['Price'] >= lower_bound) & (result['Price'] <= upper_bound)]
+
+            logger.warning(f"  Price range after cleaning: {result['Price'].min():.4f} to {result['Price'].max():.4f}")
+            logger.warning(f"  Removed {outliers} outlier records")
+
+        logger.info(f"  Returning {len(result)} records with price data")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error fetching price data for {contract_code}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
 
 @st.cache_data(ttl=3600)
 @log_function
@@ -480,13 +607,40 @@ def calculate_positioning(df, contract_name, lookback_years):
         return None
 
 def plot_contract(contract_data, contract_code, contract_info):
-    """Create plotly chart for contract - shows all 3 trader categories with FULL history"""
-    fig = go.Figure()
-
+    """Create plotly chart with 3 subplots - price, positioning, and 26-week change"""
     # Use full data for plotting (not filtered by lookback period)
-    df = contract_data['data']
+    df = contract_data['data'].copy()
     logger.info(f"Plotting {contract_code}: {len(df)} records from {df['Date'].min()} to {df['Date'].max()} (FULL HISTORY)")
 
+    # Calculate 26-week change in commercial positioning
+    df['Commercial_26w_Change'] = df['Commercial_Net_Pct'] - df['Commercial_Net_Pct'].shift(26)
+
+    # Fetch price data for the same date range
+    price_df = fetch_price_data(contract_code, df['Date'].min(), df['Date'].max())
+
+    # Create subplots: 3 rows, shared x-axis
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.12,
+        row_heights=[0.35, 0.40, 0.25],
+        specs=[[{"secondary_y": False}],
+               [{"secondary_y": True}],  # Middle subplot has secondary y-axis for OI
+               [{"secondary_y": False}]]
+    )
+
+    # ========== TOP SUBPLOT: PRICE ==========
+    if price_df is not None and not price_df.empty:
+        fig.add_trace(go.Scatter(
+            x=price_df['Date'],
+            y=price_df['Price'],
+            mode='lines',
+            name='Price',
+            line=dict(color='#000000', width=2),
+            hovertemplate='Price: %{y:,.2f}<extra></extra>'
+        ), row=1, col=1)
+
+    # ========== MIDDLE SUBPLOT: POSITIONING ==========
     # Commercial (blue)
     fig.add_trace(go.Scatter(
         x=df['Date'],
@@ -495,7 +649,7 @@ def plot_contract(contract_data, contract_code, contract_info):
         name='Commercial',
         line=dict(color='#2E86AB', width=2),
         hovertemplate='Commercial: %{y:.2f}%<extra></extra>'
-    ))
+    ), row=2, col=1)
 
     # Non-Commercial (orange)
     fig.add_trace(go.Scatter(
@@ -505,7 +659,7 @@ def plot_contract(contract_data, contract_code, contract_info):
         name='Non-Commercial',
         line=dict(color='#E97451', width=2),
         hovertemplate='Non-Commercial: %{y:.2f}%<extra></extra>'
-    ))
+    ), row=2, col=1)
 
     # Non-Reportable (green)
     fig.add_trace(go.Scatter(
@@ -515,7 +669,7 @@ def plot_contract(contract_data, contract_code, contract_info):
         name='Non-Reportable',
         line=dict(color='#6BAA75', width=2),
         hovertemplate='Non-Reportable: %{y:.2f}%<extra></extra>'
-    ))
+    ), row=2, col=1)
 
     # Open Interest on secondary y-axis (gray, semi-transparent)
     fig.add_trace(go.Scatter(
@@ -526,19 +680,19 @@ def plot_contract(contract_data, contract_code, contract_info):
         line=dict(color='rgba(128, 128, 128, 0.3)', width=1),
         fill='tozeroy',
         fillcolor='rgba(220, 220, 220, 0.2)',
-        yaxis='y2',
         hovertemplate='OI: %{y:,.0f}<extra></extra>'
-    ))
+    ), row=2, col=1, secondary_y=True)
 
-    # Add zero line
+    # Add zero line to positioning subplot
     fig.add_hline(
         y=0,
         line_dash="dash",
         line_color="gray",
-        line_width=1
+        line_width=1,
+        row=2, col=1
     )
 
-    # Mark current positions
+    # Mark current positions on positioning subplot
     current_commercial = df.iloc[-1]['Commercial_Net_Pct']
     current_noncommercial = df.iloc[-1]['NonCommercial_Net_Pct']
     current_date = df.iloc[-1]['Date']
@@ -551,35 +705,126 @@ def plot_contract(contract_data, contract_code, contract_info):
         marker=dict(size=10, color=['#2E86AB', '#E97451']),
         showlegend=False,
         hoverinfo='skip'
-    ))
+    ), row=2, col=1)
+
+    # ========== BOTTOM SUBPLOT: 26-WEEK CHANGE ==========
+    fig.add_trace(go.Scatter(
+        x=df['Date'],
+        y=df['Commercial_26w_Change'],
+        mode='lines',
+        name='26w Change',
+        line=dict(color='#2E86AB', width=2),
+        fill='tozeroy',
+        fillcolor='rgba(46, 134, 171, 0.2)',
+        hovertemplate='26w Change: %{y:.2f}pp<extra></extra>'
+    ), row=3, col=1)
+
+    # Add zero line to change subplot
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="gray",
+        line_width=1,
+        row=3, col=1
+    )
+
+    # KEY: Rebind all traces to use the same x-axis for synchronized spike lines
+    # This makes spike lines appear across all subplots
+    fig.update_traces(xaxis='x')
+
+    # Determine the actual data range (avoiding empty space at the beginning)
+    # Find the latest start date among all data series
+    start_dates = [df['Date'].min()]
+    if price_df is not None and not price_df.empty:
+        start_dates.append(price_df['Date'].min())
+
+    actual_start_date = max(start_dates)
+    actual_end_date = df['Date'].max()
 
     # Format date range for title
-    date_start = df['Date'].min().strftime('%Y-%m-%d')
-    date_end = df['Date'].max().strftime('%Y-%m-%d')
-    years_span = (df['Date'].max() - df['Date'].min()).days / 365.25
+    date_start = actual_start_date.strftime('%Y-%m-%d')
+    date_end = actual_end_date.strftime('%Y-%m-%d')
+    years_span = (actual_end_date - actual_start_date).days / 365.25
 
+    # Update layout with synchronized crosshair
     fig.update_layout(
-        title=f"{contract_info['name']} ({contract_code}) - Net Position % OI<br><sub>Period: {date_start} to {date_end} ({years_span:.1f} years, {len(df)} data points)</sub>",
-        xaxis_title="Date",
-        yaxis_title="Net Position % of Open Interest",
+        title=f"{contract_info['name']} ({contract_code})<br><sub>Period: {date_start} to {date_end} ({years_span:.1f} years, {len(df)} data points)</sub>",
         hovermode='x unified',
-        height=450,
+        height=850,
         showlegend=True,
         legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
         ),
         plot_bgcolor='white',
-        xaxis=dict(showgrid=True, gridcolor='lightgray'),
-        yaxis=dict(showgrid=True, gridcolor='lightgray', zeroline=True),
-        yaxis2=dict(
-            title="Open Interest",
-            overlaying='y',
-            side='right',
-            showgrid=False
+        hoverdistance=100,
+        margin=dict(l=50, r=50, t=100, b=100)
+    )
+
+    # Since all traces are bound to xaxis='x', we need to configure it directly
+    # Configure the main x-axis with all properties
+    fig.update_layout(
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='lightgray',
+            showticklabels=True,
+            tickformat='%Y-%m-%d',
+            tickangle=-45,
+            title_text="Date",
+            showspikes=True,
+            spikemode='across+marker',
+            spikesnap='cursor',
+            spikecolor='rgba(0, 0, 0, 0.4)',
+            spikethickness=1,
+            spikedash='solid'
         )
+    )
+
+    # Set the x-axis range to avoid empty space at the beginning
+    fig.update_xaxes(range=[actual_start_date, actual_end_date])
+
+    # Update y-axes with spike lines for active subplot crosshair
+    fig.update_yaxes(
+        title_text="Price",
+        showgrid=True,
+        gridcolor='lightgray',
+        showspikes=True,
+        spikemode='across',
+        spikesnap='cursor',
+        spikecolor='gray',
+        spikethickness=1,
+        spikedash='dot',
+        row=1, col=1
+    )
+    fig.update_yaxes(
+        title_text="Net Position %",
+        showgrid=True,
+        gridcolor='lightgray',
+        zeroline=True,
+        showspikes=True,
+        spikemode='across',
+        spikesnap='cursor',
+        spikecolor='gray',
+        spikethickness=1,
+        spikedash='dot',
+        row=2, col=1
+    )
+    fig.update_yaxes(title_text="Open Interest", showgrid=False, row=2, col=1, secondary_y=True)
+    fig.update_yaxes(
+        title_text="Change (pp)",
+        showgrid=True,
+        gridcolor='lightgray',
+        zeroline=True,
+        showspikes=True,
+        spikemode='across',
+        spikesnap='cursor',
+        spikecolor='gray',
+        spikethickness=1,
+        spikedash='dot',
+        row=3, col=1
     )
 
     return fig
@@ -1079,39 +1324,42 @@ def main():
                     st.markdown("---")
                     st.markdown(f"### Individual Charts")
 
-                    # Then display individual charts below
-                    for code, data in sorted_contracts:
-                        st.markdown(f"#### {code} - {data['info']['name']}")
+                    # Create tabs for each contract
+                    tab_labels = [f"{code}" for code, _ in sorted_contracts]
+                    contract_tabs = st.tabs(tab_labels)
 
-                        # Show compact metrics in 3 columns
-                        col1, col2, col3 = st.columns(3)
+                    # Display each contract in its own tab
+                    for tab_idx, (code, data) in enumerate(sorted_contracts):
+                        with contract_tabs[tab_idx]:
+                            st.markdown(f"**{data['info']['name']}**")
 
-                        with col1:
-                            st.markdown("**Commercial**")
-                            st.write(f"Status: {data['commercial']['status']}")
-                            st.write(f"Current: {data['commercial']['current']:.1f}%")
-                            st.write(f"Z-Score: {data['commercial']['z_score']:.2f}")
-                            st.write(f"Percentile: {data['commercial']['percentile']:.0f}%")
+                            # Show compact metrics in 3 columns
+                            col1, col2, col3 = st.columns(3)
 
-                        with col2:
-                            st.markdown("**Non-Commercial**")
-                            st.write(f"Status: {data['noncommercial']['status']}")
-                            st.write(f"Current: {data['noncommercial']['current']:.1f}%")
-                            st.write(f"Z-Score: {data['noncommercial']['z_score']:.2f}")
-                            st.write(f"Percentile: {data['noncommercial']['percentile']:.0f}%")
+                            with col1:
+                                st.markdown("**Commercial**")
+                                st.write(f"Status: {data['commercial']['status']}")
+                                st.write(f"Current: {data['commercial']['current']:.1f}%")
+                                st.write(f"Z-Score: {data['commercial']['z_score']:.2f}")
+                                st.write(f"Percentile: {data['commercial']['percentile']:.0f}%")
 
-                        with col3:
-                            st.markdown("**Non-Reportable**")
-                            st.write(f"Status: {data['nonreportable']['status']}")
-                            st.write(f"Current: {data['nonreportable']['current']:.1f}%")
-                            st.write(f"Z-Score: {data['nonreportable']['z_score']:.2f}")
-                            st.write(f"Percentile: {data['nonreportable']['percentile']:.0f}%")
+                            with col2:
+                                st.markdown("**Non-Commercial**")
+                                st.write(f"Status: {data['noncommercial']['status']}")
+                                st.write(f"Current: {data['noncommercial']['current']:.1f}%")
+                                st.write(f"Z-Score: {data['noncommercial']['z_score']:.2f}")
+                                st.write(f"Percentile: {data['noncommercial']['percentile']:.0f}%")
 
-                        # Chart below
-                        fig = plot_contract(data, code, data['info'])
-                        st.plotly_chart(fig, use_container_width=True)
+                            with col3:
+                                st.markdown("**Non-Reportable**")
+                                st.write(f"Status: {data['nonreportable']['status']}")
+                                st.write(f"Current: {data['nonreportable']['current']:.1f}%")
+                                st.write(f"Z-Score: {data['nonreportable']['z_score']:.2f}")
+                                st.write(f"Percentile: {data['nonreportable']['percentile']:.0f}%")
 
-                        st.markdown("---")
+                            # Chart below
+                            fig = plot_contract(data, code, data['info'])
+                            st.plotly_chart(fig, use_container_width=True)
 
             # Final summary logging
             logger.info("="*60)
@@ -1145,7 +1393,7 @@ def main():
 
             with tab1:
                 # Create sub-tabs for US economic indicators
-                us_subtab1, us_subtab2 = st.tabs(["📊 4-Quadrant View", "📈 Leading Indices"])
+                us_subtab1, us_subtab2, us_subtab3 = st.tabs(["📊 4-Quadrant View", "📈 Leading Indices", "🏭 ISM PMI"])
 
                 # ========== US SUB-TAB 1: 4-QUADRANT VIEW ==========
                 with us_subtab1:
@@ -1601,6 +1849,269 @@ def main():
                     except Exception as e:
                         st.error(f"Error loading leading indices data: {str(e)}")
                         logger.error(f"Error in leading indices section: {str(e)}\n{traceback.format_exc()}")
+
+                # ========== US SUB-TAB 3: ISM PMI ==========
+                with us_subtab3:
+                    st.markdown("**ISM Purchasing Managers' Index (PMI)**")
+                    st.markdown("*Values above 50 indicate expansion, below 50 indicate contraction*")
+
+                    try:
+                        # Load ISM data (corrected with PR Newswire values)
+                        ism_mfg_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic/dbnomics_ism_manufacturing.csv'),
+                            index_col=0, parse_dates=True
+                        )
+                        ism_services_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic/dbnomics_ism_services.csv'),
+                            index_col=0, parse_dates=True
+                        )
+
+                        # Create tabs for Manufacturing and Services
+                        ism_tab1, ism_tab2 = st.tabs(["🏭 Manufacturing PMI", "💼 Services PMI"])
+
+                        # ========== MANUFACTURING PMI TAB ==========
+                        with ism_tab1:
+                            st.markdown("**Manufacturing PMI and Sub-Indices**")
+
+                            # Get number of indicators
+                            num_indicators = len(ism_mfg_df.columns)
+
+                            # Create subplots - one for each indicator
+                            fig_mfg = make_subplots(
+                                rows=num_indicators, cols=1,
+                                shared_xaxes=True,
+                                vertical_spacing=0.02,
+                                subplot_titles=[col.replace('_', ' ') for col in ism_mfg_df.columns]
+                            )
+
+                            # Color scheme
+                            colors = {
+                                'PMI': '#2E86AB',
+                                'New_Orders': '#A23B72',
+                                'Production': '#6BAA75',
+                                'Employment': '#E97451',
+                                'Prices': '#F18F01',
+                                'Supplier_Deliveries': '#8B4513',
+                                'Inventories': '#9370DB',
+                                'Backlog': '#CD5C5C',
+                                'New_Export_Orders': '#20B2AA',
+                                'Imports': '#DAA520',
+                                'Customers_Inventories': '#708090'
+                            }
+
+                            # Add each indicator to its own subplot
+                            for idx, col in enumerate(ism_mfg_df.columns, 1):
+                                fig_mfg.add_trace(go.Scatter(
+                                    x=ism_mfg_df.index,
+                                    y=ism_mfg_df[col],
+                                    mode='lines',
+                                    name=col.replace('_', ' '),
+                                    line=dict(
+                                        color=colors.get(col, '#666666'),
+                                        width=2
+                                    ),
+                                    showlegend=False,
+                                    hovertemplate='%{y:.1f}<extra></extra>'
+                                ), row=idx, col=1)
+
+                                # Add 50 expansion/contraction line to each subplot
+                                fig_mfg.add_hline(
+                                    y=50,
+                                    line_dash="solid",
+                                    line_color="rgba(255, 0, 0, 0.3)",
+                                    line_width=1.5,
+                                    row=idx, col=1
+                                )
+
+                            # Rebind all traces to same x-axis for synchronized crosshair
+                            fig_mfg.update_traces(xaxis='x')
+
+                            # Get actual data range
+                            actual_start_date = ism_mfg_df.index.min()
+                            actual_end_date = ism_mfg_df.index.max()
+
+                            # Update layout
+                            fig_mfg.update_layout(
+                                height=250 * num_indicators,
+                                template='plotly_white',
+                                hovermode='x unified',
+                                showlegend=False,
+                                margin=dict(l=50, r=50, t=50, b=100)
+                            )
+
+                            # Configure x-axis with spike lines and date labels
+                            fig_mfg.update_layout(
+                                xaxis=dict(
+                                    showgrid=True,
+                                    gridcolor='lightgray',
+                                    showticklabels=True,
+                                    tickformat='%Y-%m',
+                                    tickangle=-45,
+                                    title_text="Date",
+                                    showspikes=True,
+                                    spikemode='across+marker',
+                                    spikesnap='cursor',
+                                    spikecolor='rgba(0, 0, 0, 0.4)',
+                                    spikethickness=1,
+                                    spikedash='solid'
+                                )
+                            )
+
+                            # Set x-axis range to actual data range (avoid empty space)
+                            fig_mfg.update_xaxes(range=[actual_start_date, actual_end_date])
+
+                            # Update y-axes labels
+                            for idx in range(1, num_indicators + 1):
+                                fig_mfg.update_yaxes(title_text="Index", row=idx, col=1)
+
+                            st.plotly_chart(fig_mfg, use_container_width=True)
+
+                            # Current values
+                            st.markdown("---")
+                            st.markdown(f"**Latest Values ({ism_mfg_df.index[-1].strftime('%B %Y')})**")
+
+                            cols = st.columns(4)
+                            for idx, col in enumerate(ism_mfg_df.columns):
+                                with cols[idx % 4]:
+                                    value = ism_mfg_df[col].iloc[-1]
+                                    prev_value = ism_mfg_df[col].iloc[-2]
+                                    change = value - prev_value
+
+                                    # Only show metrics if value is not NaN
+                                    if pd.notna(value):
+                                        status = "🟢" if value > 50 else "🔴"
+                                        st.metric(
+                                            f"{status} {col.replace('_', ' ')}",
+                                            f"{value:.1f}",
+                                            f"{change:+.1f}" if pd.notna(change) else None
+                                        )
+
+                        # ========== SERVICES PMI TAB ==========
+                        with ism_tab2:
+                            st.markdown("**Services (Non-Manufacturing) PMI and Sub-Indices**")
+
+                            # Get number of indicators
+                            num_indicators_services = len(ism_services_df.columns)
+
+                            # Create subplots - one for each indicator
+                            fig_services = make_subplots(
+                                rows=num_indicators_services, cols=1,
+                                shared_xaxes=True,
+                                vertical_spacing=0.02,
+                                subplot_titles=[col.replace('_', ' ') for col in ism_services_df.columns]
+                            )
+
+                            # Color scheme for services
+                            colors_services = {
+                                'PMI': '#2E86AB',
+                                'Business_Activity': '#A23B72',
+                                'New_Orders': '#6BAA75',
+                                'Employment': '#E97451',
+                                'Prices': '#F18F01',
+                                'Supplier_Deliveries': '#8B4513',
+                                'Inventories': '#9370DB',
+                                'Backlog': '#CD5C5C',
+                                'New_Export_Orders': '#20B2AA',
+                                'Imports': '#DAA520',
+                                'Inventory_Sentiment': '#708090'
+                            }
+
+                            # Add each indicator to its own subplot
+                            for idx, col in enumerate(ism_services_df.columns, 1):
+                                fig_services.add_trace(go.Scatter(
+                                    x=ism_services_df.index,
+                                    y=ism_services_df[col],
+                                    mode='lines',
+                                    name=col.replace('_', ' '),
+                                    line=dict(
+                                        color=colors_services.get(col, '#666666'),
+                                        width=2
+                                    ),
+                                    showlegend=False,
+                                    hovertemplate='%{y:.1f}<extra></extra>'
+                                ), row=idx, col=1)
+
+                                # Add 50 expansion/contraction line to each subplot
+                                fig_services.add_hline(
+                                    y=50,
+                                    line_dash="solid",
+                                    line_color="rgba(255, 0, 0, 0.3)",
+                                    line_width=1.5,
+                                    row=idx, col=1
+                                )
+
+                            # Rebind all traces to same x-axis for synchronized crosshair
+                            fig_services.update_traces(xaxis='x')
+
+                            # Get actual data range
+                            actual_start_date_services = ism_services_df.index.min()
+                            actual_end_date_services = ism_services_df.index.max()
+
+                            # Update layout
+                            fig_services.update_layout(
+                                height=250 * num_indicators_services,
+                                template='plotly_white',
+                                hovermode='x unified',
+                                showlegend=False,
+                                margin=dict(l=50, r=50, t=50, b=100)
+                            )
+
+                            # Configure x-axis with spike lines and date labels
+                            fig_services.update_layout(
+                                xaxis=dict(
+                                    showgrid=True,
+                                    gridcolor='lightgray',
+                                    showticklabels=True,
+                                    tickformat='%Y-%m',
+                                    tickangle=-45,
+                                    title_text="Date",
+                                    showspikes=True,
+                                    spikemode='across+marker',
+                                    spikesnap='cursor',
+                                    spikecolor='rgba(0, 0, 0, 0.4)',
+                                    spikethickness=1,
+                                    spikedash='solid'
+                                )
+                            )
+
+                            # Set x-axis range to actual data range (avoid empty space)
+                            fig_services.update_xaxes(range=[actual_start_date_services, actual_end_date_services])
+
+                            # Update y-axes labels
+                            for idx in range(1, num_indicators_services + 1):
+                                fig_services.update_yaxes(title_text="Index", row=idx, col=1)
+
+                            st.plotly_chart(fig_services, use_container_width=True)
+
+                            # Current values
+                            st.markdown("---")
+                            st.markdown(f"**Latest Values ({ism_services_df.index[-1].strftime('%B %Y')})**")
+
+                            cols = st.columns(4)
+                            for idx, col in enumerate(ism_services_df.columns):
+                                with cols[idx % 4]:
+                                    value = ism_services_df[col].iloc[-1]
+                                    prev_value = ism_services_df[col].iloc[-2]
+                                    change = value - prev_value
+
+                                    # Only show metrics if value is not NaN
+                                    if pd.notna(value):
+                                        status = "🟢" if value > 50 else "🔴"
+                                        st.metric(
+                                            f"{status} {col.replace('_', ' ')}",
+                                            f"{value:.1f}",
+                                            f"{change:+.1f}" if pd.notna(change) else None
+                                        )
+
+                    except FileNotFoundError as e:
+                        st.error(f"❌ ISM data files not found. Please run the data fetcher script first.")
+                        st.info("""
+                        Run this script in the sandbox folder:
+                        - `python fetch_dbnomics_ism.py`
+                        """)
+                    except Exception as e:
+                        st.error(f"Error loading ISM data: {str(e)}")
+                        logger.error(f"Error in ISM section: {str(e)}\n{traceback.format_exc()}")
 
             with tab2:
                 st.info("🚧 Additional regions (EU, China, Japan) will be added here")
