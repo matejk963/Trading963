@@ -1381,10 +1381,10 @@ def main():
 
         # ========== SECTION 2: MACRO DASHBOARD ==========
         elif st.session_state.active_section == "macro":
-            # Sidebar for Macro section (currently empty)
+            # Sidebar for Macro section (currently empty, will be populated per-tab)
             with st.sidebar:
                 st.header("⚙️ Macro Settings")
-                st.info("Macro dashboard settings will be added here")
+                st.info("Settings will appear here based on active tab")
 
             st.header("🌍 Macro Economic Dashboard")
 
@@ -1554,6 +1554,42 @@ def main():
                 with us_subtab2:
                     st.markdown("**Leading Economic Indicators**")
                     st.markdown("*Duncan Index (interest-rate sensitive) | OECD CLI (6-9 month lead)*")
+
+                    # Update buttons for leading indices
+                    col1, col2, col3 = st.columns([1, 1, 2])
+                    with col1:
+                        if st.button("📥 Update Duncan Index", use_container_width=True, key="update_duncan"):
+                            with st.spinner("Fetching Duncan Index from FRED..."):
+                                try:
+                                    from src.analysis.cot_positioning.leading_index_updater import update_duncan_index
+                                    result = update_duncan_index()
+
+                                    if result['success']:
+                                        st.success(f"✓ {result['message']}")
+                                        st.info(f"📊 Added {result['added_quarters']} quarter(s) | Current: {result['current_value']:.2f}%")
+                                        st.rerun()
+                                    else:
+                                        st.info(result['message'])
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
+
+                    with col2:
+                        if st.button("📥 Update OECD CLI", use_container_width=True, key="update_oecd"):
+                            with st.spinner("Fetching OECD CLI from FRED..."):
+                                try:
+                                    from src.analysis.cot_positioning.leading_index_updater import update_oecd_cli
+                                    result = update_oecd_cli()
+
+                                    if result['success']:
+                                        st.success(f"✓ {result['message']}")
+                                        st.info(f"📊 Added {result['added_months']} month(s) | Current: {result['current_value']:.2f}")
+                                        st.rerun()
+                                    else:
+                                        st.info(result['message'])
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
+
+                    st.markdown("---")
 
                     try:
                         # Load leading indices data
@@ -1850,10 +1886,50 @@ def main():
                         st.error(f"Error loading leading indices data: {str(e)}")
                         logger.error(f"Error in leading indices section: {str(e)}\n{traceback.format_exc()}")
 
+
                 # ========== US SUB-TAB 3: ISM PMI ==========
                 with us_subtab3:
                     st.markdown("**ISM Purchasing Managers' Index (PMI)**")
                     st.markdown("*Values above 50 indicate expansion, below 50 indicate contraction*")
+
+                    # ISM Data Updater - at top of tab
+                    col1, col2, col3 = st.columns([1, 1, 2])
+                    with col1:
+                        if st.button("📥 Update Manufacturing", use_container_width=True, key="update_ism_mfg"):
+                            with st.spinner("Fetching Manufacturing PMI from ISM.org..."):
+                                try:
+                                    from src.analysis.cot_positioning.ism_updater import update_ism_data
+                                    result = update_ism_data('manufacturing')
+
+                                    if result['success']:
+                                        st.success(f"✓ {result['message']}")
+                                        st.info(f"📊 {result['indicators_count']} indicators | Growing: {result['growing_count']} | Contracting: {result['contracting_count']}")
+                                        st.rerun()
+                                    else:
+                                        st.warning(result['message'])
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
+
+                    with col2:
+                        if st.button("📥 Update Services", use_container_width=True, key="update_ism_svc"):
+                            with st.spinner("Fetching Services PMI from ISM.org..."):
+                                try:
+                                    from src.analysis.cot_positioning.ism_updater import update_ism_data
+                                    result = update_ism_data('services')
+
+                                    if result['success']:
+                                        st.success(f"✓ {result['message']}")
+                                        st.info(f"📊 {result['indicators_count']} indicators | Growing: {result['growing_count']} | Contracting: {result['contracting_count']}")
+                                        st.rerun()
+                                    else:
+                                        st.warning(result['message'])
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
+
+                    with col3:
+                        st.caption("*Fetches from ISM.org (primary) or PR Newswire (fallback)*")
+
+                    st.markdown("---")
 
                     try:
                         # Load ISM data (corrected with PR Newswire values)
@@ -1866,6 +1942,16 @@ def main():
                             index_col=0, parse_dates=True
                         )
 
+                        # Load sector rankings
+                        ism_mfg_sectors_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic/ism_manufacturing_sector_rankings.csv'),
+                            parse_dates=['Date']
+                        )
+                        ism_services_sectors_df = pd.read_csv(
+                            os.path.join(PROJECT_ROOT, 'data/economic/ism_services_sector_rankings.csv'),
+                            parse_dates=['Date']
+                        )
+
                         # Create tabs for Manufacturing and Services
                         ism_tab1, ism_tab2 = st.tabs(["🏭 Manufacturing PMI", "💼 Services PMI"])
 
@@ -1873,16 +1959,8 @@ def main():
                         with ism_tab1:
                             st.markdown("**Manufacturing PMI and Sub-Indices**")
 
-                            # Get number of indicators
-                            num_indicators = len(ism_mfg_df.columns)
-
-                            # Create subplots - one for each indicator
-                            fig_mfg = make_subplots(
-                                rows=num_indicators, cols=1,
-                                shared_xaxes=True,
-                                vertical_spacing=0.02,
-                                subplot_titles=[col.replace('_', ' ') for col in ism_mfg_df.columns]
-                            )
+                            # Create sub-tabs for each indicator
+                            indicator_tabs = st.tabs([col.replace('_', ' ') for col in ism_mfg_df.columns])
 
                             # Color scheme
                             colors = {
@@ -1899,107 +1977,123 @@ def main():
                                 'Customers_Inventories': '#708090'
                             }
 
-                            # Add each indicator to its own subplot
-                            for idx, col in enumerate(ism_mfg_df.columns, 1):
-                                fig_mfg.add_trace(go.Scatter(
-                                    x=ism_mfg_df.index,
-                                    y=ism_mfg_df[col],
-                                    mode='lines',
-                                    name=col.replace('_', ' '),
-                                    line=dict(
-                                        color=colors.get(col, '#666666'),
-                                        width=2
-                                    ),
-                                    showlegend=False,
-                                    hovertemplate='%{y:.1f}<extra></extra>'
-                                ), row=idx, col=1)
+                            # For each indicator, create a tab with chart + sector ranking table
+                            for tab_idx, col in enumerate(ism_mfg_df.columns):
+                                with indicator_tabs[tab_idx]:
+                                    # Create chart for this indicator
+                                    fig = go.Figure()
 
-                                # Add 50 expansion/contraction line to each subplot
-                                fig_mfg.add_hline(
-                                    y=50,
-                                    line_dash="solid",
-                                    line_color="rgba(255, 0, 0, 0.3)",
-                                    line_width=1.5,
-                                    row=idx, col=1
-                                )
+                                    fig.add_trace(go.Scatter(
+                                        x=ism_mfg_df.index,
+                                        y=ism_mfg_df[col],
+                                        mode='lines',
+                                        name=col.replace('_', ' '),
+                                        line=dict(
+                                            color=colors.get(col, '#666666'),
+                                            width=2
+                                        ),
+                                        hovertemplate='%{x|%Y-%m}<br>%{y:.1f}<extra></extra>'
+                                    ))
 
-                            # Rebind all traces to same x-axis for synchronized crosshair
-                            fig_mfg.update_traces(xaxis='x')
+                                    # Add 50 line
+                                    fig.add_hline(
+                                        y=50,
+                                        line_dash="solid",
+                                        line_color="rgba(255, 0, 0, 0.3)",
+                                        line_width=1.5,
+                                        annotation_text="50 (Expansion/Contraction)",
+                                        annotation_position="right"
+                                    )
 
-                            # Get actual data range
-                            actual_start_date = ism_mfg_df.index.min()
-                            actual_end_date = ism_mfg_df.index.max()
+                                    # Get actual data range
+                                    actual_start_date = ism_mfg_df.index.min()
+                                    actual_end_date = ism_mfg_df.index.max()
 
-                            # Update layout
-                            fig_mfg.update_layout(
-                                height=250 * num_indicators,
-                                template='plotly_white',
-                                hovermode='x unified',
-                                showlegend=False,
-                                margin=dict(l=50, r=50, t=50, b=100)
-                            )
+                                    fig.update_layout(
+                                        title=f"{col.replace('_', ' ')} Index",
+                                        xaxis_title="Date",
+                                        yaxis_title="Index Value",
+                                        height=400,
+                                        template='plotly_white',
+                                        hovermode='x unified',
+                                        showlegend=False,
+                                        margin=dict(l=50, r=50, t=50, b=50)
+                                    )
 
-                            # Configure x-axis with spike lines and date labels
-                            fig_mfg.update_layout(
-                                xaxis=dict(
-                                    showgrid=True,
-                                    gridcolor='lightgray',
-                                    showticklabels=True,
-                                    tickformat='%Y-%m',
-                                    tickangle=-45,
-                                    title_text="Date",
-                                    showspikes=True,
-                                    spikemode='across+marker',
-                                    spikesnap='cursor',
-                                    spikecolor='rgba(0, 0, 0, 0.4)',
-                                    spikethickness=1,
-                                    spikedash='solid'
-                                )
-                            )
+                                    fig.update_xaxes(range=[actual_start_date, actual_end_date])
 
-                            # Set x-axis range to actual data range (avoid empty space)
-                            fig_mfg.update_xaxes(range=[actual_start_date, actual_end_date])
+                                    st.plotly_chart(fig, use_container_width=True)
 
-                            # Update y-axes labels
-                            for idx in range(1, num_indicators + 1):
-                                fig_mfg.update_yaxes(title_text="Index", row=idx, col=1)
-
-                            st.plotly_chart(fig_mfg, use_container_width=True)
-
-                            # Current values
-                            st.markdown("---")
-                            st.markdown(f"**Latest Values ({ism_mfg_df.index[-1].strftime('%B %Y')})**")
-
-                            cols = st.columns(4)
-                            for idx, col in enumerate(ism_mfg_df.columns):
-                                with cols[idx % 4]:
-                                    value = ism_mfg_df[col].iloc[-1]
+                                    # Show latest value
+                                    latest_value = ism_mfg_df[col].iloc[-1]
                                     prev_value = ism_mfg_df[col].iloc[-2]
-                                    change = value - prev_value
+                                    change = latest_value - prev_value if pd.notna(latest_value) and pd.notna(prev_value) else None
 
-                                    # Only show metrics if value is not NaN
-                                    if pd.notna(value):
-                                        status = "🟢" if value > 50 else "🔴"
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        status = "🟢 EXPANSION" if latest_value > 50 else "🔴 CONTRACTION"
                                         st.metric(
-                                            f"{status} {col.replace('_', ' ')}",
-                                            f"{value:.1f}",
-                                            f"{change:+.1f}" if pd.notna(change) else None
+                                            "Latest Value",
+                                            f"{latest_value:.1f}",
+                                            f"{change:+.1f}" if change else None
                                         )
+                                    with col2:
+                                        st.metric("Status", status)
+                                    with col3:
+                                        st.metric("Latest Month", ism_mfg_df.index[-1].strftime('%B %Y'))
+
+                                    # Sector rankings table
+                                    st.markdown("---")
+                                    st.markdown("**📊 Sector Rankings Over Time**")
+                                    st.markdown("*Rank 1 = Most Expanding | Higher Rank = Most Contracting*")
+
+                                    # Filter sector rankings for this specific indicator
+                                    indicator_sectors = ism_mfg_sectors_df[ism_mfg_sectors_df['Indicator'] == col].copy()
+
+                                    if len(indicator_sectors) > 0:
+                                        # Pivot the sector data to create sectors as rows, months as columns
+                                        sector_pivot = indicator_sectors.pivot(
+                                            index='Sector',
+                                            columns='Date',
+                                            values='Rank'
+                                        )
+
+                                        # Sort by latest month's rank
+                                        latest_month_col = sector_pivot.columns[-1]
+                                        sector_pivot = sector_pivot.sort_values(by=latest_month_col)
+
+                                        # Format column headers as month names
+                                        sector_pivot.columns = [col.strftime('%b %Y') for col in sector_pivot.columns]
+
+                                        # Style the dataframe with color coding
+                                        def color_rank(val):
+                                            if pd.isna(val):
+                                                return ''
+                                            # Green for low ranks (expanding), red for high ranks (contracting)
+                                            if val <= 5:
+                                                return 'background-color: rgba(76, 175, 80, 0.3)'  # Green
+                                            elif val >= 10:
+                                                return 'background-color: rgba(244, 67, 54, 0.3)'  # Red
+                                            else:
+                                                return 'background-color: rgba(255, 193, 7, 0.2)'  # Yellow
+
+                                        styled_df = sector_pivot.style.applymap(color_rank).format(precision=0, na_rep='-')
+
+                                        # Display table
+                                        st.dataframe(
+                                            styled_df,
+                                            use_container_width=True,
+                                            height=500
+                                        )
+                                    else:
+                                        st.info(f"No sector ranking data available for {col.replace('_', ' ')}")
 
                         # ========== SERVICES PMI TAB ==========
                         with ism_tab2:
                             st.markdown("**Services (Non-Manufacturing) PMI and Sub-Indices**")
 
-                            # Get number of indicators
-                            num_indicators_services = len(ism_services_df.columns)
-
-                            # Create subplots - one for each indicator
-                            fig_services = make_subplots(
-                                rows=num_indicators_services, cols=1,
-                                shared_xaxes=True,
-                                vertical_spacing=0.02,
-                                subplot_titles=[col.replace('_', ' ') for col in ism_services_df.columns]
-                            )
+                            # Create sub-tabs for each indicator
+                            services_indicator_tabs = st.tabs([col.replace('_', ' ') for col in ism_services_df.columns])
 
                             # Color scheme for services
                             colors_services = {
@@ -2016,98 +2110,130 @@ def main():
                                 'Inventory_Sentiment': '#708090'
                             }
 
-                            # Add each indicator to its own subplot
-                            for idx, col in enumerate(ism_services_df.columns, 1):
-                                fig_services.add_trace(go.Scatter(
-                                    x=ism_services_df.index,
-                                    y=ism_services_df[col],
-                                    mode='lines',
-                                    name=col.replace('_', ' '),
-                                    line=dict(
-                                        color=colors_services.get(col, '#666666'),
-                                        width=2
-                                    ),
-                                    showlegend=False,
-                                    hovertemplate='%{y:.1f}<extra></extra>'
-                                ), row=idx, col=1)
+                            # For each indicator, create a tab with chart + sector ranking table
+                            for tab_idx, col in enumerate(ism_services_df.columns):
+                                with services_indicator_tabs[tab_idx]:
+                                    # Create chart for this indicator
+                                    fig = go.Figure()
 
-                                # Add 50 expansion/contraction line to each subplot
-                                fig_services.add_hline(
-                                    y=50,
-                                    line_dash="solid",
-                                    line_color="rgba(255, 0, 0, 0.3)",
-                                    line_width=1.5,
-                                    row=idx, col=1
-                                )
+                                    fig.add_trace(go.Scatter(
+                                        x=ism_services_df.index,
+                                        y=ism_services_df[col],
+                                        mode='lines',
+                                        name=col.replace('_', ' '),
+                                        line=dict(
+                                            color=colors_services.get(col, '#666666'),
+                                            width=2
+                                        ),
+                                        hovertemplate='%{x|%Y-%m}<br>%{y:.1f}<extra></extra>'
+                                    ))
 
-                            # Rebind all traces to same x-axis for synchronized crosshair
-                            fig_services.update_traces(xaxis='x')
+                                    # Add 50 line
+                                    fig.add_hline(
+                                        y=50,
+                                        line_dash="solid",
+                                        line_color="rgba(255, 0, 0, 0.3)",
+                                        line_width=1.5,
+                                        annotation_text="50 (Expansion/Contraction)",
+                                        annotation_position="right"
+                                    )
 
-                            # Get actual data range
-                            actual_start_date_services = ism_services_df.index.min()
-                            actual_end_date_services = ism_services_df.index.max()
+                                    # Get actual data range
+                                    actual_start_date_services = ism_services_df.index.min()
+                                    actual_end_date_services = ism_services_df.index.max()
 
-                            # Update layout
-                            fig_services.update_layout(
-                                height=250 * num_indicators_services,
-                                template='plotly_white',
-                                hovermode='x unified',
-                                showlegend=False,
-                                margin=dict(l=50, r=50, t=50, b=100)
-                            )
+                                    fig.update_layout(
+                                        title=f"{col.replace('_', ' ')} Index",
+                                        xaxis_title="Date",
+                                        yaxis_title="Index Value",
+                                        height=400,
+                                        template='plotly_white',
+                                        hovermode='x unified',
+                                        showlegend=False,
+                                        margin=dict(l=50, r=50, t=50, b=50)
+                                    )
 
-                            # Configure x-axis with spike lines and date labels
-                            fig_services.update_layout(
-                                xaxis=dict(
-                                    showgrid=True,
-                                    gridcolor='lightgray',
-                                    showticklabels=True,
-                                    tickformat='%Y-%m',
-                                    tickangle=-45,
-                                    title_text="Date",
-                                    showspikes=True,
-                                    spikemode='across+marker',
-                                    spikesnap='cursor',
-                                    spikecolor='rgba(0, 0, 0, 0.4)',
-                                    spikethickness=1,
-                                    spikedash='solid'
-                                )
-                            )
+                                    fig.update_xaxes(range=[actual_start_date_services, actual_end_date_services])
 
-                            # Set x-axis range to actual data range (avoid empty space)
-                            fig_services.update_xaxes(range=[actual_start_date_services, actual_end_date_services])
+                                    st.plotly_chart(fig, use_container_width=True)
 
-                            # Update y-axes labels
-                            for idx in range(1, num_indicators_services + 1):
-                                fig_services.update_yaxes(title_text="Index", row=idx, col=1)
-
-                            st.plotly_chart(fig_services, use_container_width=True)
-
-                            # Current values
-                            st.markdown("---")
-                            st.markdown(f"**Latest Values ({ism_services_df.index[-1].strftime('%B %Y')})**")
-
-                            cols = st.columns(4)
-                            for idx, col in enumerate(ism_services_df.columns):
-                                with cols[idx % 4]:
-                                    value = ism_services_df[col].iloc[-1]
+                                    # Show latest value
+                                    latest_value = ism_services_df[col].iloc[-1]
                                     prev_value = ism_services_df[col].iloc[-2]
-                                    change = value - prev_value
+                                    change = latest_value - prev_value if pd.notna(latest_value) and pd.notna(prev_value) else None
 
-                                    # Only show metrics if value is not NaN
-                                    if pd.notna(value):
-                                        status = "🟢" if value > 50 else "🔴"
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        status = "🟢 EXPANSION" if latest_value > 50 else "🔴 CONTRACTION"
                                         st.metric(
-                                            f"{status} {col.replace('_', ' ')}",
-                                            f"{value:.1f}",
-                                            f"{change:+.1f}" if pd.notna(change) else None
+                                            "Latest Value",
+                                            f"{latest_value:.1f}",
+                                            f"{change:+.1f}" if change else None
+                                        )
+                                    with col2:
+                                        st.metric("Status", status)
+                                    with col3:
+                                        st.metric("Latest Month", ism_services_df.index[-1].strftime('%B %Y'))
+
+                                    # Sector rankings table
+                                    st.markdown("---")
+                                    st.markdown("**📊 Sector Rankings Over Time**")
+                                    st.markdown("*Rank 1 = Most Expanding | Higher Rank = Most Contracting*")
+
+                                    # Filter sector rankings for this specific indicator
+                                    indicator_sectors_services = ism_services_sectors_df[ism_services_sectors_df['Indicator'] == col].copy()
+
+                                    if len(indicator_sectors_services) > 0:
+                                        # Pivot the sector data to create sectors as rows, months as columns
+                                        sector_pivot_services = indicator_sectors_services.pivot(
+                                            index='Sector',
+                                            columns='Date',
+                                            values='Rank'
                                         )
 
+                                        # Sort by latest month's rank
+                                        latest_month_col_services = sector_pivot_services.columns[-1]
+                                        sector_pivot_services = sector_pivot_services.sort_values(by=latest_month_col_services)
+
+                                        # Format column headers as month names
+                                        sector_pivot_services.columns = [col.strftime('%b %Y') for col in sector_pivot_services.columns]
+
+                                        # Style the dataframe with color coding
+                                        def color_rank_services(val):
+                                            if pd.isna(val):
+                                                return ''
+                                            # Green for low ranks (expanding), red for high ranks (contracting)
+                                            if val <= 5:
+                                                return 'background-color: rgba(76, 175, 80, 0.3)'  # Green
+                                            elif val >= 11:
+                                                return 'background-color: rgba(244, 67, 54, 0.3)'  # Red
+                                            else:
+                                                return 'background-color: rgba(255, 193, 7, 0.2)'  # Yellow
+
+                                        styled_df_services = sector_pivot_services.style.applymap(color_rank_services).format(precision=0, na_rep='-')
+
+                                        # Display table
+                                        st.dataframe(
+                                            styled_df_services,
+                                            use_container_width=True,
+                                            height=500
+                                        )
+                                    else:
+                                        st.info(f"No sector ranking data available for {col.replace('_', ' ')}")
+
                     except FileNotFoundError as e:
-                        st.error(f"❌ ISM data files not found. Please run the data fetcher script first.")
+                        st.error(f"❌ ISM data files not found. Please run the data fetcher scripts first.")
                         st.info("""
-                        Run this script in the sandbox folder:
-                        - `python fetch_dbnomics_ism.py`
+                        Run these scripts in the sandbox folder:
+                        - `python sandbox/fetch_dbnomics_ism.py`
+                        - `python sandbox/update_ism_from_prnewswire.py`
+                        - `python sandbox/create_indicator_specific_sector_rankings.py`
+
+                        Required files in data/economic/:
+                        - dbnomics_ism_manufacturing.csv
+                        - dbnomics_ism_services.csv
+                        - ism_manufacturing_sector_rankings.csv
+                        - ism_services_sector_rankings.csv
                         """)
                     except Exception as e:
                         st.error(f"Error loading ISM data: {str(e)}")
