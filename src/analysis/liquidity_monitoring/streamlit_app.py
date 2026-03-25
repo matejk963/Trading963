@@ -38,6 +38,7 @@ from data.loader import load_liquidity_data, get_data_freshness
 from liquidity_updater import update_liquidity_data, get_update_status
 from views.dashboard import render_dashboard
 from views.layer_detail import render_layer_detail
+from views.asset_overlay import render_asset_overlay
 
 
 def main():
@@ -149,13 +150,16 @@ def main():
         return
 
     # Navigation tabs
-    tab1, tab2 = st.tabs(["📊 Dashboard", "🔍 Layer Details"])
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🔍 Layer Details", "📈 Asset Overlay"])
 
     with tab1:
         render_dashboard(raw_data, PROJECT_ROOT)
 
     with tab2:
         render_layer_detail(raw_data, PROJECT_ROOT)
+
+    with tab3:
+        render_asset_overlay(raw_data, PROJECT_ROOT)
 
 
 if __name__ == "__main__":

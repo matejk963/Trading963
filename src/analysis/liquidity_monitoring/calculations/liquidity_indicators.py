@@ -29,13 +29,35 @@ def calculate_roc(series: pd.Series, periods: int = 252) -> pd.Series:
 
 
 def calculate_roc_12m(series: pd.Series) -> pd.Series:
-    """Calculate 12-month (252 trading day) rate of change"""
-    return calculate_roc(series, periods=252)
+    """Calculate 12-month rate of change (auto-detects frequency)"""
+    # Detect frequency from data
+    if len(series) > 50:
+        avg_gap = (series.index[-1] - series.index[0]).days / len(series)
+        if avg_gap > 15:  # Monthly
+            periods = 12
+        elif avg_gap > 4:  # Weekly
+            periods = 52
+        else:  # Daily
+            periods = 252
+    else:
+        periods = 12  # Default to monthly for short series
+    return calculate_roc(series, periods=periods)
 
 
 def calculate_roc_29m(series: pd.Series) -> pd.Series:
     """Calculate 29-month rate of change (per Howell spec for unemployment)"""
-    return calculate_roc(series, periods=29 * 21)  # ~21 trading days per month
+    # Detect frequency from data
+    if len(series) > 50:
+        avg_gap = (series.index[-1] - series.index[0]).days / len(series)
+        if avg_gap > 15:  # Monthly
+            periods = 29
+        elif avg_gap > 4:  # Weekly
+            periods = 29 * 4  # ~4 weeks per month
+        else:  # Daily
+            periods = 29 * 21  # ~21 trading days per month
+    else:
+        periods = 29  # Default to monthly
+    return calculate_roc(series, periods=periods)
 
 
 def calculate_yoy(series: pd.Series) -> pd.Series:
@@ -50,29 +72,240 @@ def calculate_yoy(series: pd.Series) -> pd.Series:
 # Z-SCORE CALCULATIONS
 # =============================================================================
 
-def calculate_rolling_zscore(series: pd.Series, window: int = 1260) -> pd.Series:
+def calculate_rolling_zscore(series: pd.Series, window: int = 1260,
+                             min_periods: int = None) -> pd.Series:
     """
     Calculate Z-score with rolling window
 
     Args:
         series: Input series
         window: Rolling window size (1260 trading days ~ 5 years)
+        min_periods: Minimum periods required (default: window//4 for earlier data)
 
     Returns:
         Z-score series: (value - rolling_mean) / rolling_std
     """
-    rolling_mean = series.rolling(window=window, min_periods=window//2).mean()
-    rolling_std = series.rolling(window=window, min_periods=window//2).std()
+    if min_periods is None:
+        min_periods = max(window // 4, 60)  # At least 1.25 years or 60 periods
+
+    rolling_mean = series.rolling(window=window, min_periods=min_periods).mean()
+    rolling_std = series.rolling(window=window, min_periods=min_periods).std()
 
     # Avoid division by zero
     rolling_std = rolling_std.replace(0, np.nan)
 
-    return (series - rolling_mean) / rolling_std
+    zscore = (series - rolling_mean) / rolling_std
+
+    # Clip extreme values to avoid inf/-inf
+    zscore = zscore.clip(-10, 10)
+
+    return zscore
 
 
 def calculate_zscore_5y(series: pd.Series) -> pd.Series:
     """Calculate Z-score with 5-year rolling window"""
     return calculate_rolling_zscore(series, window=1260)
+
+
+# =============================================================================
+# CONTINUOUS Z-SCORE CALCULATIONS
+# =============================================================================
+
+def calculate_yoy_zscore(series: pd.Series, yoy_periods: int = 252,
+                         zscore_window: int = 1260) -> pd.Series:
+    """
+    Calculate YoY change then normalize with rolling Z-score.
+
+    Args:
+        series: Input price/value series
+        yoy_periods: Periods for YoY calculation (252 for daily, 12 for monthly)
+        zscore_window: Rolling window for Z-score (1260 ~ 5 years daily)
+
+    Returns:
+        Continuous Z-score normalized YoY in typical -3 to +3 range
+    """
+    yoy = series.pct_change(periods=yoy_periods)
+    return calculate_rolling_zscore(yoy, window=zscore_window)
+
+
+def calculate_continuous_indicator_score(series: pd.Series, config: dict) -> pd.Series:
+    """
+    Calculate continuous Z-scored measure for any indicator.
+    Handles inversion and different signal types.
+
+    Args:
+        series: Raw indicator series
+        config: Indicator configuration dict
+
+    Returns:
+        Continuous Z-score series (typically -3 to +3)
+    """
+    signal_type = config.get('signal_type', 'level')
+    invert = config.get('invert', False)
+
+    # Detect frequency from series (daily, weekly, or monthly)
+    if len(series) > 50:
+        avg_gap = (series.index[-1] - series.index[0]).days / len(series)
+        if avg_gap > 15:  # Monthly
+            yoy_periods = 12
+            zscore_window = 60  # 5 years monthly
+        elif avg_gap > 4:  # Weekly
+            yoy_periods = 52
+            zscore_window = 260  # 5 years weekly
+        else:  # Daily
+            yoy_periods = 252
+            zscore_window = 1260  # 5 years daily
+    else:
+        # Default to monthly for short series
+        yoy_periods = 12
+        zscore_window = 60
+
+    if signal_type in ['roc_12m', 'roc_29m', 'yoy']:
+        # Already a change measure, just Z-score it
+        if signal_type == 'roc_29m':
+            change = calculate_roc_29m(series)
+        else:
+            change = series.pct_change(periods=yoy_periods)
+        zscore = calculate_rolling_zscore(change, window=zscore_window)
+
+    elif signal_type == 'momentum':
+        # CPI momentum - Z-score the momentum directly
+        momentum = calculate_cpi_momentum(series)
+        zscore = calculate_rolling_zscore(momentum, window=zscore_window)
+
+    elif signal_type == 'level':
+        # Level-based - Z-score the raw level directly
+        # This answers "is current level high or low relative to history"
+        # Better for indicators with regime changes (like RRP going 0 -> trillions)
+        zscore = calculate_rolling_zscore(series, window=zscore_window)
+
+    elif signal_type == 'level_change':
+        # Level change - take YoY change then Z-score
+        # For spreads/rates, use level change rather than % change
+        if config.get('units') in ['percent', 'basis_points', 'index']:
+            change = series.diff(periods=yoy_periods)
+        else:
+            change = series.pct_change(periods=yoy_periods)
+        zscore = calculate_rolling_zscore(change, window=zscore_window)
+
+    else:
+        # Component - calculate YoY Z-score as default
+        zscore = calculate_yoy_zscore(series, yoy_periods, zscore_window)
+
+    # Apply inversion (positive Z-score becomes negative for drains)
+    if invert:
+        zscore = -zscore
+
+    return zscore
+
+
+def calculate_continuous_layer_scores(raw_data: pd.DataFrame,
+                                       layer_config: dict) -> pd.DataFrame:
+    """
+    Calculate continuous Z-score normalized scores for all indicators in a layer.
+
+    Args:
+        raw_data: DataFrame with raw FRED series
+        layer_config: Layer indicator configuration dict
+
+    Returns:
+        DataFrame with indicator columns, continuous Z-score values
+    """
+    score_series = {}
+
+    for indicator_id, config in layer_config.items():
+        fred_code = config.get('fred_code')
+        signal_type = config.get('signal_type', 'level')
+
+        # Handle derived indicators
+        if config.get('derived', False):
+            if indicator_id == 'net_liquidity':
+                # Net Liquidity = WALCL - TGA - RRP (with 10-period EMA smoothing)
+                # 10 periods covers ~2 weeks to smooth weekly data updates
+                if all(c in raw_data.columns for c in ['WALCL', 'WTREGEN', 'RRPONTSYD']):
+                    net_liq = calculate_net_liquidity(
+                        raw_data['WALCL'],
+                        raw_data['WTREGEN'],
+                        raw_data['RRPONTSYD'],
+                        smooth=True,
+                        ema_span=10
+                    )
+                    if len(net_liq.dropna()) >= 50:
+                        zscore = calculate_continuous_indicator_score(net_liq.dropna(), config)
+                        score_series[indicator_id] = zscore
+            continue
+
+        # Skip component indicators (used in derived calculations)
+        if signal_type == 'component':
+            continue
+
+        if fred_code not in raw_data.columns:
+            logger.warning(f"Missing data for {indicator_id} ({fred_code})")
+            continue
+
+        series = raw_data[fred_code].dropna()
+        if len(series) < 50:  # Need minimum data for Z-score
+            continue
+
+        # Calculate continuous Z-score
+        zscore = calculate_continuous_indicator_score(series, config)
+        score_series[indicator_id] = zscore
+
+    # Combine all scores and forward-fill to align different frequencies
+    if score_series:
+        result = pd.DataFrame(score_series)
+        # Forward-fill to propagate weekly/monthly values to daily index
+        result = result.ffill()
+        return result
+    return pd.DataFrame()
+
+
+def calculate_historical_continuous_totals(raw_data: pd.DataFrame,
+                                            l1_config: dict,
+                                            l2a_config: dict,
+                                            l2b_config: dict) -> pd.DataFrame:
+    """
+    Calculate historical continuous layer scores.
+    Layer total = mean of Z-scores (not sum of discrete).
+
+    Args:
+        raw_data: DataFrame with raw FRED series
+        l1_config, l2a_config, l2b_config: Layer configurations
+
+    Returns:
+        DataFrame with L1, L2a, L2b, Composite as continuous values (-3 to +3 range)
+    """
+    l1_scores = calculate_continuous_layer_scores(raw_data, l1_config)
+    l2a_scores = calculate_continuous_layer_scores(raw_data, l2a_config)
+    l2b_scores = calculate_continuous_layer_scores(raw_data, l2b_config)
+
+    # Mean across indicators (keeps on comparable scale)
+    l1_mean = l1_scores.mean(axis=1, skipna=True) if not l1_scores.empty else pd.Series(dtype=float)
+    l2a_mean = l2a_scores.mean(axis=1, skipna=True) if not l2a_scores.empty else pd.Series(dtype=float)
+    l2b_mean = l2b_scores.mean(axis=1, skipna=True) if not l2b_scores.empty else pd.Series(dtype=float)
+
+    # Combine into DataFrame - this creates union of all indices
+    result = pd.DataFrame({
+        'L1': l1_mean,
+        'L2a': l2a_mean,
+        'L2b': l2b_mean
+    })
+
+    # Forward-fill to align different frequencies (monthly -> daily)
+    result = result.ffill()
+
+    # Fill remaining NaN with 0 (neutral) for composite calculation
+    result_filled = result.fillna(0)
+
+    # Calculate composite with same weights
+    result['Composite'] = (
+        result_filled['L1'] * 0.40 +
+        result_filled['L2a'] * 0.35 +
+        result_filled['L2b'] * 0.25
+    )
+
+    # Start from 2005 to have sufficient Z-score history
+    return result.loc[result.index >= '2005-01-01']
 
 
 # =============================================================================
@@ -109,17 +342,41 @@ def calculate_cpi_momentum(cpi_series: pd.Series) -> pd.Series:
 # DERIVED SERIES CALCULATIONS
 # =============================================================================
 
-def calculate_net_liquidity(walcl: pd.Series, tga: pd.Series, rrp: pd.Series) -> pd.Series:
+def calculate_net_liquidity(walcl: pd.Series, tga: pd.Series, rrp: pd.Series,
+                            smooth: bool = True, ema_span: int = 5) -> pd.Series:
     """
     Calculate Fed Net Liquidity = WALCL - TGA - RRP
 
     This represents actual liquidity available in the system
+
+    Args:
+        walcl: Fed Balance Sheet series
+        tga: Treasury General Account series
+        rrp: Reverse Repo series
+        smooth: If True, apply EMA to raw data before combining
+        ema_span: EMA span for smoothing (default 5)
+
+    Returns:
+        Net Liquidity series
     """
     # Align series (forward fill for different frequencies)
     df = pd.DataFrame({'WALCL': walcl, 'TGA': tga, 'RRP': rrp})
     df = df.ffill()
 
-    return df['WALCL'] - df['TGA'] - df['RRP']
+    if smooth:
+        # Apply 5-period EMA to each raw series first
+        df['WALCL'] = df['WALCL'].ewm(span=ema_span, adjust=False).mean()
+        df['TGA'] = df['TGA'].ewm(span=ema_span, adjust=False).mean()
+        df['RRP'] = df['RRP'].ewm(span=ema_span, adjust=False).mean()
+
+    # Pre-2010: RRP was not a significant policy tool (sparse data, tiny values)
+    # Use WALCL - TGA only for pre-2010, full formula post-2010
+    cutoff = pd.Timestamp('2010-01-01')
+    result = pd.Series(index=df.index, dtype=float)
+    result[df.index < cutoff] = df.loc[df.index < cutoff, 'WALCL'] - df.loc[df.index < cutoff, 'TGA']
+    result[df.index >= cutoff] = df.loc[df.index >= cutoff, 'WALCL'] - df.loc[df.index >= cutoff, 'TGA'] - df.loc[df.index >= cutoff, 'RRP']
+
+    return result
 
 
 def calculate_real_rate(fed_funds: pd.Series, cpi_yoy: pd.Series) -> pd.Series:
@@ -297,8 +554,57 @@ def calculate_layer_scores(raw_data: pd.DataFrame, layer_config: dict) -> pd.Dat
         fred_code = config.get('fred_code')
         signal_type = config.get('signal_type', 'level')
 
-        # Skip derived indicators (handled separately)
+        # Handle derived indicators
         if config.get('derived', False):
+            series = None
+            transformed = None
+
+            if indicator_id == 'net_liquidity':
+                if all(c in raw_data.columns for c in ['WALCL', 'WTREGEN', 'RRPONTSYD']):
+                    series = calculate_net_liquidity(
+                        raw_data['WALCL'], raw_data['WTREGEN'], raw_data['RRPONTSYD'],
+                        smooth=True, ema_span=10
+                    )
+                    transformed = calculate_roc_12m(series)
+
+            elif indicator_id == 'real_policy_rate':
+                if all(c in raw_data.columns for c in ['DFF', 'CPIAUCSL']):
+                    cpi_yoy = calculate_yoy(raw_data['CPIAUCSL']) * 100
+                    series = calculate_real_rate(raw_data['DFF'], cpi_yoy)
+                    transformed = series
+
+            elif indicator_id == 'yield_curve':
+                if all(c in raw_data.columns for c in ['DGS10', 'DGS2']):
+                    series = calculate_yield_curve(raw_data['DGS10'], raw_data['DGS2'])
+                    transformed = series
+
+            elif indicator_id == 'sofr_effr_spread':
+                if all(c in raw_data.columns for c in ['SOFR', 'EFFR']):
+                    series = calculate_sofr_effr_spread(raw_data['SOFR'], raw_data['EFFR'])
+                    transformed = series
+
+            elif indicator_id == 'cpi_momentum':
+                if 'CPIAUCSL' in raw_data.columns:
+                    series = raw_data['CPIAUCSL']
+                    transformed = calculate_cpi_momentum(series)
+
+            if series is not None and transformed is not None:
+                series_clean = series.dropna()
+                transformed_clean = transformed.dropna()
+                if not series_clean.empty and not transformed_clean.empty:
+                    latest_raw = series_clean.iloc[-1]
+                    latest_transformed = transformed_clean.iloc[-1]
+                    latest_score = score_indicator(latest_transformed, config)
+
+                    results[indicator_id] = {
+                        'name': config['name'],
+                        'raw_value': latest_raw,
+                        'transformed_value': latest_transformed,
+                        'score': latest_score,
+                        'signal_type': signal_type,
+                        'invert': config.get('invert', False),
+                        'counterintuitive': config.get('counterintuitive', False)
+                    }
             continue
 
         # Skip component indicators (used in derived calculations)

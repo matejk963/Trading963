@@ -24,10 +24,7 @@ LAYER1_INDICATORS = {
         'description': 'Total Assets of Federal Reserve',
         'frequency': 'weekly',
         'units': 'billions_usd',
-        'signal_type': 'roc_12m',  # 12-month rate of change
-        'bullish_threshold': 0,     # ROC > 0 = expanding = bullish
-        'bearish_threshold': 0,     # ROC < 0 = contracting = bearish
-        'invert': False,
+        'signal_type': 'component',  # Component for Net Liquidity calculation
     },
     'tga': {
         'fred_code': 'WTREGEN',
@@ -35,10 +32,7 @@ LAYER1_INDICATORS = {
         'description': 'Treasury cash balance at Fed - drains reserves when rising',
         'frequency': 'weekly',
         'units': 'billions_usd',
-        'signal_type': 'roc_12m',
-        'bullish_threshold': 0,
-        'bearish_threshold': 0,
-        'invert': True,  # Rising TGA = drain on reserves = bearish
+        'signal_type': 'component',  # Component for Net Liquidity calculation
     },
     'rrp': {
         'fred_code': 'RRPONTSYD',
@@ -46,10 +40,7 @@ LAYER1_INDICATORS = {
         'description': 'ON RRP usage - liquidity drain when high',
         'frequency': 'daily',
         'units': 'billions_usd',
-        'signal_type': 'roc_12m',
-        'bullish_threshold': 0,
-        'bearish_threshold': 0,
-        'invert': True,  # Rising RRP = drain = bearish
+        'signal_type': 'component',  # Component for Net Liquidity calculation
     },
     'fed_funds': {
         'fred_code': 'DFF',
@@ -87,7 +78,7 @@ LAYER1_INDICATORS = {
         'signal_type': 'component',  # Used for yield curve
         'derived': False,
     },
-    # Derived indicators (calculated, not fetched)
+    # Derived indicator - Net Liquidity only
     'net_liquidity': {
         'fred_code': None,
         'name': 'Fed Net Liquidity',
@@ -100,34 +91,6 @@ LAYER1_INDICATORS = {
         'invert': False,
         'derived': True,
         'formula': 'WALCL - WTREGEN - RRPONTSYD',
-    },
-    'real_policy_rate': {
-        'fred_code': None,
-        'name': 'Real Policy Rate',
-        'description': 'Fed Funds - CPI YoY (real interest rate)',
-        'frequency': 'monthly',
-        'units': 'percent',
-        'signal_type': 'level',
-        'bullish_threshold': 0,      # Negative real rate = bullish
-        'neutral_high': 1.0,         # 0-1% = neutral
-        'bearish_threshold': 1.0,    # >1% = bearish
-        'invert': True,              # Lower is better
-        'derived': True,
-        'formula': 'DFF - CPI_YOY',
-    },
-    'yield_curve': {
-        'fred_code': None,
-        'name': 'Yield Curve (10Y-2Y)',
-        'description': 'Treasury yield curve slope',
-        'frequency': 'daily',
-        'units': 'percent',
-        'signal_type': 'level',
-        'bullish_threshold': 1.5,    # >150bp steep = bullish
-        'neutral_low': 0,            # 0-150bp = neutral
-        'bearish_threshold': 0,      # Inverted (<0) = bearish
-        'invert': False,
-        'derived': True,
-        'formula': 'DGS10 - DGS2',
     },
 }
 
@@ -171,17 +134,6 @@ LAYER2A_INDICATORS = {
         'bearish_threshold': 0,
         'invert': False,
     },
-    'dxy': {
-        'fred_code': 'DTWEXBGS',
-        'name': 'Dollar Index (Broad)',
-        'description': 'Trade Weighted U.S. Dollar Index: Broad',
-        'frequency': 'daily',
-        'units': 'index',
-        'signal_type': 'roc_12m',
-        'bullish_threshold': 0,
-        'bearish_threshold': 0,
-        'invert': True,  # Weaker dollar = more global liquidity = bullish
-    },
     'hy_spread': {
         'fred_code': 'BAMLH0A0HYM2',
         'name': 'HY Credit Spread',
@@ -202,17 +154,6 @@ LAYER2A_INDICATORS = {
         'signal_type': 'level',
         'bullish_threshold': 1.0,    # <100bp = bullish
         'bearish_threshold': 2.0,    # >200bp = bearish
-        'invert': True,
-    },
-    'vix': {
-        'fred_code': 'VIXCLS',
-        'name': 'VIX',
-        'description': 'CBOE Volatility Index - proxy for collateral haircuts',
-        'frequency': 'daily',
-        'units': 'index',
-        'signal_type': 'level',
-        'bullish_threshold': 15,     # <15 = low vol = bullish
-        'bearish_threshold': 25,     # >25 = high vol = bearish
         'invert': True,
     },
     'nfci': {
@@ -245,9 +186,9 @@ LAYER2A_INDICATORS = {
         'derived': False,
     },
     'mmf_assets': {
-        'fred_code': 'WRMFSL',
+        'fred_code': 'WRMFNS',  # Replaced WRMFSL (discontinued Feb 2021)
         'name': 'MMF Total Assets',
-        'description': 'Money Market Funds Total Assets',
+        'description': 'Retail Money Market Funds Total Assets (NSA)',
         'frequency': 'weekly',
         'units': 'billions_usd',
         'signal_type': 'roc_12m',
@@ -407,8 +348,8 @@ LAYER_WEIGHTS = {
 
 # Layer score ranges (for normalization)
 LAYER_SCORE_RANGES = {
-    'L1': (-4, 4),    # 4 scored indicators
-    'L2a': (-6, 6),   # 6 scored indicators
+    'L1': (-1, 1),    # 1 scored indicator (Net Liquidity)
+    'L2a': (-8, 8),   # 8 scored indicators (removed DXY, VIX)
     'L2b': (-6, 6),   # 6 scored indicators (was 7 but CPI used twice)
 }
 

@@ -14,7 +14,9 @@ from config.indicators import (
 )
 from calculations.liquidity_indicators import (
     calculate_layer_scores, aggregate_layer_score,
-    calculate_roc_12m, calculate_yoy
+    calculate_roc_12m, calculate_yoy, calculate_cpi_momentum,
+    calculate_net_liquidity, calculate_real_rate, calculate_yield_curve,
+    calculate_sofr_effr_spread
 )
 
 logger = logging.getLogger(__name__)
@@ -154,32 +156,76 @@ def render_layer_tab(raw_data: pd.DataFrame, layer_config: dict,
             return 'background-color: rgba(244, 67, 54, 0.3)'
         return ''
 
-    styled_df = table_df.style.applymap(color_score, subset=['Score'])
+    styled_df = table_df.style.map(color_score, subset=['Score'])
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # ========== CHARTS ==========
     st.markdown("---")
     st.subheader("Historical Charts")
 
-    # Get indicators with FRED codes (not derived)
+    # Get indicators with FRED codes (not derived, not component)
     chart_indicators = {
         k: v for k, v in layer_config.items()
         if v.get('fred_code') and not v.get('derived', False)
         and v.get('signal_type') != 'component'
     }
 
-    if not chart_indicators:
+    # Also include derived indicators that can be charted
+    derived_indicators = {
+        k: v for k, v in layer_config.items()
+        if v.get('derived', False)
+    }
+
+    # Calculate derived series for charting
+    derived_series = {}
+    for indicator_id, config in derived_indicators.items():
+        if indicator_id == 'net_liquidity':
+            if all(c in raw_data.columns for c in ['WALCL', 'WTREGEN', 'RRPONTSYD']):
+                series = calculate_net_liquidity(
+                    raw_data['WALCL'], raw_data['WTREGEN'], raw_data['RRPONTSYD'],
+                    smooth=True, ema_span=10
+                )
+                # Show as 12m ROC %
+                derived_series[indicator_id] = (calculate_roc_12m(series) * 100, '12m ROC %')
+
+        elif indicator_id == 'real_policy_rate':
+            if all(c in raw_data.columns for c in ['DFF', 'CPIAUCSL']):
+                cpi_yoy = calculate_yoy(raw_data['CPIAUCSL']) * 100
+                series = calculate_real_rate(raw_data['DFF'], cpi_yoy)
+                derived_series[indicator_id] = (series, '%')
+
+        elif indicator_id == 'yield_curve':
+            if all(c in raw_data.columns for c in ['DGS10', 'DGS2']):
+                series = calculate_yield_curve(raw_data['DGS10'], raw_data['DGS2'])
+                derived_series[indicator_id] = (series, '%')
+
+        elif indicator_id == 'sofr_effr_spread':
+            if all(c in raw_data.columns for c in ['SOFR', 'EFFR']):
+                series = calculate_sofr_effr_spread(raw_data['SOFR'], raw_data['EFFR'])
+                derived_series[indicator_id] = (series, 'bps')
+
+        elif indicator_id == 'cpi_momentum':
+            if 'CPIAUCSL' in raw_data.columns:
+                series = calculate_cpi_momentum(raw_data['CPIAUCSL']) * 100
+                derived_series[indicator_id] = (series, '%')
+
+    # Combine all chartable indicators
+    all_chart_indicators = list(chart_indicators.items()) + [
+        (k, derived_indicators[k]) for k in derived_series.keys()
+    ]
+
+    if not all_chart_indicators:
         st.info("No chart data available for this layer")
         return
 
     # Create multi-panel chart
-    n_indicators = len(chart_indicators)
+    n_indicators = len(all_chart_indicators)
     n_cols = 2
     n_rows = (n_indicators + 1) // 2
 
     fig = make_subplots(
         rows=n_rows, cols=n_cols,
-        subplot_titles=[v['name'] for v in chart_indicators.values()],
+        subplot_titles=[v['name'] for _, v in all_chart_indicators],
         vertical_spacing=0.08,
         horizontal_spacing=0.08
     )
@@ -187,30 +233,38 @@ def render_layer_tab(raw_data: pd.DataFrame, layer_config: dict,
     colors = ['#2E86AB', '#A23B72', '#6BAA75', '#E97451', '#F18F01',
               '#8B4513', '#9370DB', '#CD5C5C', '#20B2AA', '#DAA520']
 
-    for idx, (indicator_id, config) in enumerate(chart_indicators.items()):
+    for idx, (indicator_id, config) in enumerate(all_chart_indicators):
         row = idx // n_cols + 1
         col = idx % n_cols + 1
         color = colors[idx % len(colors)]
 
-        fred_code = config['fred_code']
-        if fred_code not in raw_data.columns:
-            continue
-
-        series = raw_data[fred_code].dropna()
-        if series.empty:
-            continue
-
-        # Transform if needed
-        signal_type = config.get('signal_type', 'level')
-        if signal_type == 'roc_12m':
-            plot_series = calculate_roc_12m(series) * 100  # Convert to %
-            y_title = "12m ROC %"
-        elif signal_type == 'yoy':
-            plot_series = calculate_yoy(series) * 100
-            y_title = "YoY %"
+        # Check if this is a derived indicator
+        if indicator_id in derived_series:
+            plot_series, y_title = derived_series[indicator_id]
+            plot_series = plot_series.dropna()
         else:
-            plot_series = series
-            y_title = config.get('units', '')
+            fred_code = config['fred_code']
+            if fred_code not in raw_data.columns:
+                continue
+
+            series = raw_data[fred_code].dropna()
+            if series.empty:
+                continue
+
+            # Transform if needed
+            signal_type = config.get('signal_type', 'level')
+            if signal_type == 'roc_12m':
+                plot_series = calculate_roc_12m(series) * 100  # Convert to %
+                y_title = "12m ROC %"
+            elif signal_type == 'yoy':
+                plot_series = calculate_yoy(series) * 100
+                y_title = "YoY %"
+            else:
+                plot_series = series
+                y_title = config.get('units', '')
+
+        if plot_series.empty:
+            continue
 
         # Resample to weekly for cleaner chart
         plot_series = plot_series.resample('W').last().dropna()
@@ -226,6 +280,7 @@ def render_layer_tab(raw_data: pd.DataFrame, layer_config: dict,
         ), row=row, col=col)
 
         # Add threshold lines if applicable
+        signal_type = config.get('signal_type', 'level')
         if signal_type == 'level':
             bullish_thresh = config.get('bullish_threshold')
             bearish_thresh = config.get('bearish_threshold')
@@ -259,11 +314,11 @@ def render_layer_tab(raw_data: pd.DataFrame, layer_config: dict,
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # ========== DERIVED INDICATORS ==========
+    # ========== DERIVED INDICATOR DETAILS ==========
     derived = {k: v for k, v in layer_config.items() if v.get('derived', False)}
     if derived:
         st.markdown("---")
-        st.subheader("Derived Indicators")
+        st.subheader("Derived Indicator Details")
 
         for indicator_id, config in derived.items():
             with st.expander(f"**{config['name']}** - {config.get('description', '')}"):
