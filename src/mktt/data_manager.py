@@ -358,14 +358,172 @@ def build_database(exchanges=None, min_turnover=500000, period='2y'):
 
 
 # =============================================================================
+# Incremental Update
+# =============================================================================
+
+def update_prices(batch_size=200):
+    """
+    Incremental update: fetch only missing days since last build.
+    Much faster than full rebuild (~30s vs ~3min).
+    Returns True if data was updated, False if already fresh.
+    """
+    close_path = DATA_DIR / 'close.parquet'
+    if not close_path.exists():
+        print("  No existing database — run full build first.")
+        return False
+
+    # Check how stale the data is
+    close_df = load_prices('close')
+    if close_df is None or close_df.empty:
+        return False
+
+    last_date = close_df.index.max()
+    # Strip timezone if present
+    if hasattr(last_date, 'tz') and last_date.tz is not None:
+        last_date = last_date.tz_localize(None)
+
+    today = pd.Timestamp.now().normalize()
+
+    # Skip weekends for staleness check
+    bdays_behind = len(pd.bdate_range(last_date, today)) - 1
+    if bdays_behind <= 0:
+        print(f"  Data is current (last: {last_date.date()})")
+        return False
+
+    print(f"  Data is {bdays_behind} business days behind (last: {last_date.date()})")
+
+    # Fetch recent data for all tickers in existing DB
+    tickers = close_df.columns.tolist()
+    start_date = (last_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+
+    print(f"  Fetching {len(tickers)} tickers from {start_date}...")
+
+    new_close, new_high, new_low, new_volume = {}, {}, {}, {}
+
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i + batch_size]
+        batch_num = i // batch_size + 1
+        total_batches = (len(tickers) + batch_size - 1) // batch_size
+        print(f"    Batch {batch_num}/{total_batches}...", end=' ', flush=True)
+
+        try:
+            raw = yf.download(batch, start=start_date, progress=False,
+                              auto_adjust=True, threads=True)
+
+            if raw.empty:
+                print("no new data")
+                continue
+
+            if isinstance(raw.columns, pd.MultiIndex):
+                for field, store in [('Close', new_close), ('High', new_high),
+                                     ('Low', new_low), ('Volume', new_volume)]:
+                    if field in raw.columns.get_level_values(0):
+                        field_df = raw[field]
+                        for col in field_df.columns:
+                            series = field_df[col].dropna()
+                            if not series.empty:
+                                store[col] = series
+            else:
+                ticker = batch[0]
+                for field, store in [('Close', new_close), ('High', new_high),
+                                     ('Low', new_low), ('Volume', new_volume)]:
+                    if field in raw.columns:
+                        store[ticker] = raw[field].dropna()
+
+            print(f"OK")
+        except Exception as e:
+            print(f"error: {e}")
+
+        if i + batch_size < len(tickers):
+            time.sleep(0.5)
+
+    if not new_close:
+        print("  No new data available.")
+        return False
+
+    # Append new rows to existing DataFrames
+    high_df = load_prices('high')
+    low_df = load_prices('low')
+    volume_df = load_prices('volume')
+
+    new_days = len(pd.DataFrame(new_close))
+
+    for field, existing, new_data in [
+        ('close', close_df, new_close),
+        ('high', high_df, new_high),
+        ('low', low_df, new_low),
+        ('volume', volume_df, new_volume),
+    ]:
+        if not new_data:
+            continue
+        new_df = pd.DataFrame(new_data)
+        # Strip timezone from new data index to match existing
+        if hasattr(new_df.index, 'tz') and new_df.index.tz is not None:
+            new_df.index = new_df.index.tz_localize(None)
+        # Only keep rows after existing data
+        new_df = new_df[new_df.index > existing.index.max()]
+        if new_df.empty:
+            continue
+        # Concat and save
+        combined = pd.concat([existing, new_df])
+        combined = combined[~combined.index.duplicated(keep='last')]
+        combined = combined.sort_index()
+        path = DATA_DIR / f'{field}.parquet'
+        combined.to_parquet(path, engine='pyarrow', compression='snappy')
+
+    # Update SPY too
+    try:
+        spy_existing = load_spy()
+        spy_new = yf.download('SPY', start=start_date, progress=False, auto_adjust=True)
+        if isinstance(spy_new.columns, pd.MultiIndex):
+            spy_new.columns = spy_new.columns.get_level_values(0)
+        if not spy_new.empty:
+            if hasattr(spy_new.index, 'tz') and spy_new.index.tz is not None:
+                spy_new.index = spy_new.index.tz_localize(None)
+            if spy_existing is not None:
+                combined_spy = pd.concat([spy_existing, spy_new])
+                combined_spy = combined_spy[~combined_spy.index.duplicated(keep='last')]
+                combined_spy = combined_spy.sort_index()
+            else:
+                combined_spy = spy_new
+            path = DATA_DIR / 'spy.parquet'
+            combined_spy.to_parquet(path, engine='pyarrow', compression='snappy')
+    except Exception:
+        pass
+
+    # Clear in-memory caches so next load picks up new data
+    _mem_cache.clear()
+
+    print(f"  Updated: {new_days} new days appended for {len(new_close)} tickers")
+    return True
+
+
+def auto_update_if_stale(max_age_hours=16):
+    """
+    Check if data is stale and auto-update if needed.
+    Called on app startup. Only updates if >16 hours old (overnight).
+    """
+    close_path = DATA_DIR / 'close.parquet'
+    if not close_path.exists():
+        return False
+
+    age_hrs = (time.time() - close_path.stat().st_mtime) / 3600
+    if age_hrs < max_age_hours:
+        return False
+
+    print(f"  Database is {age_hrs:.0f}h old — running incremental update...")
+    return update_prices()
+
+
+# =============================================================================
 # CLI
 # =============================================================================
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='MKTT Database Manager')
-    parser.add_argument('command', choices=['build', 'status', 'build-all'],
-                        help='build=US only, build-all=US+EU+Asia, status=show db info')
+    parser.add_argument('command', choices=['build', 'status', 'build-all', 'update'],
+                        help='build=US only, build-all=US+EU+Asia, update=incremental, status=show db info')
     parser.add_argument('--min-turnover', type=float, default=500000,
                         help='Minimum average daily turnover (default: 500000)')
     parser.add_argument('--period', default='2y', help='History period (default: 2y)')
@@ -384,6 +542,9 @@ if __name__ == '__main__':
 
     elif args.command == 'build':
         build_database(US_EXCHANGES, min_turnover=args.min_turnover, period=args.period)
+
+    elif args.command == 'update':
+        update_prices()
 
     elif args.command == 'build-all':
         all_exchanges = US_EXCHANGES + EU_EXCHANGES + ASIA_EXCHANGES

@@ -107,27 +107,30 @@
 </div>
 
 {% if sector_stats and sector_stats | length > 0 %}
-<details style="margin-bottom: 12px;">
+<details style="margin-bottom: 12px;" open>
     <summary style="cursor: pointer; font-family: 'VT323', 'Share Tech Mono', monospace; font-size: 16px; color: var(--phosphor, var(--cyan)); padding: 4px 0;">
         Sector Breakdown ({{ sector_stats | length }} sectors)
     </summary>
     <div class="table-wrap" style="margin-top: 6px;">
-        <table>
+        <table id="sector-table">
             <thead>
                 <tr>
-                    <th>Sector</th>
-                    <th>Count</th>
-                    <th>Sector Total</th>
-                    <th>% of Sector</th>
-                    <th>% of Results</th>
-                    <th>Median PE</th>
-                    <th>Median Fwd PE</th>
+                    <th data-col="0" data-type="str" onclick="event.stopPropagation(); sortSectorTable(this)">Sector</th>
+                    <th data-col="1" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Count</th>
+                    <th data-col="2" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Sector Total</th>
+                    <th data-col="3" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">% of Sector</th>
+                    <th data-col="4" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">% of Results</th>
+                    <th data-col="5" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Median PE</th>
+                    <th data-col="6" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Median Fwd PE</th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in sector_stats %}
-                <tr>
-                    <td style="text-align: left;">{{ s.sector }}</td>
+                <tr onclick="toggleSectorStocks('sector-{{ loop.index }}')" style="cursor: pointer;">
+                    <td style="text-align: left;">
+                        <span id="sector-arrow-{{ loop.index }}" style="display: inline-block; width: 14px; transition: transform 0.2s;">▶</span>
+                        {{ s.sector }}
+                    </td>
                     <td>{{ s.count }}</td>
                     <td>{{ s.total }}</td>
                     <td>{{ "%.1f%%" | format(s.pct_of_sector) }}</td>
@@ -135,11 +138,114 @@
                     <td>{{ "%.1f" | format(s.median_pe) if s.median_pe else '—' }}</td>
                     <td>{{ "%.1f" | format(s.median_fwd_pe) if s.median_fwd_pe else '—' }}</td>
                 </tr>
+                <tr id="sector-{{ loop.index }}" style="display: none;">
+                    <td colspan="7" style="padding: 0;">
+                        <table style="width: 100%; margin: 0; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: var(--bg, #0c0c14);">
+                                    <th style="font-size: 9px; padding: 3px 8px; text-align: left;">Symbol</th>
+                                    <th style="font-size: 9px; padding: 3px 8px;">Price</th>
+                                    <th style="font-size: 9px; padding: 3px 8px;">Chg%</th>
+                                    <th style="font-size: 9px; padding: 3px 8px;">PE</th>
+                                    <th style="font-size: 9px; padding: 3px 8px;">Fwd PE</th>
+                                    <th style="font-size: 9px; padding: 3px 8px;">RS Rank</th>
+                                    <th style="font-size: 9px; padding: 3px 8px;">Mansfield</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for st in s.stocks %}
+                                <tr onclick="event.stopPropagation(); window.location='/chart/{{ st.symbol }}'" style="cursor: pointer; border-bottom: 1px solid rgba(51,255,0,0.05);">
+                                    <td style="text-align: left; padding: 2px 8px; font-size: 13px;">{{ st.symbol }}</td>
+                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.2f" | format(st.price) if st.price else '—' }}</td>
+                                    <td style="padding: 2px 8px; font-size: 13px;" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else 'neutral' }}">
+                                        {{ "%+.1f%%" | format(st.change) if st.change else '—' }}
+                                    </td>
+                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.1f" | format(st.pe) if st.pe else '—' }}</td>
+                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.1f" | format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.0f" | format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                    <td style="padding: 2px 8px; font-size: 13px;" class="{{ 'positive' if st.mansfield and st.mansfield > 0 else 'negative' if st.mansfield and st.mansfield < 0 else 'neutral' }}">
+                                        {{ "%+.1f" | format(st.mansfield) if st.mansfield else '—' }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </details>
+<script>
+function toggleSectorStocks(id) {
+    var row = document.getElementById(id);
+    var arrow = document.getElementById(id.replace('sector-', 'sector-arrow-'));
+    if (row.style.display === 'none') {
+        row.style.display = 'table-row';
+        arrow.style.transform = 'rotate(90deg)';
+    } else {
+        row.style.display = 'none';
+        arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
+var sectorSortDir = {};
+function sortSectorTable(th) {
+    var table = document.getElementById('sector-table');
+    var tbody = table.querySelector('tbody');
+    var col = parseInt(th.dataset.col);
+    var type = th.dataset.type;
+
+    // Toggle direction
+    sectorSortDir[col] = !(sectorSortDir[col] || false);
+    var asc = sectorSortDir[col];
+
+    // Remove sorted class from all, add to clicked
+    table.querySelectorAll('thead th').forEach(function(h) { h.classList.remove('sorted'); });
+    th.classList.add('sorted');
+
+    // Collect pairs: [headerRow, detailRow]
+    var pairs = [];
+    var rows = Array.from(tbody.children);
+    for (var i = 0; i < rows.length; i++) {
+        if (!rows[i].id.startsWith('sector-')) {
+            // This is a header row, next one is its detail
+            pairs.push({ header: rows[i], detail: rows[i + 1] || null });
+            i++; // skip detail row
+        }
+    }
+
+    // Collapse all detail rows before sorting
+    pairs.forEach(function(p) {
+        if (p.detail) p.detail.style.display = 'none';
+        var arrow = p.header.querySelector('[id^="sector-arrow-"]');
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    });
+
+    // Sort pairs by header cell value
+    pairs.sort(function(a, b) {
+        var aVal = a.header.cells[col].textContent.trim();
+        var bVal = b.header.cells[col].textContent.trim();
+        if (type === 'num') {
+            aVal = parseFloat(aVal.replace(/[%▶]/g, '').replace('—', 'NaN'));
+            bVal = parseFloat(bVal.replace(/[%▶]/g, '').replace('—', 'NaN'));
+            if (isNaN(aVal)) aVal = -Infinity;
+            if (isNaN(bVal)) bVal = -Infinity;
+            return asc ? aVal - bVal : bVal - aVal;
+        }
+        aVal = aVal.replace('▶', '').trim();
+        bVal = bVal.replace('▶', '').trim();
+        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    // Re-append pairs in sorted order
+    pairs.forEach(function(p) {
+        tbody.appendChild(p.header);
+        if (p.detail) tbody.appendChild(p.detail);
+    });
+}
+</script>
 {% endif %}
 
 {% if data | length > 0 %}

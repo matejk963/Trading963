@@ -210,6 +210,22 @@ def screener_page():
                     stats['median_fwd_pe'] = float(valid_fpe.median()) if len(valid_fpe) > 0 else None
                 else:
                     stats['median_fwd_pe'] = None
+                # Collect stocks for this sector
+                stock_list = []
+                for _, row in group.iterrows():
+                    stock_list.append({
+                        'symbol': row.get('Symbol', ''),
+                        'price': row.get('Price', None),
+                        'change': row.get('Change%', None),
+                        'pe': row.get('PE', None) if pd.notna(row.get('PE')) else None,
+                        'fwd_pe': row.get('FwdPE', None) if pd.notna(row.get('FwdPE')) else None,
+                        'rs_rank': row.get('RS_Rank', None) if pd.notna(row.get('RS_Rank')) else None,
+                        'mansfield': row.get('Mansfield_RS', None) if pd.notna(row.get('Mansfield_RS')) else None,
+                    })
+                # Sort by RS rank descending (best first)
+                stock_list.sort(key=lambda x: x.get('rs_rank') or 0, reverse=True)
+                stats['stocks'] = stock_list
+
                 sector_stats.append(stats)
 
             sector_stats.sort(key=lambda x: x['pct_of_sector'], reverse=True)
@@ -274,4 +290,11 @@ def chart_page(symbol):
 
 
 if __name__ == '__main__':
+    # Auto-update prices if stale (>16 hours old)
+    from data_manager import auto_update_if_stale
+    try:
+        auto_update_if_stale(max_age_hours=16)
+    except Exception as e:
+        print(f"  Auto-update skipped: {e}")
+
     app.run(debug=True, port=5001, use_reloader=True, reloader_type='stat')

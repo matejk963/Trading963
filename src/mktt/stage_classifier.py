@@ -339,6 +339,12 @@ def run_stage_from_local_db(min_turnover=500000, min_price=5):
     return result
 
 
+def clear_cache():
+    """Clear all in-memory caches (called after data update)"""
+    _cache.clear()
+    _cache_time.clear()
+
+
 def run_stage_classification(tickers, min_adv_dollar=500000, min_price=5):
     """Legacy wrapper — use run_stage_from_local_db instead."""
     return run_stage_from_local_db(min_turnover=min_adv_dollar, min_price=min_price)
