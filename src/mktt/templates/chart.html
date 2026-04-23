@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title_suffix %}// {{ symbol }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">{{ symbol }}</h2>
+
+<div style="margin-bottom: 12px;">
+    <a href="javascript:history.back()" style="color: var(--phosphor, var(--cyan)); text-decoration: none; font-family: 'VT323', 'Share Tech Mono', monospace; font-size: 16px;">← Back to Screener</a>
+</div>
+
+{% if has_data %}
+<div id="tv-chart" style="width: 100%; height: 650px; border: 1px solid #1a1a2a; position: relative;"></div>
+<div id="chart-error" style="display:none; color:#ff3333; padding:20px; font-family:monospace;"></div>
+
+<script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+try {
+    var chartData = {{ chart_data | tojson }};
+    var container = document.getElementById('tv-chart');
+
+    var chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: 650,
+        layout: {
+            backgroundColor: '#08080c',
+            textColor: '#888',
+            fontFamily: 'VT323, Share Tech Mono, monospace',
+            fontSize: 13,
+        },
+        grid: {
+            vertLines: { color: '#1a1a2a' },
+            horzLines: { color: '#1a1a2a' },
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+            borderColor: '#1a1a2a',
+        },
+        timeScale: {
+            borderColor: '#1a1a2a',
+            timeVisible: false,
+        },
+    });
+
+    // Candlesticks
+    var candleSeries = chart.addCandlestickSeries({
+        upColor: '#33ff00',
+        downColor: '#ff3333',
+        borderUpColor: '#33ff00',
+        borderDownColor: '#ff3333',
+        wickUpColor: '#33ff0088',
+        wickDownColor: '#ff333388',
+    });
+
+    var candles = [];
+    for (var i = 0; i < chartData.dates.length; i++) {
+        candles.push({
+            time: chartData.dates[i],
+            open: chartData.open[i],
+            high: chartData.high[i],
+            low: chartData.low[i],
+            close: chartData.close[i],
+        });
+    }
+    candleSeries.setData(candles);
+
+    // MA50
+    var ma50 = chart.addLineSeries({ color: '#ffb000', lineWidth: 1, title: 'MA50' });
+    var ma50Data = [];
+    for (var i = 0; i < chartData.dates.length; i++) {
+        if (chartData.ma_50[i] !== null) {
+            ma50Data.push({ time: chartData.dates[i], value: chartData.ma_50[i] });
+        }
+    }
+    ma50.setData(ma50Data);
+
+    // MA150
+    var ma150 = chart.addLineSeries({ color: '#05d9e8', lineWidth: 1, title: 'MA150' });
+    var ma150Data = [];
+    for (var i = 0; i < chartData.dates.length; i++) {
+        if (chartData.ma_150[i] !== null) {
+            ma150Data.push({ time: chartData.dates[i], value: chartData.ma_150[i] });
+        }
+    }
+    ma150.setData(ma150Data);
+
+    // MA200
+    var ma200 = chart.addLineSeries({ color: '#ff2a6d', lineWidth: 1, title: 'MA200' });
+    var ma200Data = [];
+    for (var i = 0; i < chartData.dates.length; i++) {
+        if (chartData.ma_200[i] !== null) {
+            ma200Data.push({ time: chartData.dates[i], value: chartData.ma_200[i] });
+        }
+    }
+    ma200.setData(ma200Data);
+
+    chart.timeScale().fitContent();
+
+    // Resize handler
+    window.addEventListener('resize', function() {
+        chart.resize(container.clientWidth, 650);
+    });
+
+} catch(e) {
+    document.getElementById('chart-error').style.display = 'block';
+    document.getElementById('chart-error').textContent = 'Chart error: ' + e.message;
+}
+</script>
+{% else %}
+<div class="loading" style="animation: none;">No price data for {{ symbol }}. Run database build first.</div>
+{% endif %}
+{% endblock %}

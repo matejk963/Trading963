@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title_suffix %}// Screener{% endblock %}
+
+{% block content %}
+<h2 class="page-title">Market Screener</h2>
+
+<form method="GET" action="{{ url_for('screener_page') }}">
+    <div class="filter-panel">
+        <div class="filter-group">
+            <label>Preset</label>
+            <select name="preset" onchange="this.form.submit()">
+                <option value="all" {% if filters.preset == 'all' %}selected{% endif %}>All Stocks</option>
+                <option value="stage2" {% if filters.preset == 'stage2' %}selected{% endif %}>Stage 2 — Uptrend (Long)</option>
+                <option value="stage1" {% if filters.preset == 'stage1' %}selected{% endif %}>Stage 1 — Basing (Watch)</option>
+                <option value="stage3" {% if filters.preset == 'stage3' %}selected{% endif %}>Stage 3 — Topping (Reduce)</option>
+                <option value="stage4" {% if filters.preset == 'stage4' %}selected{% endif %}>Stage 4 — Declining (Short)</option>
+                <option value="trans12" {% if filters.preset == 'trans12' %}selected{% endif %}>Transition 1→2 (Leaders)</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Min Turnover</label>
+            <select name="min_turnover">
+                <option value="500000" {% if filters.min_turnover == 500000 %}selected{% endif %}>500K</option>
+                <option value="1000000" {% if filters.min_turnover == 1000000 %}selected{% endif %}>1M</option>
+                <option value="5000000" {% if filters.min_turnover == 5000000 %}selected{% endif %}>5M</option>
+                <option value="10000000" {% if filters.min_turnover == 10000000 %}selected{% endif %}>10M</option>
+                <option value="20000000" {% if filters.min_turnover == 20000000 %}selected{% endif %}>20M</option>
+                <option value="50000000" {% if filters.min_turnover == 50000000 %}selected{% endif %}>50M</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Sector</label>
+            <select name="sector">
+                <option value="All">All Sectors</option>
+                {% for s in sectors %}
+                <option value="{{ s }}" {% if filters.sector == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Min Price</label>
+            <input type="number" name="min_price" value="{{ filters.min_price }}" step="0.01" min="0">
+        </div>
+
+        <div class="filter-group">
+            <label>Sort By</label>
+            <select name="sort_by">
+                {% if filters.preset != 'all' %}
+                <option value="rs" {% if filters.sort_by == 'rs' %}selected{% endif %}>RS Rank</option>
+                <option value="mansfield" {% if filters.sort_by == 'mansfield' %}selected{% endif %}>Mansfield RS</option>
+                <option value="dist_high" {% if filters.sort_by == 'dist_high' %}selected{% endif %}>Dist to 52w High</option>
+                {% endif %}
+                <option value="turnover" {% if filters.sort_by == 'turnover' %}selected{% endif %}>Turnover</option>
+                <option value="mcap" {% if filters.sort_by == 'mcap' %}selected{% endif %}>Market Cap</option>
+                <option value="change" {% if filters.sort_by == 'change' %}selected{% endif %}>Day Change %</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn">Scan</button>
+        </div>
+    </div>
+</form>
+
+{% if stage_dist %}
+{% set qualified = universe_total - stage_dist.get(0, {}).get('count', 0) %}
+{% set qualified_pct = (qualified / universe_total * 100) if universe_total > 0 else 0 %}
+<div class="status-bar" style="gap: 12px; flex-wrap: wrap;">
+    <span>Universe: <span class="count">{{ universe_total }}</span></span>
+    <span>| Classified: <span class="count">{{ qualified }}</span> ({{ "%.0f" | format(qualified_pct) }}%)</span>
+    <span>|</span>
+    {% for stage_id, info in stage_dist.items() %}
+    {% if stage_id != 0 and qualified > 0 %}
+    {% set stage_of_qualified = (info.count / qualified * 100) %}
+    <span style="{% if stage_id == 2 %}color: var(--phosphor-bright, var(--green));{% elif stage_id == 4 %}color: var(--red, #ff3333);{% elif stage_id == 1 %}color: var(--amber, #ffb000);{% elif stage_id == 3 %}color: var(--orange, #ff6e27);{% endif %}">
+        S{{ stage_id }}: {{ info.count }} ({{ "%.0f" | format(stage_of_qualified) }}%)
+    </span>
+    {% endif %}
+    {% endfor %}
+    <span>|</span>
+    <span>{{ fetch_time }}</span>
+</div>
+
+{% if market_regime %}
+<div style="padding: 6px 10px; margin-bottom: 10px; border-left: 3px solid
+    {% if market_regime == 'Healthy Bull' %}var(--phosphor-bright, var(--green))
+    {% elif market_regime == 'Late Bull' %}var(--amber, #ffb000)
+    {% elif market_regime == 'Bear' %}var(--red, #ff3333)
+    {% else %}var(--text-dim, #888){% endif %};">
+    Market Regime: <strong>{{ market_regime }}</strong>
+    {% if qualified > 0 %}
+    (S2: {{ "%.0f" | format(stage_dist.get(2, {}).get('count', 0) / qualified * 100) }}% / S4: {{ "%.0f" | format(stage_dist.get(4, {}).get('count', 0) / qualified * 100) }}%)
+    {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<div class="status-bar">
+    <span>Results: <span class="count">{{ data | length }}</span></span>
+    {% if not stage_dist %}
+    <span>{{ fetch_time }}</span>
+    {% endif %}
+</div>
+
+{% if sector_stats and sector_stats | length > 0 %}
+<details style="margin-bottom: 12px;">
+    <summary style="cursor: pointer; font-family: 'VT323', 'Share Tech Mono', monospace; font-size: 16px; color: var(--phosphor, var(--cyan)); padding: 4px 0;">
+        Sector Breakdown ({{ sector_stats | length }} sectors)
+    </summary>
+    <div class="table-wrap" style="margin-top: 6px;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Sector</th>
+                    <th>Count</th>
+                    <th>Sector Total</th>
+                    <th>% of Sector</th>
+                    <th>% of Results</th>
+                    <th>Median PE</th>
+                    <th>Median Fwd PE</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sector_stats %}
+                <tr>
+                    <td style="text-align: left;">{{ s.sector }}</td>
+                    <td>{{ s.count }}</td>
+                    <td>{{ s.total }}</td>
+                    <td>{{ "%.1f%%" | format(s.pct_of_sector) }}</td>
+                    <td>{{ "%.1f%%" | format(s.pct_of_results) }}</td>
+                    <td>{{ "%.1f" | format(s.median_pe) if s.median_pe else '—' }}</td>
+                    <td>{{ "%.1f" | format(s.median_fwd_pe) if s.median_fwd_pe else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</details>
+{% endif %}
+
+{% if data | length > 0 %}
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Name</th>
+                {% if filters.preset != 'all' %}
+                <th>Days</th>
+                {% endif %}
+                <th>Price</th>
+                <th>Chg%</th>
+                {% if filters.preset == 'all' %}
+                <th>Exchange</th>
+                <th>Sector</th>
+                <th>MktCap</th>
+                <th>Turnover</th>
+                <th>52w%</th>
+                <th>PE</th>
+                <th>FwdPE</th>
+                <th>EPS Est</th>
+                <th>DivYld</th>
+                <th>MA50</th>
+                <th>MA200</th>
+                {% else %}
+                <th>MA50</th>
+                <th>MA150</th>
+                <th>MA200</th>
+                <th>RS Rank</th>
+                <th>Mansfield</th>
+                <th>Dist Days</th>
+                <th>ADR%</th>
+                <th>From 52H</th>
+                <th>From 52L</th>
+                <th>Transition</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data %}
+            <tr onclick="window.location='/chart/{{ row.Symbol }}'" style="cursor: pointer;">
+                <td>{{ row.Symbol }}</td>
+                {% if filters.preset == 'all' %}
+                <td>{{ row.Name | default('—', true) }}</td>
+                {% else %}
+                <td>{{ row.get('Name', '') or '—' }}</td>
+                <td>{{ row.DaysInStage }}</td>
+                {% endif %}
+                <td>{{ "%.2f" | format(row.Price) if row.Price else '—' }}</td>
+                <td class="{{ 'positive' if row.get('Change%', 0) and row['Change%'] > 0 else 'negative' if row.get('Change%', 0) and row['Change%'] < 0 else 'neutral' }}">
+                    {{ "%+.1f%%" | format(row['Change%']) if row.get('Change%') else '—' }}
+                </td>
+                {% if filters.preset == 'all' %}
+                <td>{{ row.Exchange | default('—', true) }}</td>
+                <td>{{ row.Sector | default('—', true) }}</td>
+                <td>{{ fmt_number(row.MktCap) if row.MktCap else '—' }}</td>
+                <td>{{ fmt_number(row.Turnover) if row.Turnover else '—' }}</td>
+                <td class="{{ 'positive' if row.get('52wChg%', 0) and row['52wChg%'] > 0 else 'negative' if row.get('52wChg%', 0) and row['52wChg%'] < 0 else 'neutral' }}">
+                    {{ "%+.1f%%" | format(row['52wChg%']) if row.get('52wChg%') else '—' }}
+                </td>
+                <td>{{ "%.1f" | format(row.PE) if row.get('PE') and row.PE == row.PE else '—' }}</td>
+                <td>{{ "%.1f" | format(row.FwdPE) if row.get('FwdPE') and row.FwdPE == row.FwdPE else '—' }}</td>
+                <td>{{ "%.2f" | format(row.EPS_Est) if row.get('EPS_Est') and row.EPS_Est == row.EPS_Est else '—' }}</td>
+                <td>{{ "%.2f%%" | format(row.DivYield * 100) if row.get('DivYield') and row.DivYield == row.DivYield else '—' }}</td>
+                <td>{{ "%.2f" | format(row.MA50) if row.get('MA50') and row.MA50 == row.MA50 else '—' }}</td>
+                <td>{{ "%.2f" | format(row.MA200) if row.get('MA200') and row.MA200 == row.MA200 else '—' }}</td>
+                {% else %}
+                <td>{{ "%.2f" | format(row.MA50) if row.MA50 == row.MA50 else '—' }}</td>
+                <td>{{ "%.2f" | format(row.MA150) if row.MA150 == row.MA150 else '—' }}</td>
+                <td>{{ "%.2f" | format(row.MA200) if row.MA200 == row.MA200 else '—' }}</td>
+                <td>{{ "%.0f" | format(row.RS_Rank) if row.RS_Rank == row.RS_Rank else '—' }}</td>
+                <td class="{{ 'positive' if row.Mansfield_RS > 0 else 'negative' }}">
+                    {{ "%+.1f" | format(row.Mansfield_RS) if row.Mansfield_RS == row.Mansfield_RS else '—' }}
+                </td>
+                <td>{{ "%.0f" | format(row.DistDays25) if row.DistDays25 == row.DistDays25 else '—' }}</td>
+                <td>{{ "%.1f" | format(row.ADR20) if row.ADR20 == row.ADR20 else '—' }}</td>
+                <td>{{ "%.1f%%" | format(row['Dist52wHigh%']) if row['Dist52wHigh%'] == row['Dist52wHigh%'] else '—' }}</td>
+                <td>{{ "%.1f%%" | format(row['Dist52wLow%']) if row['Dist52wLow%'] == row['Dist52wLow%'] else '—' }}</td>
+                <td style="{% if row.Transition %}color: var(--phosphor-bright, var(--green)); font-weight: bold;{% endif %}">
+                    {{ row.Transition if row.Transition else '—' }}
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="loading" style="animation: none;">
+    No results matching criteria.
+</div>
+{% endif %}
+{% endblock %}

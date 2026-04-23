@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title_suffix %}// Stage Classifier{% endblock %}
+
+{% block content %}
+<h2 class="page-title">Stage Classifier</h2>
+
+<form method="GET" action="{{ url_for('stages_page') }}">
+    <div class="filter-panel">
+        <div class="filter-group">
+            <label>Region</label>
+            <select name="region">
+                <option value="US" {% if filters.region == 'US' %}selected{% endif %}>US</option>
+                <option value="Europe" {% if filters.region == 'Europe' %}selected{% endif %}>Europe</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Min Turnover</label>
+            <select name="min_turnover">
+                <option value="5000000" {% if filters.min_turnover == 5000000 %}selected{% endif %}>5M</option>
+                <option value="10000000" {% if filters.min_turnover == 10000000 %}selected{% endif %}>10M</option>
+                <option value="20000000" {% if filters.min_turnover == 20000000 %}selected{% endif %}>20M</option>
+                <option value="50000000" {% if filters.min_turnover == 50000000 %}selected{% endif %}>50M</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Min RS Rank</label>
+            <input type="number" name="min_rs" value="{{ filters.min_rs }}" step="1" min="0" max="100">
+        </div>
+
+        <div class="filter-group">
+            <label>Max Stocks</label>
+            <select name="max_stocks">
+                <option value="200" {% if filters.max_stocks == 200 %}selected{% endif %}>200</option>
+                <option value="500" {% if filters.max_stocks == 500 %}selected{% endif %}>500</option>
+                <option value="1000" {% if filters.max_stocks == 1000 %}selected{% endif %}>1000</option>
+                <option value="2000" {% if filters.max_stocks == 2000 %}selected{% endif %}>2000</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Sort By</label>
+            <select name="sort_by">
+                <option value="rs" {% if filters.sort_by == 'rs' %}selected{% endif %}>RS Rank</option>
+                <option value="mansfield" {% if filters.sort_by == 'mansfield' %}selected{% endif %}>Mansfield RS</option>
+                <option value="dist_high" {% if filters.sort_by == 'dist_high' %}selected{% endif %}>Dist to 52w High</option>
+                <option value="transition" {% if filters.sort_by == 'transition' %}selected{% endif %}>Transitions First</option>
+            </select>
+        </div>
+
+        <input type="hidden" name="stage_filter" value="{{ filters.stage_filter }}">
+
+        <div class="filter-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn">Classify</button>
+        </div>
+    </div>
+</form>
+
+{% if stage_dist %}
+<div class="status-bar" style="gap: 12px; flex-wrap: wrap;">
+    <span>Total classified: <span class="count">{{ total }}</span></span>
+    <span>|</span>
+    {% for stage_id, info in stage_dist.items() %}
+    {% if stage_id != 0 %}
+    <span style="{% if stage_id == 2 %}color: var(--phosphor-bright, var(--green));{% elif stage_id == 4 %}color: var(--red, #ff3333);{% elif stage_id == 1 %}color: var(--amber, #ffb000);{% elif stage_id == 3 %}color: var(--orange, #ff6e27);{% endif %}">
+        S{{ stage_id }}: {{ info.count }} ({{ "%.0f" | format(info.pct) }}%)
+    </span>
+    {% endif %}
+    {% endfor %}
+    <span>|</span>
+    <span>Unclassified: {{ stage_dist.get(0, {}).get('count', 0) }}</span>
+    <span>|</span>
+    <span>{{ fetch_time }}</span>
+</div>
+
+{% if market_regime %}
+<div style="padding: 6px 10px; margin-bottom: 10px; border-left: 3px solid
+    {% if market_regime == 'Healthy Bull' %}var(--phosphor-bright, var(--green))
+    {% elif market_regime == 'Late Bull' %}var(--amber, #ffb000)
+    {% elif market_regime == 'Bear' %}var(--red, #ff3333)
+    {% else %}var(--text-dim, #888){% endif %};">
+    Market Regime: <strong>{{ market_regime }}</strong>
+    (S2: {{ "%.0f" | format(stage_dist.get(2, {}).get('pct', 0)) }}% / S4: {{ "%.0f" | format(stage_dist.get(4, {}).get('pct', 0)) }}%)
+</div>
+{% endif %}
+{% endif %}
+
+{% macro stage_table(rows, stage_id, stage_name, stage_color) %}
+{% if rows | length > 0 %}
+<div style="margin-bottom: 24px;">
+    <h3 style="color: {{ stage_color }}; font-family: 'VT323', monospace; font-size: 20px; margin-bottom: 6px; border-bottom: 1px solid {{ stage_color }}33; padding-bottom: 4px;">
+        Stage {{ stage_id }} — {{ stage_name }} ({{ rows | length }})
+    </h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Days</th>
+                    <th>Price</th>
+                    <th>Chg%</th>
+                    <th>MA50</th>
+                    <th>MA150</th>
+                    <th>MA200</th>
+                    <th>RS Rank</th>
+                    <th>Mansfield</th>
+                    <th>Dist Days</th>
+                    <th>ADR%</th>
+                    <th>From 52H</th>
+                    <th>From 52L</th>
+                    <th>Transition</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td>{{ row.Symbol }}</td>
+                    <td>{{ row.DaysInStage }}</td>
+                    <td>{{ "%.2f" | format(row.Price) }}</td>
+                    <td class="{{ 'positive' if row.get('Change%', 0) > 0 else 'negative' if row.get('Change%', 0) < 0 else 'neutral' }}">
+                        {{ "%+.1f%%" | format(row['Change%']) if row.get('Change%') else '—' }}
+                    </td>
+                    <td>{{ "%.2f" | format(row.MA50) if row.MA50 == row.MA50 else '—' }}</td>
+                    <td>{{ "%.2f" | format(row.MA150) if row.MA150 == row.MA150 else '—' }}</td>
+                    <td>{{ "%.2f" | format(row.MA200) if row.MA200 == row.MA200 else '—' }}</td>
+                    <td>{{ "%.0f" | format(row.RS_Rank) if row.RS_Rank == row.RS_Rank else '—' }}</td>
+                    <td class="{{ 'positive' if row.Mansfield_RS > 0 else 'negative' }}">
+                        {{ "%+.1f" | format(row.Mansfield_RS) if row.Mansfield_RS == row.Mansfield_RS else '—' }}
+                    </td>
+                    <td>{{ "%.0f" | format(row.DistDays25) if row.DistDays25 == row.DistDays25 else '—' }}</td>
+                    <td>{{ "%.1f" | format(row.ADR20) if row.ADR20 == row.ADR20 else '—' }}</td>
+                    <td>{{ "%.1f%%" | format(row['Dist52wHigh%']) if row['Dist52wHigh%'] == row['Dist52wHigh%'] else '—' }}</td>
+                    <td>{{ "%.1f%%" | format(row['Dist52wLow%']) if row['Dist52wLow%'] == row['Dist52wLow%'] else '—' }}</td>
+                    <td style="{% if row.Transition %}color: var(--phosphor-bright, var(--green)); font-weight: bold;{% endif %}">
+                        {{ row.Transition if row.Transition else '—' }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% if data | length > 0 %}
+    {{ stage_table(stage2_data, 2, "Uptrend — LONG", "var(--phosphor-bright, #33ff00)") }}
+    {{ stage_table(stage1_data, 1, "Basing — WATCH", "var(--amber, #ffb000)") }}
+    {{ stage_table(stage3_data, 3, "Topping — REDUCE", "var(--orange, #ff6e27)") }}
+    {{ stage_table(stage4_data, 4, "Declining — SHORT", "var(--red, #ff3333)") }}
+{% elif data is defined %}
+<div class="loading" style="animation: none;">No results. Try broader filters or wait for data to load.</div>
+{% endif %}
+{% endblock %}

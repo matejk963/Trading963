@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MKTT {% block title_suffix %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="topbar">
+        <div class="logo">MKTT <span>v0.1 // trading terminal</span></div>
+        <div class="nav-links">
+            <a href="{{ url_for('screener_page') }}" class="{% if request.endpoint == 'screener_page' %}active{% endif %}">Screener</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <div class="footer">
+        MKTT // Matej Krajcovic Trading Tool // {{ now.strftime('%Y-%m-%d %H:%M') }} UTC
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

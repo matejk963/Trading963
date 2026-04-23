@@ -60,6 +60,36 @@ def calculate_roc_29m(series: pd.Series) -> pd.Series:
     return calculate_roc(series, periods=periods)
 
 
+def calculate_roc_4w(series: pd.Series) -> pd.Series:
+    """Calculate 4-week rate of change (auto-detects frequency)"""
+    if len(series) > 50:
+        avg_gap = (series.index[-1] - series.index[0]).days / len(series)
+        if avg_gap > 15:  # Monthly
+            periods = 1  # ~1 month
+        elif avg_gap > 4:  # Weekly
+            periods = 4
+        else:  # Daily
+            periods = 20
+    else:
+        periods = 4
+    return calculate_roc(series, periods=periods)
+
+
+def calculate_roc_18m(series: pd.Series) -> pd.Series:
+    """Calculate 18-month rate of change (Boucher spec for ISM Prices)"""
+    if len(series) > 50:
+        avg_gap = (series.index[-1] - series.index[0]).days / len(series)
+        if avg_gap > 15:  # Monthly
+            periods = 18
+        elif avg_gap > 4:  # Weekly
+            periods = 78  # ~18 months
+        else:  # Daily
+            periods = 378
+    else:
+        periods = 18
+    return calculate_roc(series, periods=periods)
+
+
 def calculate_yoy(series: pd.Series) -> pd.Series:
     """
     Calculate year-over-year change for monthly data
@@ -160,10 +190,14 @@ def calculate_continuous_indicator_score(series: pd.Series, config: dict) -> pd.
         yoy_periods = 12
         zscore_window = 60
 
-    if signal_type in ['roc_12m', 'roc_29m', 'yoy']:
+    if signal_type in ['roc_12m', 'roc_29m', 'roc_4w', 'roc_18m', 'yoy']:
         # Already a change measure, just Z-score it
         if signal_type == 'roc_29m':
             change = calculate_roc_29m(series)
+        elif signal_type == 'roc_4w':
+            change = calculate_roc_4w(series)
+        elif signal_type == 'roc_18m':
+            change = calculate_roc_18m(series)
         else:
             change = series.pct_change(periods=yoy_periods)
         zscore = calculate_rolling_zscore(change, window=zscore_window)
@@ -220,8 +254,6 @@ def calculate_continuous_layer_scores(raw_data: pd.DataFrame,
         # Handle derived indicators
         if config.get('derived', False):
             if indicator_id == 'net_liquidity':
-                # Net Liquidity = WALCL - TGA - RRP (with 10-period EMA smoothing)
-                # 10 periods covers ~2 weeks to smooth weekly data updates
                 if all(c in raw_data.columns for c in ['WALCL', 'WTREGEN', 'RRPONTSYD']):
                     net_liq = calculate_net_liquidity(
                         raw_data['WALCL'],
@@ -233,6 +265,47 @@ def calculate_continuous_layer_scores(raw_data: pd.DataFrame,
                     if len(net_liq.dropna()) >= 50:
                         zscore = calculate_continuous_indicator_score(net_liq.dropna(), config)
                         score_series[indicator_id] = zscore
+
+            elif indicator_id == 'real_policy_rate':
+                if all(c in raw_data.columns for c in ['DFF', 'PCEPILFE']):
+                    real_rate, zlb_flag = calculate_real_policy_rate(
+                        raw_data['DFF'], raw_data['PCEPILFE']
+                    )
+                    real_rate_clean = real_rate.dropna()
+                    if len(real_rate_clean) >= 50:
+                        zscore = calculate_continuous_indicator_score(real_rate_clean, config)
+                        # Apply ZLB down-weighting if currently at ZLB
+                        zlb_weight = config.get('zlb_weight', 0.5)
+                        if not zlb_flag.empty and zlb_flag.iloc[-1]:
+                            zscore = zscore * zlb_weight
+                        score_series[indicator_id] = zscore
+
+            elif indicator_id == 'mmf_deployed':
+                if all(c in raw_data.columns for c in ['WRMFSL', 'RRPONTSYD']):
+                    deployed = calculate_mmf_deployed(
+                        raw_data['WRMFSL'], raw_data['RRPONTSYD']
+                    )
+                    deployed_clean = deployed.dropna()
+                    if len(deployed_clean) >= 50:
+                        zscore = calculate_continuous_indicator_score(deployed_clean, config)
+                        score_series[indicator_id] = zscore
+
+            elif indicator_id == 'sofr_effr_spread':
+                if all(c in raw_data.columns for c in ['SOFR', 'EFFR']):
+                    spread = calculate_sofr_effr_spread(raw_data['SOFR'], raw_data['EFFR'])
+                    spread_clean = spread.dropna()
+                    if len(spread_clean) >= 50:
+                        zscore = calculate_continuous_indicator_score(spread_clean, config)
+                        score_series[indicator_id] = zscore
+
+            elif indicator_id == 'cpi_momentum':
+                if 'CPIAUCSL' in raw_data.columns:
+                    momentum = calculate_cpi_momentum(raw_data['CPIAUCSL'])
+                    momentum_clean = momentum.dropna()
+                    if len(momentum_clean) >= 50:
+                        zscore = calculate_continuous_indicator_score(momentum_clean, config)
+                        score_series[indicator_id] = zscore
+
             continue
 
         # Skip component indicators (used in derived calculations)
@@ -280,9 +353,10 @@ def calculate_historical_continuous_totals(raw_data: pd.DataFrame,
     l2b_scores = calculate_continuous_layer_scores(raw_data, l2b_config)
 
     # Mean across indicators (keeps on comparable scale)
-    l1_mean = l1_scores.mean(axis=1, skipna=True) if not l1_scores.empty else pd.Series(dtype=float)
-    l2a_mean = l2a_scores.mean(axis=1, skipna=True) if not l2a_scores.empty else pd.Series(dtype=float)
-    l2b_mean = l2b_scores.mean(axis=1, skipna=True) if not l2b_scores.empty else pd.Series(dtype=float)
+    empty_dt_series = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    l1_mean = l1_scores.mean(axis=1, skipna=True) if not l1_scores.empty else empty_dt_series
+    l2a_mean = l2a_scores.mean(axis=1, skipna=True) if not l2a_scores.empty else empty_dt_series
+    l2b_mean = l2b_scores.mean(axis=1, skipna=True) if not l2b_scores.empty else empty_dt_series
 
     # Combine into DataFrame - this creates union of all indices
     result = pd.DataFrame({
@@ -304,8 +378,14 @@ def calculate_historical_continuous_totals(raw_data: pd.DataFrame,
         result_filled['L2b'] * 0.25
     )
 
+    # Ensure index is DatetimeIndex (safe in case of empty layer)
+    if not isinstance(result.index, pd.DatetimeIndex):
+        result.index = pd.to_datetime(result.index, errors='coerce')
+        result = result[result.index.notna()]
+
     # Start from 2005 to have sufficient Z-score history
-    return result.loc[result.index >= '2005-01-01']
+    cutoff = pd.Timestamp('2005-01-01')
+    return result.loc[result.index >= cutoff]
 
 
 # =============================================================================
@@ -403,6 +483,43 @@ def calculate_yield_curve(dgs10: pd.Series, dgs2: pd.Series) -> pd.Series:
     df = df.ffill()
 
     return df['DGS10'] - df['DGS2']
+
+
+def calculate_real_policy_rate(dff: pd.Series, core_pce: pd.Series,
+                                zlb_threshold: float = 0.25) -> Tuple[pd.Series, pd.Series]:
+    """
+    Calculate Real Policy Rate = DFF - Core PCE YoY
+
+    Args:
+        dff: Fed Funds Rate series
+        core_pce: Core PCE Price Index (level, not YoY)
+        zlb_threshold: Rate below which ZLB flag is set
+
+    Returns:
+        Tuple of (real_rate_series, zlb_flag_series)
+    """
+    # Calculate Core PCE YoY (12-month change)
+    pce_yoy = core_pce.pct_change(periods=12) * 100  # As percentage
+
+    df = pd.DataFrame({'FF': dff, 'PCE_YoY': pce_yoy})
+    df = df.ffill()
+
+    real_rate = df['FF'] - df['PCE_YoY']
+    zlb_flag = df['FF'] <= zlb_threshold
+
+    return real_rate, zlb_flag
+
+
+def calculate_mmf_deployed(wrmfsl: pd.Series, rrpontsyd: pd.Series) -> pd.Series:
+    """
+    Calculate MMF Deployed Cash = WRMFSL - RRPONTSYD
+
+    Rising deployed cash = liquidity entering private wholesale system.
+    Rising total MMF with rising RRP = abundance but not transmitting.
+    """
+    df = pd.DataFrame({'MMF': wrmfsl, 'RRP': rrpontsyd})
+    df = df.ffill()
+    return df['MMF'] - df['RRP']
 
 
 def calculate_sofr_effr_spread(sofr: pd.Series, effr: pd.Series) -> pd.Series:
@@ -503,7 +620,7 @@ def score_indicator(value: float, config: dict) -> int:
     signal_type = config.get('signal_type', 'level')
     invert = config.get('invert', False)
 
-    if signal_type in ['roc_12m', 'roc_29m', 'yoy']:
+    if signal_type in ['roc_12m', 'roc_29m', 'roc_4w', 'roc_18m', 'yoy']:
         return score_indicator_roc(
             value,
             config.get('bullish_threshold', 0),
@@ -568,20 +685,24 @@ def calculate_layer_scores(raw_data: pd.DataFrame, layer_config: dict) -> pd.Dat
                     transformed = calculate_roc_12m(series)
 
             elif indicator_id == 'real_policy_rate':
-                if all(c in raw_data.columns for c in ['DFF', 'CPIAUCSL']):
+                if all(c in raw_data.columns for c in ['DFF', 'PCEPILFE']):
+                    series, _ = calculate_real_policy_rate(raw_data['DFF'], raw_data['PCEPILFE'])
+                    transformed = series
+                elif all(c in raw_data.columns for c in ['DFF', 'CPIAUCSL']):
+                    # Fallback to CPI if Core PCE not available
                     cpi_yoy = calculate_yoy(raw_data['CPIAUCSL']) * 100
                     series = calculate_real_rate(raw_data['DFF'], cpi_yoy)
-                    transformed = series
-
-            elif indicator_id == 'yield_curve':
-                if all(c in raw_data.columns for c in ['DGS10', 'DGS2']):
-                    series = calculate_yield_curve(raw_data['DGS10'], raw_data['DGS2'])
                     transformed = series
 
             elif indicator_id == 'sofr_effr_spread':
                 if all(c in raw_data.columns for c in ['SOFR', 'EFFR']):
                     series = calculate_sofr_effr_spread(raw_data['SOFR'], raw_data['EFFR'])
                     transformed = series
+
+            elif indicator_id == 'mmf_deployed':
+                if all(c in raw_data.columns for c in ['WRMFSL', 'RRPONTSYD']):
+                    series = calculate_mmf_deployed(raw_data['WRMFSL'], raw_data['RRPONTSYD'])
+                    transformed = calculate_roc_12m(series)
 
             elif indicator_id == 'cpi_momentum':
                 if 'CPIAUCSL' in raw_data.columns:
@@ -759,6 +880,10 @@ def calculate_historical_scores(raw_data: pd.DataFrame, layer_config: dict) -> p
             transformed = calculate_roc_12m(series)
         elif signal_type == 'roc_29m':
             transformed = calculate_roc_29m(series)
+        elif signal_type == 'roc_4w':
+            transformed = calculate_roc_4w(series)
+        elif signal_type == 'roc_18m':
+            transformed = calculate_roc_18m(series)
         elif signal_type == 'yoy':
             transformed = calculate_yoy(series)
         elif signal_type == 'momentum':

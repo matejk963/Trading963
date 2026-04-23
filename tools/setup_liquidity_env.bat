@@ -23,12 +23,14 @@ call venv_liquidity\Scripts\activate.bat
 
 echo.
 echo Installing required packages...
-pip install --upgrade pip
-pip install streamlit>=1.28.0
-pip install pandas>=2.0.0
-pip install plotly>=5.17.0
-pip install fredapi>=0.5.0
-pip install numpy>=1.24.0
+python -m pip install --upgrade pip
+python -m pip install streamlit>=1.28.0
+python -m pip install pandas>=2.0.0
+python -m pip install plotly>=5.17.0
+python -m pip install fredapi>=0.5.0
+python -m pip install numpy>=1.24.0
+python -m pip install scipy>=1.10.0
+python -m pip install yfinance>=0.2.0
 
 echo.
 echo ========================================
