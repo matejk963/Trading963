@@ -23,6 +23,81 @@ app.register_blueprint(macro_bp)
 
 
 # =========================================================================
+# PCA / Stage / EPS classification lookups
+# =========================================================================
+_classification_cache = {'data': None}
+
+def load_classification_lookups():
+    """Load pre-computed PCA, stage, and EPS accel/decel classifications."""
+    if _classification_cache['data'] is not None:
+        return _classification_cache['data']
+
+    import json
+    from pathlib import Path
+    data_dir = Path(__file__).parent.parent.parent / 'sandbox' / 'analysis' / 'stage_pca' / 'output' / 'data'
+
+    lookups = {}
+
+    # PCA-20 regimes: symbol -> regime name
+    try:
+        with open(data_dir / 'pca20_5c_meta.json') as f:
+            d = json.load(f)
+        pca = {}
+        for k, v in d.items():
+            for st in v['stocks']:
+                pca[st['s']] = v['n']
+        lookups['pca20'] = pca
+        lookups['pca20_labels'] = sorted(set(pca.values()))
+    except:
+        lookups['pca20'] = {}
+        lookups['pca20_labels'] = []
+
+    # Weinstein stages: symbol -> stage label
+    try:
+        with open(data_dir / 'stages_meta.json') as f:
+            d = json.load(f)
+        stages = {}
+        for k, v in d.items():
+            for st in v['stocks']:
+                stages[st['s']] = v['n']
+        lookups['stages'] = stages
+        lookups['stage_labels'] = sorted(set(stages.values()))
+    except:
+        lookups['stages'] = {}
+        lookups['stage_labels'] = []
+
+    # EPS acceleration: symbol -> 'Accelerating' or 'Decelerating'
+    try:
+        with open(data_dir / 'eps_growth_meta.json') as f:
+            d = json.load(f)
+        eps_acc = {}
+        for k, v in d.get('accel', {}).items():
+            for st in v['stocks']:
+                eps_acc[st['s']] = {'label': 'Accelerating' if k == '1' else 'Decelerating',
+                                    'acc': st.get('acc'), 'g1': st.get('g1'), 'g2': st.get('g2')}
+        lookups['eps_accel'] = eps_acc
+    except:
+        lookups['eps_accel'] = {}
+
+    # MA Screener: symbol -> category
+    try:
+        with open(data_dir / 'screener_meta.json') as f:
+            d = json.load(f)
+        ma_screen = {}
+        for k, v in d.items():
+            for st in v['stocks']:
+                ma_screen[st['s']] = v['n']
+        lookups['ma_screen'] = ma_screen
+        lookups['ma_screen_labels'] = sorted(set(ma_screen.values()))
+    except:
+        lookups['ma_screen'] = {}
+        lookups['ma_screen_labels'] = []
+
+    _classification_cache['data'] = lookups
+    return lookups
+
+
+# =========================================================================
 # Refinitiv data enrichment
 # =========================================================================
 _refinitiv_cache = {'data': None, 'mtime': 0}
@@ -142,12 +217,82 @@ def screener_page():
     min_price = float(request.args.get('min_price', '0'))
     sort_by = request.args.get('sort_by', 'turnover' if preset == 'all' else 'rs')
 
+    # Fundamental filters
+    def _flt(name):
+        v = request.args.get(name, '')
+        if v == '': return None
+        try: return float(v)
+        except: return None
+
+    pe_min = _flt('pe_min')
+    pe_max = _flt('pe_max')
+    fwdpe_min = _flt('fwdpe_min')
+    fwdpe_max = _flt('fwdpe_max')
+    opmgn_min = _flt('opmgn_min')
+    opmgn_max = _flt('opmgn_max')
+    roic_min = _flt('roic_min')
+    roic_max = _flt('roic_max')
+    evebitda_min = _flt('evebitda_min')
+    evebitda_max = _flt('evebitda_max')
+    ndebitda_min = _flt('ndebitda_min')
+    ndebitda_max = _flt('ndebitda_max')
+    rs_min = _flt('rs_min')
+    analysts_min = _flt('analysts_min')
+    eps_growth = request.args.get('eps_growth', '')
+
+    # Classification filters
+    pca_regime = request.args.get('pca_regime', '')
+    stage_filter = request.args.get('stage_class', '')
+    eps_accel_filter = request.args.get('eps_accel', '')
+    ma_screen_filter = request.args.get('ma_screen', '')
+
+    # Technical filters
+    pct50_min = _flt('pct50_min')
+    pct50_max = _flt('pct50_max')
+    pct200_min = _flt('pct200_min')
+    pct200_max = _flt('pct200_max')
+    from52h_min = _flt('from52h_min')
+    from52h_max = _flt('from52h_max')
+    from52l_min = _flt('from52l_min')
+    ma_setup = request.args.get('ma_setup', '')
+
+    has_fund_filters = any(x is not None for x in [
+        pe_min, pe_max, fwdpe_min, fwdpe_max, opmgn_min, opmgn_max,
+        roic_min, roic_max, evebitda_min, evebitda_max, ndebitda_min, ndebitda_max,
+        rs_min, analysts_min]) or eps_growth != ''
+
+    has_tech_filters = any(x is not None for x in [
+        pct50_min, pct50_max, pct200_min, pct200_max,
+        from52h_min, from52h_max, from52l_min]) or ma_setup != ''
+
+    has_class_filters = any(x != '' for x in [pca_regime, stage_filter, eps_accel_filter, ma_screen_filter])
+
     filters = {
         'preset': preset,
         'min_turnover': min_turnover,
         'sector': sector,
         'min_price': min_price,
         'sort_by': sort_by,
+        'pe_min': pe_min, 'pe_max': pe_max,
+        'fwdpe_min': fwdpe_min, 'fwdpe_max': fwdpe_max,
+        'opmgn_min': opmgn_min, 'opmgn_max': opmgn_max,
+        'roic_min': roic_min, 'roic_max': roic_max,
+        'evebitda_min': evebitda_min, 'evebitda_max': evebitda_max,
+        'ndebitda_min': ndebitda_min, 'ndebitda_max': ndebitda_max,
+        'rs_min': rs_min, 'analysts_min': analysts_min,
+        'eps_growth': eps_growth,
+        'has_fund_filters': has_fund_filters,
+        'pct50_min': pct50_min, 'pct50_max': pct50_max,
+        'pct200_min': pct200_min, 'pct200_max': pct200_max,
+        'from52h_min': from52h_min, 'from52h_max': from52h_max,
+        'from52l_min': from52l_min,
+        'ma_setup': ma_setup,
+        'has_tech_filters': has_tech_filters,
+        'pca_regime': pca_regime,
+        'stage_class': stage_filter,
+        'eps_accel': eps_accel_filter,
+        'ma_screen': ma_screen_filter,
+        'has_class_filters': has_class_filters,
     }
 
     start = time.time()
@@ -167,7 +312,14 @@ def screener_page():
             last_prices = close.iloc[-1]
             prev_prices = close.iloc[-2] if len(close) > 1 else last_prices
 
-            # Compute RS rank (6-month return percentile)
+            # Compute technicals vectorized (all tickers at once)
+            ma50 = close.rolling(50).mean().iloc[-1]
+            ma150 = close.rolling(150).mean().iloc[-1]
+            ma200 = close.rolling(200).mean().iloc[-1]
+            high_52w = close.iloc[-252:].max() if len(close) >= 252 else close.max()
+            low_52w = close.iloc[-252:].min() if len(close) >= 252 else close.min()
+
+            # RS rank (6-month return percentile)
             rs_ranks = {}
             if len(close) > 126:
                 ret_6m = (close.iloc[-1] / close.iloc[-126] - 1)
@@ -183,7 +335,6 @@ def screener_page():
                 if price < min_price:
                     continue
 
-                # Get turnover from universe
                 uni_row = uni[uni['symbol'] == sym].iloc[0] if uni is not None and sym in uni['symbol'].values else None
                 turnover = float(uni_row['turnover']) if uni_row is not None and pd.notna(uni_row.get('turnover')) else 0
                 if turnover < min_turnover:
@@ -196,6 +347,18 @@ def screener_page():
 
                 change_pct = ((price / prev) - 1) * 100 if pd.notna(prev) and prev > 0 else 0
 
+                # Technical values
+                m50 = ma50.get(sym)
+                m150 = ma150.get(sym)
+                m200 = ma200.get(sym)
+                h52 = high_52w.get(sym)
+                l52 = low_52w.get(sym)
+
+                pct_above_50 = ((price / m50) - 1) * 100 if pd.notna(m50) and m50 > 0 else None
+                pct_above_200 = ((price / m200) - 1) * 100 if pd.notna(m200) and m200 > 0 else None
+                from_52h = ((price / h52) - 1) * 100 if pd.notna(h52) and h52 > 0 else None
+                from_52l = ((price / l52) - 1) * 100 if pd.notna(l52) and l52 > 0 else None
+
                 rows.append({
                     'Symbol': sym,
                     'Price': round(float(price), 2),
@@ -204,14 +367,25 @@ def screener_page():
                     'Industry': r.get('industry', ''),
                     'ADV_Dollar': turnover,
                     'RS_Rank': round(rs_ranks.get(sym, 0), 0) if sym in rs_ranks else None,
+                    'MA50': round(float(m50), 2) if pd.notna(m50) else None,
+                    'MA150': round(float(m150), 2) if pd.notna(m150) else None,
+                    'MA200': round(float(m200), 2) if pd.notna(m200) else None,
+                    'PctAbove50': round(float(pct_above_50), 1) if pct_above_50 is not None else None,
+                    'PctAbove200': round(float(pct_above_200), 1) if pct_above_200 is not None else None,
+                    'From52H': round(float(from_52h), 1) if from_52h is not None else None,
+                    'From52L': round(float(from_52l), 1) if from_52l is not None else None,
                 })
 
             df = pd.DataFrame(rows)
             if not df.empty:
-                sort_col_map = {'turnover': 'ADV_Dollar', 'change': 'Change%'}
-                sc = sort_col_map.get(sort_by, 'ADV_Dollar')
+                sort_col_map = {
+                    'turnover': ('ADV_Dollar', False), 'change': ('Change%', False),
+                    'rs': ('RS_Rank', False), 'pe': ('PE', True), 'fwdpe': ('FwdPE', True),
+                    'opmgn': ('OpMargin', False), 'roic': ('ROIC', False), 'evebitda': ('EV_EBITDA', True),
+                }
+                sc, asc_default = sort_col_map.get(sort_by, ('ADV_Dollar', False))
                 if sc in df.columns:
-                    df = df.sort_values(sc, ascending=False, na_position='last')
+                    df = df.sort_values(sc, ascending=asc_default, na_position='last')
                 # No limit — show all qualifying stocks
             data = df.to_dict('records') if not df.empty else []
         else:
@@ -271,6 +445,11 @@ def screener_page():
                     'turnover': ('ADV_Dollar', False),
                     'mcap': ('ADV_Dollar', False),
                     'change': ('Change%', False),
+                    'pe': ('PE', True),
+                    'fwdpe': ('FwdPE', True),
+                    'opmgn': ('OpMargin', False),
+                    'roic': ('ROIC', False),
+                    'evebitda': ('EV_EBITDA', True),
                 }
                 col, asc = sort_map.get(sort_by, ('RS_Rank', False))
                 if col in classified.columns:
@@ -340,12 +519,119 @@ def screener_page():
         # Write enriched data back
         enrich_cols = ['Sector', 'Industry', 'PE', 'FwdPE',
                        'EPS_Act', 'EPS_FY1', 'EPS_FY2', 'OpMargin', 'NetMargin',
-                       'FCF', 'ROIC', 'ND_EBITDA', 'EV_EBITDA', 'Target', 'Analysts']
+                       'FCF', 'ROIC', 'ND_EBITDA', 'EV_EBITDA', 'Target', 'Analysts',
+                       'PCA_Regime', 'Stage_Class', 'EPS_Accel', 'EPS_Acc_Val', 'MA_Screen']
+
+        # Enrich with PCA/Stage/EPS classifications
+        cls = load_classification_lookups()
+        if cls.get('pca20'):
+            results_df['PCA_Regime'] = results_df['Symbol'].map(cls['pca20'])
+        if cls.get('stages'):
+            results_df['Stage_Class'] = results_df['Symbol'].map(cls['stages'])
+        if cls.get('eps_accel'):
+            results_df['EPS_Accel'] = results_df['Symbol'].map(
+                lambda s: cls['eps_accel'].get(s, {}).get('label') if isinstance(cls['eps_accel'].get(s), dict) else None)
+            results_df['EPS_Acc_Val'] = results_df['Symbol'].map(
+                lambda s: cls['eps_accel'].get(s, {}).get('acc') if isinstance(cls['eps_accel'].get(s), dict) else None)
+        if cls.get('ma_screen'):
+            results_df['MA_Screen'] = results_df['Symbol'].map(cls['ma_screen'])
+
+        # Apply classification filters
+        if has_class_filters:
+            if pca_regime and 'PCA_Regime' in results_df.columns:
+                results_df = results_df[results_df['PCA_Regime'] == pca_regime]
+            if stage_filter and 'Stage_Class' in results_df.columns:
+                results_df = results_df[results_df['Stage_Class'] == stage_filter]
+            if eps_accel_filter and 'EPS_Accel' in results_df.columns:
+                results_df = results_df[results_df['EPS_Accel'] == eps_accel_filter]
+            if ma_screen_filter and 'MA_Screen' in results_df.columns:
+                results_df = results_df[results_df['MA_Screen'] == ma_screen_filter]
+            data = results_df.to_dict('records')
+
+        # Apply fundamental filters BEFORE building sector stats
+        def _range_filter(df, col, vmin, vmax):
+            vals = pd.to_numeric(df[col], errors='coerce') if col in df.columns else pd.Series(dtype=float)
+            if vmin is not None:
+                df = df[vals >= vmin]
+                vals = vals.loc[df.index]
+            if vmax is not None:
+                df = df[vals <= vmax]
+            return df
+
+        if has_fund_filters:
+            results_df = _range_filter(results_df, 'PE', pe_min, pe_max)
+            results_df = _range_filter(results_df, 'FwdPE', fwdpe_min, fwdpe_max)
+            results_df = _range_filter(results_df, 'OpMargin', opmgn_min, opmgn_max)
+            results_df = _range_filter(results_df, 'ROIC', roic_min, roic_max)
+            results_df = _range_filter(results_df, 'EV_EBITDA', evebitda_min, evebitda_max)
+            results_df = _range_filter(results_df, 'ND_EBITDA', ndebitda_min, ndebitda_max)
+            results_df = _range_filter(results_df, 'RS_Rank', rs_min, None)
+            results_df = _range_filter(results_df, 'Analysts', analysts_min, None)
+
+            if eps_growth == 'pos' and 'EPS_FY1' in results_df.columns and 'EPS_Act' in results_df.columns:
+                fy1 = pd.to_numeric(results_df['EPS_FY1'], errors='coerce')
+                ttm = pd.to_numeric(results_df['EPS_Act'], errors='coerce')
+                results_df = results_df[fy1 > ttm]
+            elif eps_growth == 'neg' and 'EPS_FY1' in results_df.columns and 'EPS_Act' in results_df.columns:
+                fy1 = pd.to_numeric(results_df['EPS_FY1'], errors='coerce')
+                ttm = pd.to_numeric(results_df['EPS_Act'], errors='coerce')
+                results_df = results_df[fy1 < ttm]
+            elif eps_growth == 'accel' and all(c in results_df.columns for c in ['EPS_FY1','EPS_FY2','EPS_Act']):
+                fy1 = pd.to_numeric(results_df['EPS_FY1'], errors='coerce')
+                fy2 = pd.to_numeric(results_df['EPS_FY2'], errors='coerce')
+                ttm = pd.to_numeric(results_df['EPS_Act'], errors='coerce')
+                results_df = results_df[(fy2 - fy1) > (fy1 - ttm)]
+
+            # Rebuild data list after filtering
+            data = results_df.to_dict('records')
+
+        # Apply technical filters
+        if has_tech_filters:
+            results_df = _range_filter(results_df, 'PctAbove50', pct50_min, pct50_max)
+            results_df = _range_filter(results_df, 'PctAbove200', pct200_min, pct200_max)
+            results_df = _range_filter(results_df, 'From52H', from52h_min, from52h_max)
+            results_df = _range_filter(results_df, 'From52L', from52l_min, None)
+
+            if ma_setup == 'above_all' and all(c in results_df.columns for c in ['Price','MA50','MA150','MA200']):
+                results_df = results_df[
+                    (pd.to_numeric(results_df['Price'], errors='coerce') > pd.to_numeric(results_df['MA50'], errors='coerce')) &
+                    (pd.to_numeric(results_df['Price'], errors='coerce') > pd.to_numeric(results_df['MA150'], errors='coerce')) &
+                    (pd.to_numeric(results_df['Price'], errors='coerce') > pd.to_numeric(results_df['MA200'], errors='coerce'))
+                ]
+            elif ma_setup == 'above_50' and all(c in results_df.columns for c in ['Price','MA50']):
+                results_df = results_df[pd.to_numeric(results_df['Price'], errors='coerce') > pd.to_numeric(results_df['MA50'], errors='coerce')]
+            elif ma_setup == 'below_50' and all(c in results_df.columns for c in ['Price','MA50']):
+                results_df = results_df[pd.to_numeric(results_df['Price'], errors='coerce') < pd.to_numeric(results_df['MA50'], errors='coerce')]
+            elif ma_setup == 'below_all' and all(c in results_df.columns for c in ['Price','MA50','MA150','MA200']):
+                results_df = results_df[
+                    (pd.to_numeric(results_df['Price'], errors='coerce') < pd.to_numeric(results_df['MA50'], errors='coerce')) &
+                    (pd.to_numeric(results_df['Price'], errors='coerce') < pd.to_numeric(results_df['MA150'], errors='coerce')) &
+                    (pd.to_numeric(results_df['Price'], errors='coerce') < pd.to_numeric(results_df['MA200'], errors='coerce'))
+                ]
+            elif ma_setup == 'golden_cross' and all(c in results_df.columns for c in ['MA50','MA200']):
+                results_df = results_df[
+                    (pd.to_numeric(results_df['MA50'], errors='coerce') > pd.to_numeric(results_df['MA200'], errors='coerce'))
+                ]
+            elif ma_setup == 'death_cross' and all(c in results_df.columns for c in ['MA50','MA200']):
+                results_df = results_df[
+                    (pd.to_numeric(results_df['MA50'], errors='coerce') < pd.to_numeric(results_df['MA200'], errors='coerce'))
+                ]
+            elif ma_setup == 'stacked_bull' and all(c in results_df.columns for c in ['MA50','MA150','MA200']):
+                results_df = results_df[
+                    (pd.to_numeric(results_df['MA50'], errors='coerce') > pd.to_numeric(results_df['MA150'], errors='coerce')) &
+                    (pd.to_numeric(results_df['MA150'], errors='coerce') > pd.to_numeric(results_df['MA200'], errors='coerce'))
+                ]
+
+            data = results_df.to_dict('records')
+
+        # Write enriched data back
         for i in range(len(data)):
             for col in enrich_cols:
                 if col in results_df.columns:
-                    val = results_df.iloc[i].get(col)
-                    data[i][col] = val if pd.notna(val) else None
+                    idx = results_df.index[i] if i < len(results_df) else None
+                    if idx is not None:
+                        val = results_df.loc[idx, col] if col in results_df.columns else None
+                        data[i][col] = val if pd.notna(val) else None
 
         pe_col = 'PE' if 'PE' in results_df.columns else None
         fwdpe_col = 'FwdPE' if 'FwdPE' in results_df.columns else None
