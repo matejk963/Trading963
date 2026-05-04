@@ -85,10 +85,10 @@ LAYER1_INDICATORS = {
         'units': 'percent',
         'signal_type': 'component',
     },
-    'tips_2y': {
-        'fred_code': 'DFII2',
-        'name': '2Y TIPS Real Yield',
-        'description': 'Market-implied real rate - confirmation signal (not scored)',
+    'tips_5y': {
+        'fred_code': 'DFII5',
+        'name': '5Y TIPS Real Yield',
+        'description': 'Market-implied real rate - confirmation signal (not scored). Replaced DFII2 (discontinued).',
         'frequency': 'daily',
         'units': 'percent',
         'signal_type': 'component',
@@ -156,9 +156,9 @@ LAYER2A_INDICATORS = {
         'formula': '(SOFR - EFFR) * 100',
     },
     'mmf_assets': {
-        'fred_code': 'WRMFSL',
+        'fred_code': 'WRMFNS',
         'name': 'MMF Total Assets (All)',
-        'description': 'Total Money Market Fund Assets - retail + institutional',
+        'description': 'Total Money Market Fund Assets - not seasonally adjusted. Replaced WRMFSL (discontinued 2021).',
         'frequency': 'weekly',
         'units': 'billions_usd',
         'signal_type': 'roc_12m',
@@ -169,7 +169,7 @@ LAYER2A_INDICATORS = {
     'mmf_deployed': {
         'fred_code': None,
         'name': 'MMF Deployed Cash',
-        'description': 'WRMFSL - RRPONTSYD = cash in private markets (not parked at Fed)',
+        'description': 'WRMFNS - RRPONTSYD = cash in private markets (not parked at Fed)',
         'frequency': 'weekly',
         'units': 'billions_usd',
         'signal_type': 'roc_12m',
@@ -177,7 +177,7 @@ LAYER2A_INDICATORS = {
         'bearish_threshold': 0,
         'invert': False,
         'derived': True,
-        'formula': 'WRMFSL - RRPONTSYD',
+        'formula': 'WRMFNS - RRPONTSYD',
     },
     'hy_spread': {
         'fred_code': 'BAMLH0A0HYM2',
@@ -347,10 +347,10 @@ LAYER2B_INDICATORS = {
         'derived': True,
         'formula': 'CPI_3M_ANN - CPI_12M',
     },
-    'ism_prices': {
-        'fred_code': 'NAPMPRIC',
-        'name': 'ISM Prices Paid',
-        'description': 'ISM Manufacturing Prices Paid - Boucher sensitive materials 18m ROC',
+    'ppi_final_demand': {
+        'fred_code': 'PPIFIS',
+        'name': 'PPI Final Demand Services',
+        'description': 'Producer Price Index - Final Demand Services. Replaced NAPMPRIC (discontinued on FRED).',
         'frequency': 'monthly',
         'units': 'index',
         'signal_type': 'roc_18m',
@@ -472,8 +472,6 @@ TRANSMISSION_STAGES = {
         'indicators': {
             'sp500': {'fred_code': 'SP500', 'signal_type': 'roc_12m',
                       'signal': 'Equity repricing'},
-            'gold': {'fred_code': 'GOLDAMGBD228NLBM', 'signal_type': 'roc_12m',
-                     'signal': 'Real rate inverse'},
         }
     },
     6: {
@@ -494,14 +492,14 @@ TRANSMISSION_STAGES = {
         'indicators': {
             'cpi_momentum': {'source': 'L2b', 'signal': 'Positive = acceleration'},
             'cpi_level': {'source': 'L2b', 'signal': '>3.2% = pressure building'},
-            'ism_prices': {'source': 'L2b', 'signal': '>18% = upstream inflation'},
+            'ppi_final_demand': {'source': 'L2b', 'signal': '>18% = upstream inflation'},
             'capacity_util_hot': {'source': 'L2b', 'signal': '>81.5% = running hot'},
         }
     },
 }
 
 # FRED codes needed only for Stage 5 (not in main layer configs)
-STAGE_FRED_CODES = ['SP500', 'GOLDAMGBD228NLBM']
+STAGE_FRED_CODES = ['SP500']
 
 # =============================================================================
 # ALL FRED SERIES TO FETCH

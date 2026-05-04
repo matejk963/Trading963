@@ -15,7 +15,8 @@ from config.indicators import (
 from calculations.liquidity_indicators import (
     calculate_layer_scores, aggregate_layer_score,
     calculate_composite_score, calculate_historical_layer_totals,
-    calculate_historical_continuous_totals
+    calculate_historical_continuous_totals,
+    calculate_continuous_layer_scores
 )
 from calculations.regime_classifier import (
     classify_regime, get_regime_description, get_regime_statistics
@@ -122,6 +123,35 @@ def render_continuous_view(raw_data: pd.DataFrame):
         st.markdown("""
         **Z-Score Guide:** Values > +1 = strong bullish, < -1 = strong bearish, -1 to +1 = neutral range
         """)
+
+        # ========== INDICATOR BREAKDOWN ==========
+        with st.expander("Indicator Breakdown"):
+            l1_scores = calculate_continuous_layer_scores(raw_data, LAYER1_INDICATORS)
+            l2a_scores = calculate_continuous_layer_scores(raw_data, LAYER2A_INDICATORS)
+            l2b_scores = calculate_continuous_layer_scores(raw_data, LAYER2B_INDICATORS)
+
+            def _indicator_table(layer_scores, layer_config, layer_label):
+                if layer_scores.empty:
+                    st.caption(f"{layer_label}: no data")
+                    return
+                latest_vals = layer_scores.iloc[-1]
+                rows = []
+                for ind_id in latest_vals.index:
+                    name = layer_config.get(ind_id, {}).get('name', ind_id)
+                    val = latest_vals[ind_id]
+                    signal = "🟢" if val > 0.5 else "🔴" if val < -0.5 else "⚪"
+                    rows.append({'Indicator': name, 'Z-Score': f"{val:+.2f}", 'Signal': signal})
+                df = pd.DataFrame(rows)
+                st.markdown(f"**{layer_label}**")
+                st.dataframe(df, hide_index=True, use_container_width=True)
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                _indicator_table(l1_scores, LAYER1_INDICATORS, "L1 — Central Bank")
+            with c2:
+                _indicator_table(l2a_scores, LAYER2A_INDICATORS, "L2a — Private/Wholesale")
+            with c3:
+                _indicator_table(l2b_scores, LAYER2B_INDICATORS, "L2b — Economic Reality")
 
         # ========== HISTORICAL CHART ==========
         st.subheader("Historical Z-Score Trends")

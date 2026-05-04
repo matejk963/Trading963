@@ -163,9 +163,9 @@ def save_prices(prices_dict):
         print(f"  Saved {field}: {df.shape[1]} tickers × {df.shape[0]} days → {size_mb:.1f} MB")
 
 
-def save_spy():
+def save_spy(period='2y'):
     """Fetch and save SPY benchmark"""
-    spy = yf.download('SPY', period='2y', progress=False, auto_adjust=True)
+    spy = yf.download('SPY', period=period, progress=False, auto_adjust=True)
     if isinstance(spy.columns, pd.MultiIndex):
         spy.columns = spy.columns.get_level_values(0)
     path = DATA_DIR / 'spy.parquet'
@@ -247,8 +247,41 @@ def _load_parquet_cached(path_str):
     return df
 
 
+def build_industry_map():
+    """
+    Build ticker → (sector, industry) mapping from financedatabase.
+    Much faster than Yahoo screener approach and includes industry.
+    """
+    path = DATA_DIR / 'industries.parquet'
+
+    if path.exists():
+        age_hrs = (time.time() - path.stat().st_mtime) / 3600
+        if age_hrs < 168:  # 7 day TTL
+            return pd.read_parquet(path)
+
+    print("Building industry map from financedatabase...")
+    try:
+        import financedatabase as fd
+        eq = fd.Equities()
+        us = eq.select(country='United States')
+        us_ex = us[us['exchange'].isin(['NMS', 'NYQ', 'ASE', 'NCM', 'NGM'])]
+
+        df = us_ex[['sector', 'industry']].dropna(subset=['sector'])
+        df.index.name = 'symbol'
+        df = df.reset_index()
+        df.to_parquet(path, engine='pyarrow', compression='snappy')
+        print(f"  Saved industry map: {len(df)} tickers")
+        return df
+    except Exception as e:
+        print(f"  Industry map build failed: {e}")
+        return pd.DataFrame()
+
+
 def load_sector_map():
-    """Load cached sector mapping"""
+    """Load cached sector mapping (prefers industry map which has both)"""
+    ind = _load_parquet_cached(str(DATA_DIR / 'industries.parquet'))
+    if ind is not None:
+        return ind
     return _load_parquet_cached(str(DATA_DIR / 'sectors.parquet'))
 
 
@@ -338,7 +371,7 @@ def build_database(exchanges=None, min_turnover=500000, period='2y'):
     # Step 4: Save prices
     print(f"\n[4/4] Saving to parquet...")
     save_prices(prices)
-    save_spy()
+    save_spy(period=period)
 
     elapsed = time.time() - start
     total_size = sum(
@@ -513,6 +546,110 @@ def auto_update_if_stale(max_age_hours=16):
 
     print(f"  Database is {age_hrs:.0f}h old — running incremental update...")
     return update_prices()
+
+
+def refresh_universe(min_turnover=500000, period='2y'):
+    """
+    Re-screen the liquid universe, add newly qualifying stocks,
+    mark dropped stocks, and fetch prices for new additions.
+    Returns dict with stats: {added, dropped, total_new, total_old}
+    """
+    print("=" * 60)
+    print("UNIVERSE REFRESH")
+    print("=" * 60)
+    start = time.time()
+
+    # Load existing
+    old_uni = pd.read_parquet(DATA_DIR / 'universe.parquet')
+    old_syms = set(old_uni['symbol'])
+    close_df = load_prices('close')
+    old_price_syms = set(close_df.columns) if close_df is not None else set()
+
+    # Re-screen
+    print(f"\n[1/4] Screening liquid universe...")
+    new_uni = fetch_liquid_universe()
+    if new_uni.empty:
+        print("  ERROR: Screener returned empty")
+        return None
+    new_uni = new_uni[new_uni['turnover'] >= min_turnover]
+    new_uni = new_uni.sort_values('turnover', ascending=False)
+    new_syms = set(new_uni['symbol'])
+
+    added = new_syms - old_syms
+    dropped = old_syms - new_syms
+    print(f"  Old: {len(old_syms)}, New: {len(new_syms)}")
+    print(f"  Added: {len(added)}, Dropped: {len(dropped)}")
+
+    if not added and not dropped:
+        print("  No changes — universe is current")
+        return {'added': 0, 'dropped': 0, 'total_new': len(new_syms), 'total_old': len(old_syms)}
+
+    # Merge: keep all old + add new (don't remove dropped — they still have price history)
+    merged_uni = pd.concat([old_uni, new_uni[new_uni['symbol'].isin(added)]], ignore_index=True)
+    merged_uni = merged_uni.drop_duplicates(subset='symbol', keep='last')
+    merged_uni = merged_uni.sort_values('turnover', ascending=False)
+
+    # Save updated universe
+    print(f"\n[2/4] Saving merged universe ({len(merged_uni)} tickers)...")
+    save_universe(merged_uni)
+
+    # Fetch prices for new tickers
+    if added:
+        new_tickers = sorted(added)
+        print(f"\n[3/4] Fetching {period} prices for {len(new_tickers)} new tickers...")
+        new_prices = fetch_prices_batch(new_tickers, period=period)
+
+        # Append to existing parquets
+        print(f"\n[4/4] Merging into existing price database...")
+        for field in ['close', 'high', 'low', 'volume']:
+            existing = load_prices(field)
+            new_data = new_prices.get(field)
+            if existing is None or new_data is None or new_data.empty:
+                continue
+            # Strip timezone
+            if hasattr(new_data.index, 'tz') and new_data.index.tz is not None:
+                new_data.index = new_data.index.tz_localize(None)
+            # Merge on shared date index
+            combined = existing.join(new_data, how='outer', rsuffix='_new')
+            # Remove any duplicate columns from join
+            dup_cols = [c for c in combined.columns if c.endswith('_new')]
+            if dup_cols:
+                combined = combined.drop(columns=dup_cols)
+            combined = combined.sort_index()
+            path = DATA_DIR / f'{field}.parquet'
+            combined.to_parquet(path, engine='pyarrow', compression='snappy')
+            print(f"  {field}: {existing.shape[1]} -> {combined.shape[1]} tickers")
+
+        # Clear cache
+        _mem_cache.clear()
+
+        actually_added = set(new_prices['close'].columns) if not new_prices['close'].empty else set()
+        print(f"\n  New tickers with price data: {len(actually_added)}/{len(new_tickers)}")
+    else:
+        print("\n[3/4] No new tickers to fetch")
+        print("[4/4] Skipped")
+        actually_added = set()
+
+    elapsed = time.time() - start
+    stats = {
+        'added': len(actually_added),
+        'dropped': len(dropped),
+        'added_tickers': sorted(actually_added),
+        'dropped_tickers': sorted(dropped),
+        'total_new': len(merged_uni),
+        'total_old': len(old_syms),
+        'time_sec': elapsed,
+    }
+
+    print(f"\n{'='*60}")
+    print(f"Universe refresh complete!")
+    print(f"  Added: {stats['added']} tickers with prices")
+    print(f"  Dropped (marked): {stats['dropped']} tickers")
+    print(f"  Total universe: {stats['total_new']}")
+    print(f"  Time: {elapsed:.0f}s")
+    print(f"{'='*60}")
+
+    return stats
 
 
 # =============================================================================

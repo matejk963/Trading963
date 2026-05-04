@@ -5,13 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MKTT {% block title_suffix %}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
     {% block head %}{% endblock %}
 </head>
 <body>
     <nav class="topbar">
-        <div class="logo">MKTT <span>v0.1 // trading terminal</span></div>
-        <div class="nav-links">
-            <a href="{{ url_for('screener_page') }}" class="{% if request.endpoint == 'screener_page' %}active{% endif %}">Screener</a>
+        <div class="logo">MKTT <span>v0.2 // trading terminal</span></div>
+        <div class="tab-bar">
+            <a href="{{ url_for('screener_page') }}" class="tab {% if active_section|default('screener') == 'screener' %}active{% endif %}">SCREENER</a>
+            <a href="{{ url_for('macro.section_page', section='liquidity') }}" class="tab {% if active_section|default('') == 'liquidity' %}active{% endif %}">LIQUIDITY</a>
+            <a href="{{ url_for('macro.section_page', section='rrg') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
         </div>
     </nav>
 

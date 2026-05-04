@@ -281,9 +281,9 @@ def calculate_continuous_layer_scores(raw_data: pd.DataFrame,
                         score_series[indicator_id] = zscore
 
             elif indicator_id == 'mmf_deployed':
-                if all(c in raw_data.columns for c in ['WRMFSL', 'RRPONTSYD']):
+                if all(c in raw_data.columns for c in ['WRMFNS', 'RRPONTSYD']):
                     deployed = calculate_mmf_deployed(
-                        raw_data['WRMFSL'], raw_data['RRPONTSYD']
+                        raw_data['WRMFNS'], raw_data['RRPONTSYD']
                     )
                     deployed_clean = deployed.dropna()
                     if len(deployed_clean) >= 50:
@@ -405,12 +405,15 @@ def calculate_cpi_momentum(cpi_series: pd.Series) -> pd.Series:
     Returns:
         Momentum series (3m ann. - 12m)
     """
+    # Resample to monthly (CPI may be forward-filled to daily from mixed-freq DataFrame)
+    cpi_monthly = cpi_series.resample('MS').last().dropna()
+
     # 3-month change, annualized
-    change_3m = cpi_series.pct_change(periods=3)
+    change_3m = cpi_monthly.pct_change(periods=3)
     annualized_3m = (1 + change_3m) ** 4 - 1  # Compound to annual
 
     # 12-month change
-    change_12m = cpi_series.pct_change(periods=12)
+    change_12m = cpi_monthly.pct_change(periods=12)
 
     # Momentum = difference (negative = deceleration = bullish)
     momentum = annualized_3m - change_12m
@@ -512,7 +515,7 @@ def calculate_real_policy_rate(dff: pd.Series, core_pce: pd.Series,
 
 def calculate_mmf_deployed(wrmfsl: pd.Series, rrpontsyd: pd.Series) -> pd.Series:
     """
-    Calculate MMF Deployed Cash = WRMFSL - RRPONTSYD
+    Calculate MMF Deployed Cash = WRMFNS - RRPONTSYD
 
     Rising deployed cash = liquidity entering private wholesale system.
     Rising total MMF with rising RRP = abundance but not transmitting.
@@ -700,8 +703,8 @@ def calculate_layer_scores(raw_data: pd.DataFrame, layer_config: dict) -> pd.Dat
                     transformed = series
 
             elif indicator_id == 'mmf_deployed':
-                if all(c in raw_data.columns for c in ['WRMFSL', 'RRPONTSYD']):
-                    series = calculate_mmf_deployed(raw_data['WRMFSL'], raw_data['RRPONTSYD'])
+                if all(c in raw_data.columns for c in ['WRMFNS', 'RRPONTSYD']):
+                    series = calculate_mmf_deployed(raw_data['WRMFNS'], raw_data['RRPONTSYD'])
                     transformed = calculate_roc_12m(series)
 
             elif indicator_id == 'cpi_momentum':

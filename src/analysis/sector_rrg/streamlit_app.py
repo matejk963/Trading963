@@ -172,9 +172,10 @@ def calculate_rs_momentum_etf(rs_ratio, momentum_window=4):
 
 
 def compute_etf_rrg(prices, benchmark_ticker, lookback, momentum_window, tail_length):
-    """Compute RRG for ETF datasets"""
+    """Compute RRG for ETF datasets. Returns (tail_data, full_data)."""
     benchmark = prices[benchmark_ticker]
-    results = {}
+    tail_results = {}
+    full_results = {}
     for ticker in prices.columns:
         if ticker == benchmark_ticker:
             continue
@@ -182,8 +183,9 @@ def compute_etf_rrg(prices, benchmark_ticker, lookback, momentum_window, tail_le
         rs_momentum = calculate_rs_momentum_etf(rs_ratio, momentum_window=momentum_window)
         combined = pd.DataFrame({'rs_ratio': rs_ratio, 'rs_momentum': rs_momentum}).dropna()
         if len(combined) >= tail_length:
-            results[ticker] = combined.iloc[-tail_length:]
-    return results
+            tail_results[ticker] = combined.iloc[-tail_length:]
+            full_results[ticker] = combined
+    return tail_results, full_results
 
 
 # =============================================================================
@@ -241,7 +243,8 @@ def compute_futures_group_rrg(prices, length, tail_length, selected_groups):
     g_agg = group_df.mean(axis=1)
 
     # Step 5: JdK RS-Ratio and RS-Momentum using WMA
-    results = {}
+    tail_results = {}
+    full_results = {}
     for group_name in group_df.columns:
         rs = group_df[group_name] / g_agg
         wma_rs = wma(rs, length)
@@ -250,9 +253,10 @@ def compute_futures_group_rrg(prices, length, tail_length, selected_groups):
 
         combined = pd.DataFrame({'rs_ratio': rs_ratio, 'rs_momentum': rs_momentum}).dropna()
         if len(combined) >= tail_length:
-            results[group_name] = combined.iloc[-tail_length:]
+            tail_results[group_name] = combined.iloc[-tail_length:]
+            full_results[group_name] = combined
 
-    return results
+    return tail_results, full_results
 
 
 def compute_intra_group_rrg(prices, length, tail_length, group_config):
@@ -277,7 +281,7 @@ def compute_intra_group_rrg(prices, length, tail_length, group_config):
             normalized[ticker] = series / w
 
     if len(normalized) < 2:
-        return {}
+        return {}, {}
 
     norm_df = pd.DataFrame(normalized).ffill().dropna()
 
@@ -285,7 +289,8 @@ def compute_intra_group_rrg(prices, length, tail_length, group_config):
     benchmark = norm_df.mean(axis=1)
 
     # Step 3: JdK RS-Ratio and RS-Momentum using WMA
-    results = {}
+    tail_results = {}
+    full_results = {}
     for ticker in norm_df.columns:
         rs = norm_df[ticker] / benchmark
         wma_rs = wma(rs, length)
@@ -294,9 +299,10 @@ def compute_intra_group_rrg(prices, length, tail_length, group_config):
 
         combined = pd.DataFrame({'rs_ratio': rs_ratio, 'rs_momentum': rs_momentum}).dropna()
         if len(combined) >= tail_length:
-            results[ticker] = combined.iloc[-tail_length:]
+            tail_results[ticker] = combined.iloc[-tail_length:]
+            full_results[ticker] = combined
 
-    return results
+    return tail_results, full_results
 
 
 # =============================================================================
@@ -362,12 +368,15 @@ def plot_rrg(rrg_data, tail_length, show_trails, name_color_map):
         name, color = name_color_map.get(key, (key, '#999'))
         latest = df.iloc[-1]
         quadrant = get_quadrant(latest['rs_ratio'], latest['rs_momentum'])
+        display_name = name if name != key else key
+        legend_name = f'{display_name} ({quadrant})'
 
         if show_trails and len(df) > 1:
             fig.add_trace(go.Scatter(
                 x=df['rs_ratio'], y=df['rs_momentum'],
                 mode='lines', line=dict(color=color, width=1.5),
-                opacity=0.4, showlegend=False, hoverinfo='skip'
+                opacity=0.4, showlegend=False, hoverinfo='skip',
+                legendgroup=key
             ))
             n_points = len(df)
             sizes = np.linspace(4, 10, n_points)
@@ -378,6 +387,7 @@ def plot_rrg(rrg_data, tail_length, show_trails, name_color_map):
                     mode='markers',
                     marker=dict(size=sizes[i], color=color, opacity=opacities[i]),
                     showlegend=False,
+                    legendgroup=key,
                     hovertemplate=f'{name}<br>Date: {df.index[i].strftime("%Y-%m-%d")}<br>'
                                  f'RS-Ratio: %{{x:.1f}}<br>RS-Mom: %{{y:.1f}}<extra></extra>'
                 ))
@@ -386,9 +396,10 @@ def plot_rrg(rrg_data, tail_length, show_trails, name_color_map):
             x=[latest['rs_ratio']], y=[latest['rs_momentum']],
             mode='markers+text',
             marker=dict(size=14, color=color, line=dict(width=2, color='white')),
-            text=[key], textposition='top center',
+            text=[display_name], textposition='top center',
             textfont=dict(size=11, color=color, family='Arial Black'),
-            name=f'{key} - {name} ({quadrant})',
+            name=legend_name,
+            legendgroup=key,
             hovertemplate=f'<b>{key} - {name}</b><br>Quadrant: {quadrant}<br>'
                          f'RS-Ratio: %{{x:.2f}}<br>RS-Momentum: %{{y:.2f}}<extra></extra>'
         ))
@@ -404,23 +415,58 @@ def plot_rrg(rrg_data, tail_length, show_trails, name_color_map):
     return fig
 
 
-def plot_rs_ratio_history(rrg_data, name_color_map):
-    """Plot RS-Ratio time series"""
-    fig = go.Figure()
-    for key, df in rrg_data.items():
+def plot_per_contract_history(full_data, name_color_map):
+    """Plot RS-Ratio and RS-Momentum subplots for each contract"""
+    from plotly.subplots import make_subplots
+
+    keys = list(full_data.keys())
+    n = len(keys)
+    if n == 0:
+        return None
+
+    fig = make_subplots(
+        rows=n, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        subplot_titles=[name_color_map.get(k, (k, ''))[0] for k in keys],
+    )
+
+    for i, key in enumerate(keys):
+        df = full_data[key]
         name, color = name_color_map.get(key, (key, '#999'))
+        row = i + 1
+
         fig.add_trace(go.Scatter(
             x=df.index, y=df['rs_ratio'],
-            mode='lines', name=key,
-            line=dict(color=color, width=1.5),
+            mode='lines', name='RS-Ratio',
+            line=dict(color='#4CAF50', width=1.5),
+            showlegend=(i == 0),
+            legendgroup='rs_ratio',
             hovertemplate=f'{name}<br>%{{x|%Y-%m-%d}}<br>RS-Ratio: %{{y:.2f}}<extra></extra>'
-        ))
-    fig.add_hline(y=100, line_dash="dash", line_color="gray", opacity=0.5)
+        ), row=row, col=1)
+
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['rs_momentum'],
+            mode='lines', name='RS-Momentum',
+            line=dict(color='#2196F3', width=1),
+            showlegend=(i == 0),
+            legendgroup='rs_momentum',
+            hovertemplate=f'{name}<br>%{{x|%Y-%m-%d}}<br>RS-Mom: %{{y:.2f}}<extra></extra>'
+        ), row=row, col=1)
+
+        fig.add_hline(y=100, line_dash="dash", line_color="gray", opacity=0.4, row=row, col=1)
+
     fig.update_layout(
-        title='RS-Ratio History', yaxis_title='RS-Ratio',
-        height=400, template='plotly_white',
-        legend=dict(orientation='h', y=-0.15)
+        height=220 * n,
+        template='plotly_white',
+        legend=dict(orientation='h', y=1.02, x=0.5, xanchor='center'),
+        margin=dict(t=40, b=30),
     )
+
+    # Style subplot titles
+    for annotation in fig['layout']['annotations']:
+        annotation['font'] = dict(size=12)
+
     return fig
 
 
@@ -444,14 +490,24 @@ def main():
 
         period = st.selectbox("Data Period", ['1y', '2y', '3y', '5y'], index=1)
 
-        if is_futures:
-            length = st.slider("WMA Length (weeks)", 5, 52, 20,
-                               help="Normalization and JdK smoothing window")
-        else:
-            lookback = st.slider("RS-Ratio Window (weeks)", 4, 104, 13)
-            momentum_window = st.slider("Momentum Window (weeks)", 2, 26, 4)
+        PRESETS = {
+            'Short (13/4)': {'lookback': 13, 'momentum': 4},
+            'Long (26/8)': {'lookback': 26, 'momentum': 8},
+        }
+        preset = st.radio("Preset", list(PRESETS.keys()), horizontal=True)
+        preset_vals = PRESETS[preset]
 
-        tail_length = st.slider("Trail Length (weeks)", 1, 52, 5 if not is_futures else 10)
+        if is_futures:
+            length = st.number_input("WMA Length (weeks)", min_value=5, max_value=52,
+                                     value=preset_vals['lookback'],
+                                     help="Normalization and JdK smoothing window")
+        else:
+            lookback = st.number_input("RS-Ratio Window (weeks)", min_value=4, max_value=104,
+                                       value=preset_vals['lookback'])
+            momentum_window = st.number_input("Momentum Window (weeks)", min_value=2, max_value=26,
+                                              value=preset_vals['momentum'])
+
+        tail_length = st.slider("Trail Length (weeks)", 1, 52, 6)
         show_trails = st.checkbox("Show Trails", value=True)
 
         st.markdown("---")
@@ -467,6 +523,18 @@ def main():
 
             if not is_intra_group:
                 st.subheader("Groups")
+                g_keys = [f"fut_{g}" for g in FUTURES_GROUPS]
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("All", key="sel_all_groups", use_container_width=True):
+                        for k in g_keys:
+                            st.session_state[k] = True
+                        st.rerun()
+                with c2:
+                    if st.button("None", key="desel_all_groups", use_container_width=True):
+                        for k in g_keys:
+                            st.session_state[k] = False
+                        st.rerun()
                 selected_groups = {}
                 for group_name, group_config in FUTURES_GROUPS.items():
                     if st.checkbox(f"{group_name} ({len(group_config['contracts'])})",
@@ -477,6 +545,18 @@ def main():
             else:
                 intra_config = FUTURES_GROUPS[futures_view]
                 st.subheader(f"{futures_view} Contracts")
+                i_keys = [f"intra_{futures_view}_{t}" for t in intra_config['contracts']]
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("All", key=f"sel_all_{futures_view}", use_container_width=True):
+                        for k in i_keys:
+                            st.session_state[k] = True
+                        st.rerun()
+                with c2:
+                    if st.button("None", key=f"desel_all_{futures_view}", use_container_width=True):
+                        for k in i_keys:
+                            st.session_state[k] = False
+                        st.rerun()
                 selected_contracts = {}
                 for ticker, name in intra_config['contracts'].items():
                     if st.checkbox(f"{ticker} — {name}", value=True,
@@ -491,6 +571,18 @@ def main():
             benchmark = dataset['benchmark']
             sector_config = dataset['sectors']
             st.subheader("Sectors")
+            s_keys = [f"{dataset_name}_{t}" for t in sector_config]
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("All", key=f"sel_all_{dataset_name}", use_container_width=True):
+                    for k in s_keys:
+                        st.session_state[k] = True
+                    st.rerun()
+            with c2:
+                if st.button("None", key=f"desel_all_{dataset_name}", use_container_width=True):
+                    for k in s_keys:
+                        st.session_state[k] = False
+                    st.rerun()
             selected = {}
             for ticker, (name, color) in sector_config.items():
                 if st.checkbox(f"{ticker} - {name}", value=True, key=f"{dataset_name}_{ticker}"):
@@ -499,6 +591,15 @@ def main():
             st.caption(f"Benchmark: {benchmark} ({dataset['benchmark_name']})")
 
         st.caption("Data: Yahoo Finance")
+
+    # Convert week-based parameters to trading days (5 days per week)
+    if is_futures:
+        length_days = length * 5
+        tail_days = tail_length * 5
+    else:
+        lookback_days = lookback * 5
+        momentum_days = momentum_window * 5
+        tail_days = tail_length * 5
 
     # ===== Futures Groups mode =====
     if is_futures:
@@ -509,16 +610,16 @@ def main():
             st.error("Could not fetch futures data.")
             return
 
-        # Weekly resample
-        prices = prices_raw.resample('W-FRI').last().ffill()
+        # Daily data with forward fill for gaps
+        prices = prices_raw.ffill()
 
-        # Date slider
+        # Date slider — every trading day available
         min_date, max_date = prices.index.min().date(), prices.index.max().date()
         as_of_date = st.slider("As-of Date", min_value=min_date, max_value=max_date,
                                value=max_date, format="YYYY-MM-DD")
         prices = prices.loc[prices.index <= pd.Timestamp(as_of_date)]
 
-        if len(prices) < 50:
+        if len(prices) < length_days * 2:
             st.warning("Not enough data.")
             return
 
@@ -528,7 +629,7 @@ def main():
                 st.warning("Select at least 2 groups.")
                 return
 
-            rrg_data = compute_futures_group_rrg(prices, length, tail_length, set(selected_groups.keys()))
+            rrg_data, full_data = compute_futures_group_rrg(prices, length_days, tail_days, set(selected_groups.keys()))
             name_color_map = {g: (g, cfg['color']) for g, cfg in selected_groups.items()}
         else:
             # Intra-group: contracts within a single group
@@ -542,7 +643,7 @@ def main():
                               if t in selected_contracts},
                 'invert': intra_config.get('invert', []),
             }
-            rrg_data = compute_intra_group_rrg(prices, length, tail_length, filtered_config)
+            rrg_data, full_data = compute_intra_group_rrg(prices, length_days, tail_days, filtered_config)
 
             # Generate distinct colors for contracts within the group
             base_color = intra_config['color']
@@ -574,19 +675,19 @@ def main():
             st.error("Could not fetch price data.")
             return
 
-        prices_smoothed = prices_raw.rolling(window=5, min_periods=1).mean()
-        prices = prices_smoothed.resample('W-FRI').last().ffill()
+        # Daily data with forward fill
+        prices = prices_raw.ffill()
 
         min_date, max_date = prices.index.min().date(), prices.index.max().date()
         as_of_date = st.slider("As-of Date", min_value=min_date, max_value=max_date,
                                value=max_date, format="YYYY-MM-DD")
         prices = prices.loc[prices.index <= pd.Timestamp(as_of_date)]
 
-        if len(prices) < 30:
+        if len(prices) < lookback_days * 2:
             st.warning("Not enough data.")
             return
 
-        rrg_data = compute_etf_rrg(prices, benchmark, lookback, momentum_window, tail_length)
+        rrg_data, full_data = compute_etf_rrg(prices, benchmark, lookback_days, momentum_days, tail_days)
         name_color_map = selected if not is_futures else {}
 
     if not rrg_data:
@@ -630,8 +731,9 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
-    fig_hist = plot_rs_ratio_history(rrg_data, name_color_map)
-    st.plotly_chart(fig_hist, use_container_width=True)
+    fig_hist = plot_per_contract_history(full_data, name_color_map)
+    if fig_hist:
+        st.plotly_chart(fig_hist, use_container_width=True)
 
 
 if __name__ == '__main__':

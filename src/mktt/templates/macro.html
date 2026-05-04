@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title_suffix %}// MACRO{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+<style>
+.macro-sub-tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    margin-top: -1px;
+}
+.macro-sub-tabs .stab {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-faint);
+    padding: 8px 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+.macro-sub-tabs .stab:hover { color: var(--text-dim); }
+.macro-sub-tabs .stab.active { color: var(--text); border-bottom-color: var(--text-dim); }
+</style>
+{% endblock %}
+
+{% block content %}
+{# Level 1: Liquidity | RRG #}
+<div class="sub-tab-bar">
+    <span class="sub-tab {% if active_view in ('liquidity','layer','overlay','transmission') %}active{% endif %}" data-section="liquidity" onclick="switchMacroSection('liquidity')">Liquidity</span>
+    <span class="sub-tab {% if active_view == 'rrg' %}active{% endif %}" data-section="rrg" onclick="switchMacroSection('rrg')">RRG</span>
+</div>
+
+{# Level 2: Liquidity sub-tabs #}
+<div id="liquidity-sub-tabs" class="macro-sub-tabs" style="{% if active_view == 'rrg' %}display:none{% endif %}">
+    <span class="stab {% if active_view == 'liquidity' %}active{% endif %}" data-view="liquidity" onclick="switchMacroView('liquidity')">Dashboard</span>
+    <span class="stab {% if active_view == 'layer' %}active{% endif %}" data-view="layer" onclick="switchMacroView('layer')">Layer Detail</span>
+    <span class="stab {% if active_view == 'overlay' %}active{% endif %}" data-view="overlay" onclick="switchMacroView('overlay')">Asset Overlay</span>
+    <span class="stab {% if active_view == 'transmission' %}active{% endif %}" data-view="transmission" onclick="switchMacroView('transmission')">Transmission Chain</span>
+</div>
+
+{# Panels #}
+<div id="macro-liquidity" class="macro-panel {% if active_view == 'liquidity' %}active{% endif %}">
+    {% include "macro/_liquidity.html" %}
+</div>
+
+<div id="macro-layer" class="macro-panel {% if active_view == 'layer' %}active{% endif %}">
+    {% include "macro/_layer_detail.html" %}
+</div>
+
+<div id="macro-overlay" class="macro-panel {% if active_view == 'overlay' %}active{% endif %}">
+    {% include "macro/_overlay.html" %}
+</div>
+
+<div id="macro-transmission" class="macro-panel {% if active_view == 'transmission' %}active{% endif %}">
+    {% include "macro/_transmission.html" %}
+</div>
+
+<div id="macro-rrg" class="macro-panel {% if active_view == 'rrg' %}active{% endif %}">
+    {% include "macro/_rrg.html" %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/macro.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var view = '{{ active_view }}';
+    loadMacroView(view);
+});
+</script>
+{% endblock %}

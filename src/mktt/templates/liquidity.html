@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title_suffix %}// LIQUIDITY{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="sub-tab-bar">
+    <span class="sub-tab {% if active_view == 'liquidity' %}active{% endif %}" data-view="liquidity" onclick="switchLiqView('liquidity')">Dashboard</span>
+    <span class="sub-tab {% if active_view == 'layer' %}active{% endif %}" data-view="layer" onclick="switchLiqView('layer')">Layer Detail</span>
+    <span class="sub-tab {% if active_view == 'overlay' %}active{% endif %}" data-view="overlay" onclick="switchLiqView('overlay')">Asset Overlay</span>
+    <span class="sub-tab {% if active_view == 'transmission' %}active{% endif %}" data-view="transmission" onclick="switchLiqView('transmission')">Transmission Chain</span>
+</div>
+
+<div id="macro-liquidity" class="macro-panel {% if active_view == 'liquidity' %}active{% endif %}">
+    {% include "macro/_liquidity.html" %}
+</div>
+
+<div id="macro-layer" class="macro-panel {% if active_view == 'layer' %}active{% endif %}">
+    {% include "macro/_layer_detail.html" %}
+</div>
+
+<div id="macro-overlay" class="macro-panel {% if active_view == 'overlay' %}active{% endif %}">
+    {% include "macro/_overlay.html" %}
+</div>
+
+<div id="macro-transmission" class="macro-panel {% if active_view == 'transmission' %}active{% endif %}">
+    {% include "macro/_transmission.html" %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/macro.js') }}"></script>
+<script>
+function switchLiqView(view) {
+    document.querySelectorAll('.sub-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelector('.sub-tab[data-view="'+view+'"]').classList.add('active');
+    document.querySelectorAll('.macro-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.getElementById('macro-' + view).classList.add('active');
+    history.replaceState(null, '', '/macro/liquidity?view=' + view);
+    loadMacroView(view);
+}
+document.addEventListener('DOMContentLoaded', function() {
+    loadMacroView('{{ active_view }}');
+});
+</script>
+{% endblock %}

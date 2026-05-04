@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title_suffix %}// RRG{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+{% endblock %}
+
+{% block content %}
+{% include "macro/_rrg.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/macro.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadRRG();
+});
+</script>
+{% endblock %}

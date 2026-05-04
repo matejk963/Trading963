@@ -107,77 +107,290 @@
 </div>
 
 {% if sector_stats and sector_stats | length > 0 %}
-<details style="margin-bottom: 12px;" open>
-    <summary style="cursor: pointer; font-family: 'VT323', 'Share Tech Mono', monospace; font-size: 16px; color: var(--phosphor, var(--cyan)); padding: 4px 0;">
-        Sector Breakdown ({{ sector_stats | length }} sectors)
-    </summary>
-    <div class="table-wrap" style="margin-top: 6px;">
+<div style="padding:8px 0;display:flex;align-items:center;gap:8px">
+    <button onclick="document.getElementById('col-picker').style.display=document.getElementById('col-picker').style.display==='none'?'block':'none'" style="font-size:12px;padding:5px 12px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:6px;cursor:pointer">Columns ▼</button>
+    <span style="font-size:11px;color:var(--text-faint)" id="col-count"></span>
+    <span style="font-size:13px;color:var(--text-dim);margin-left:12px">{{ sector_stats | length }} sectors / {{ data | length }} stocks</span>
+</div>
+<div id="col-picker" style="display:none;background:var(--bg-card);border:1px solid var(--border-light);border-radius:8px;padding:12px 16px;margin-bottom:8px;max-width:900px">
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button onclick="toggleColGroup('price')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Price/Tech</button>
+        <button onclick="toggleColGroup('valuation')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Valuation</button>
+        <button onclick="toggleColGroup('earnings')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Earnings</button>
+        <button onclick="toggleColGroup('quality')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Quality</button>
+        <button onclick="toggleColGroup('debt')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Debt</button>
+        <button onclick="toggleColGroup('all')" style="font-size:11px;padding:3px 8px;background:var(--primary);border:none;color:white;border-radius:4px;cursor:pointer">All</button>
+        <button onclick="toggleColGroup('minimal')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Minimal</button>
+    </div>
+    <div id="col-checks" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+</div>
+    <div class="table-wrap" style="margin-top:6px;">
+{# ====== SINGLE FLAT TABLE: sector → industry → stock rows all aligned ====== #}
         <table id="sector-table">
             <thead>
                 <tr>
-                    <th data-col="0" data-type="str" onclick="event.stopPropagation(); sortSectorTable(this)">Sector</th>
-                    <th data-col="1" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Count</th>
-                    <th data-col="2" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Sector Total</th>
-                    <th data-col="3" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">% of Sector</th>
-                    <th data-col="4" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">% of Results</th>
-                    <th data-col="5" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Median PE</th>
-                    <th data-col="6" data-type="num" onclick="event.stopPropagation(); sortSectorTable(this)">Median Fwd PE</th>
+                    <th data-cid="sym" style="text-align:left">Name</th>
+                    <th>Count</th>
+                    <th>%Sector</th>
+                    <th data-cid="price">Price</th>
+                    <th data-cid="chg">Chg%</th>
+                    <th data-cid="pe">PE</th>
+                    <th data-cid="fwdpe">Fwd PE</th>
+                    <th data-cid="eps">EPS</th>
+                    <th data-cid="fy1">FY1</th>
+                    <th data-cid="fy2">FY2</th>
+                    <th data-cid="opmgn">OpMgn%</th>
+                    <th data-cid="netmgn">NetMgn%</th>
+                    <th data-cid="roic">ROIC%</th>
+                    <th data-cid="fcf">FCF</th>
+                    <th data-cid="ndebitda">ND/EBITDA</th>
+                    <th data-cid="evebitda">EV/EBITDA</th>
+                    <th data-cid="rs">RS</th>
+                    <th data-cid="target">Target</th>
                 </tr>
             </thead>
             <tbody>
                 {% for s in sector_stats %}
-                <tr onclick="toggleSectorStocks('sector-{{ loop.index }}')" style="cursor: pointer;">
-                    <td style="text-align: left;">
-                        <span id="sector-arrow-{{ loop.index }}" style="display: inline-block; width: 14px; transition: transform 0.2s;">▶</span>
+                {% set sector_idx = loop.index %}
+                {%- macro sg(d, k, fmt='%.1f') -%}{{ fmt|format(d.get(k)) if d.get(k) is not none else '—' }}{%- endmacro -%}
+                {%- macro sgn(d, k) -%}{{ fmt_number(d.get(k)) if d.get(k) else '—' }}{%- endmacro -%}
+                <tr onclick="toggleSectorStocks('sector-{{ sector_idx }}')" style="cursor:pointer;background:var(--bg-card);">
+                    <td data-cid="sym" style="text-align:left;font-weight:700">
+                        <span id="sector-arrow-{{ loop.index }}" style="display:inline-block;width:14px;transition:transform 0.2s;">▶</span>
                         {{ s.sector }}
                     </td>
                     <td>{{ s.count }}</td>
-                    <td>{{ s.total }}</td>
-                    <td>{{ "%.1f%%" | format(s.pct_of_sector) }}</td>
-                    <td>{{ "%.1f%%" | format(s.pct_of_results) }}</td>
-                    <td>{{ "%.1f" | format(s.median_pe) if s.median_pe else '—' }}</td>
-                    <td>{{ "%.1f" | format(s.median_fwd_pe) if s.median_fwd_pe else '—' }}</td>
+                    <td>{{ "%.1f%%"|format(s.pct_of_sector) }}</td>
+                    <td data-cid="price"></td>
+                    <td data-cid="chg"></td>
+                    <td data-cid="pe">{{ sg(s, 'median_pe') }}</td>
+                    <td data-cid="fwdpe">{{ sg(s, 'median_fwd_pe') }}</td>
+                    <td data-cid="eps">{{ sg(s, 'median_eps', '%.2f') }}</td>
+                    <td data-cid="fy1">{{ sg(s, 'median_fy1', '%.2f') }}</td>
+                    <td data-cid="fy2">{{ sg(s, 'median_fy2', '%.2f') }}</td>
+                    <td data-cid="opmgn">{{ sg(s, 'median_op_margin') }}</td>
+                    <td data-cid="netmgn">{{ sg(s, 'median_net_margin') }}</td>
+                    <td data-cid="roic">{{ sg(s, 'median_roic') }}</td>
+                    <td data-cid="fcf">{{ sgn(s, 'median_fcf') }}</td>
+                    <td data-cid="ndebitda">{{ sg(s, 'median_nd_ebitda') }}</td>
+                    <td data-cid="evebitda">{{ sg(s, 'median_ev_ebitda') }}</td>
+                    <td data-cid="rs">{{ sg(s, 'median_rs', '%.0f') }}</td>
+                    <td data-cid="target">{{ sg(s, 'median_target', '%.0f') }}</td>
                 </tr>
                 <tr id="sector-{{ loop.index }}" style="display: none;">
-                    <td colspan="7" style="padding: 0;">
-                        <table style="width: 100%; margin: 0; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background: var(--bg, #0c0c14);">
-                                    <th style="font-size: 9px; padding: 3px 8px; text-align: left;">Symbol</th>
-                                    <th style="font-size: 9px; padding: 3px 8px;">Price</th>
-                                    <th style="font-size: 9px; padding: 3px 8px;">Chg%</th>
-                                    <th style="font-size: 9px; padding: 3px 8px;">PE</th>
-                                    <th style="font-size: 9px; padding: 3px 8px;">Fwd PE</th>
-                                    <th style="font-size: 9px; padding: 3px 8px;">RS Rank</th>
-                                    <th style="font-size: 9px; padding: 3px 8px;">Mansfield</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for st in s.stocks %}
-                                <tr onclick="event.stopPropagation(); window.location='/chart/{{ st.symbol }}'" style="cursor: pointer; border-bottom: 1px solid rgba(51,255,0,0.05);">
-                                    <td style="text-align: left; padding: 2px 8px; font-size: 13px;">{{ st.symbol }}</td>
-                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.2f" | format(st.price) if st.price else '—' }}</td>
-                                    <td style="padding: 2px 8px; font-size: 13px;" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else 'neutral' }}">
-                                        {{ "%+.1f%%" | format(st.change) if st.change else '—' }}
-                                    </td>
-                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.1f" | format(st.pe) if st.pe else '—' }}</td>
-                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.1f" | format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
-                                    <td style="padding: 2px 8px; font-size: 13px;">{{ "%.0f" | format(st.rs_rank) if st.rs_rank else '—' }}</td>
-                                    <td style="padding: 2px 8px; font-size: 13px;" class="{{ 'positive' if st.mansfield and st.mansfield > 0 else 'negative' if st.mansfield and st.mansfield < 0 else 'neutral' }}">
-                                        {{ "%+.1f" | format(st.mansfield) if st.mansfield else '—' }}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <td colspan="18" style="padding: 4px 0;">
+                        {# Tabs #}
+                        <div style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border-solid, #2a4a00);">
+                            <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'ind')" id="tab-ind-sector-{{ loop.index }}" class="sector-tab sector-tab-active" style="padding: 3px 12px; cursor: pointer; font-size: 13px;">By Industry</span>
+                            <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'all')" id="tab-all-sector-{{ loop.index }}" class="sector-tab" style="padding: 3px 12px; cursor: pointer; font-size: 13px; color: var(--text-dim, #555);">All Stocks ({{ s.count }})</span>
+                        </div>
+
+                        {# Tab 1: By Industry #}
+                        <div id="panel-ind-sector-{{ loop.index }}" style="display: block;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background:var(--bg,#0c0c14);font-size:11px">
+                                        <th data-cid="sym" style="padding:3px 8px;text-align:left">Industry</th>
+                                        <th style="padding:3px 8px">Count</th>
+                                        <th style="padding:3px 8px"></th>
+                                        <th data-cid="price" style="padding:3px 8px"></th>
+                                        <th data-cid="chg" style="padding:3px 8px"></th>
+                                        <th data-cid="pe" style="padding:3px 8px">PE</th>
+                                        <th data-cid="fwdpe" style="padding:3px 8px">FwdPE</th>
+                                        <th data-cid="eps" style="padding:3px 8px">EPS</th>
+                                        <th data-cid="fy1" style="padding:3px 8px">FY1</th>
+                                        <th data-cid="fy2" style="padding:3px 8px">FY2</th>
+                                        <th data-cid="opmgn" style="padding:3px 8px">OpMgn</th>
+                                        <th data-cid="netmgn" style="padding:3px 8px">NetMgn</th>
+                                        <th data-cid="roic" style="padding:3px 8px">ROIC</th>
+                                        <th data-cid="fcf" style="padding:3px 8px">FCF</th>
+                                        <th data-cid="ndebitda" style="padding:3px 8px">ND/EB</th>
+                                        <th data-cid="evebitda" style="padding:3px 8px">EV/EB</th>
+                                        <th data-cid="rs" style="padding:3px 8px">RS</th>
+                                        <th data-cid="target" style="padding:3px 8px">Tgt</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for ind in s.industries %}
+                                    {%- set isz = 'padding:3px 8px;font-size:12px' -%}
+                                    <tr onclick="event.stopPropagation(); toggleIndustry('ind-{{ sector_idx }}-{{ loop.index }}')" style="cursor:pointer;border-bottom:1px solid var(--border);background:var(--bg-light);">
+                                        {%- set isz = 'padding:3px 8px;font-size:12px' -%}
+                                        {%- macro ig(d, k, fmt='%.1f') -%}{{ fmt|format(d.get(k)) if d.get(k) is not none else '—' }}{%- endmacro -%}
+                                        {%- macro ign(d, k) -%}{{ fmt_number(d.get(k)) if d.get(k) else '—' }}{%- endmacro -%}
+                                        <td data-cid="sym" style="text-align:left;{{isz}};font-weight:600">
+                                            <span id="ind-arrow-{{ sector_idx }}-{{ loop.index }}" style="display:inline-block;width:12px;font-size:10px;transition:transform 0.2s;">▶</span>
+                                            {{ ind.industry }}
+                                        </td>
+                                        <td style="{{isz}}">{{ ind.count }}</td>
+                                        <td style="{{isz}}"></td>
+                                        <td data-cid="price" style="{{isz}}"></td>
+                                        <td data-cid="chg" style="{{isz}}"></td>
+                                        <td data-cid="pe" style="{{isz}}">{{ ig(ind, 'median_pe') }}</td>
+                                        <td data-cid="fwdpe" style="{{isz}}">{{ ig(ind, 'median_fwd_pe') }}</td>
+                                        <td data-cid="eps" style="{{isz}}">{{ ig(ind, 'median_eps', '%.2f') }}</td>
+                                        <td data-cid="fy1" style="{{isz}}">{{ ig(ind, 'median_fy1', '%.2f') }}</td>
+                                        <td data-cid="fy2" style="{{isz}}">{{ ig(ind, 'median_fy2', '%.2f') }}</td>
+                                        <td data-cid="opmgn" style="{{isz}}">{{ ig(ind, 'median_op_margin') }}</td>
+                                        <td data-cid="netmgn" style="{{isz}}">{{ ig(ind, 'median_net_margin') }}</td>
+                                        <td data-cid="roic" style="{{isz}}">{{ ig(ind, 'median_roic') }}</td>
+                                        <td data-cid="fcf" style="{{isz}}">{{ ign(ind, 'median_fcf') }}</td>
+                                        <td data-cid="ndebitda" style="{{isz}}">{{ ig(ind, 'median_nd_ebitda') }}</td>
+                                        <td data-cid="evebitda" style="{{isz}}">{{ ig(ind, 'median_ev_ebitda') }}</td>
+                                        <td data-cid="rs" style="{{isz}}">{{ ig(ind, 'median_rs', '%.0f') }}</td>
+                                        <td data-cid="target" style="{{isz}}">{{ ig(ind, 'median_target', '%.0f') }}</td>
+                                    </tr>
+                                    <tr id="ind-{{ sector_idx }}-{{ loop.index }}" style="display: none;">
+                                        <td colspan="18" style="padding: 0 0 0 20px;">
+                                            <table style="width: 100%; border-collapse: collapse;">
+                                                <thead>
+                                                    <tr style="background: var(--bg, #0c0c14);">
+                                                        <th data-cid="sym" style="font-size: 11px; padding: 3px 8px; text-align: left;">Symbol</th>
+                                                        <th style="font-size:11px;padding:3px 8px"></th>
+                                                        <th style="font-size:11px;padding:3px 8px"></th>
+                                                        <th data-cid="price" style="font-size: 11px; padding: 3px 8px;">Price</th>
+                                                        <th data-cid="chg" style="font-size: 11px; padding: 3px 8px;">Chg%</th>
+                                                        <th data-cid="pe" style="font-size: 11px; padding: 3px 8px;">PE</th>
+                                                        <th data-cid="fwdpe" style="font-size: 11px; padding: 3px 8px;">Fwd PE</th>
+                                                        <th data-cid="eps" style="font-size: 11px; padding: 3px 8px;">EPS</th>
+                                                        <th data-cid="fy1" style="font-size: 11px; padding: 3px 8px;">FY1</th>
+                                                        <th data-cid="fy2" style="font-size: 11px; padding: 3px 8px;">FY2</th>
+                                                        <th data-cid="opmgn" style="font-size: 11px; padding: 3px 8px;">OpMgn%</th>
+                                                        <th data-cid="netmgn" style="font-size: 11px; padding: 3px 8px;">NetMgn%</th>
+                                                        <th data-cid="roic" style="font-size: 11px; padding: 3px 8px;">ROIC%</th>
+                                                        <th data-cid="fcf" style="font-size: 11px; padding: 3px 8px;">FCF</th>
+                                                        <th data-cid="ndebitda" style="font-size: 11px; padding: 3px 8px;">ND/EBITDA</th>
+                                                        <th data-cid="evebitda" style="font-size: 11px; padding: 3px 8px;">EV/EBITDA</th>
+                                                        <th data-cid="rs" style="font-size: 11px; padding: 3px 8px;">RS</th>
+                                                        <th data-cid="target" style="font-size: 11px; padding: 3px 8px;">Target</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for st in ind.stocks %}
+                                                    <tr onclick="event.stopPropagation(); toggleStockChart('{{ st.symbol }}', this)" style="cursor: pointer; border-bottom: 1px solid rgba(51,255,0,0.03);">
+                                                        {%- set sz = 'padding:2px 8px;font-size:12px' -%}
+                                                        <td data-cid="sym" style="text-align:left;{{sz}}">{{ st.symbol }}</td>
+                                                        <td style="{{sz}}"></td>
+                                                        <td style="{{sz}}"></td>
+                                                        <td data-cid="price" style="{{sz}}">{{ "%.2f"|format(st.price) if st.price else '—' }}</td>
+                                                        <td data-cid="chg" style="{{sz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
+                                                        <td data-cid="pe" style="{{sz}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
+                                                        <td data-cid="fwdpe" style="{{sz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                                        <td data-cid="eps" style="{{sz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                                                        <td data-cid="fy1" style="{{sz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
+                                                        <td data-cid="fy2" style="{{sz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                                                        <td data-cid="opmgn" style="{{sz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
+                                                        <td data-cid="netmgn" style="{{sz}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
+                                                        <td data-cid="roic" style="{{sz}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
+                                                        <td data-cid="fcf" style="{{sz}}">{{ fmt_number(st.fcf) if st.fcf else '—' }}</td>
+                                                        <td data-cid="ndebitda" style="{{sz}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
+                                                        <td data-cid="evebitda" style="{{sz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
+                                                        <td data-cid="rs" style="{{sz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                                        <td data-cid="target" style="{{sz}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {# Tab 2: All Stocks #}
+                        <div id="panel-all-sector-{{ loop.index }}" style="display: none;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background: var(--bg, #0c0c14);">
+                                        <th data-cid="sym" style="font-size:13px;padding:5px 10px;text-align:left">Symbol</th>
+                                        <th style="font-size:13px;padding:5px 10px"></th>
+                                        <th style="font-size:13px;padding:5px 10px"></th>
+                                        <th data-cid="price" style="font-size:13px;padding:5px 10px">Price</th>
+                                        <th data-cid="chg" style="font-size:13px;padding:5px 10px">Chg%</th>
+                                        <th data-cid="pe" style="font-size:13px;padding:5px 10px">PE</th>
+                                        <th data-cid="fwdpe" style="font-size:13px;padding:5px 10px">Fwd PE</th>
+                                        <th data-cid="eps" style="font-size:13px;padding:5px 10px">EPS</th>
+                                        <th data-cid="fy1" style="font-size:13px;padding:5px 10px">FY1</th>
+                                        <th data-cid="fy2" style="font-size:13px;padding:5px 10px">FY2</th>
+                                        <th data-cid="opmgn" style="font-size:13px;padding:5px 10px">OpMgn%</th>
+                                        <th data-cid="netmgn" style="font-size:13px;padding:5px 10px">NetMgn%</th>
+                                        <th data-cid="roic" style="font-size:13px;padding:5px 10px">ROIC%</th>
+                                        <th data-cid="fcf" style="font-size:13px;padding:5px 10px">FCF</th>
+                                        <th data-cid="ndebitda" style="font-size:13px;padding:5px 10px">ND/EBITDA</th>
+                                        <th data-cid="evebitda" style="font-size:13px;padding:5px 10px">EV/EBITDA</th>
+                                        <th data-cid="rs" style="font-size:13px;padding:5px 10px">RS</th>
+                                        <th data-cid="target" style="font-size:13px;padding:5px 10px">Target</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for st in s.stocks %}
+                                    <tr onclick="event.stopPropagation(); toggleStockChart('{{ st.symbol }}', this)" style="cursor: pointer; border-bottom: 1px solid rgba(51,255,0,0.05);">
+                                        {%- set sz2 = 'padding:2px 8px;font-size:12px' -%}
+                                        <td data-cid="sym" style="text-align:left;{{sz2}}">{{ st.symbol }}</td>
+                                        <td style="{{sz2}}"></td>
+                                        <td style="{{sz2}}"></td>
+                                        <td data-cid="price" style="{{sz2}}">{{ "%.2f"|format(st.price) if st.price else '—' }}</td>
+                                        <td data-cid="chg" style="{{sz2}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
+                                        <td data-cid="pe" style="{{sz2}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
+                                        <td data-cid="fwdpe" style="{{sz2}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                        <td data-cid="eps" style="{{sz2}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                                        <td data-cid="fy1" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
+                                        <td data-cid="fy2" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                                        <td data-cid="opmgn" style="{{sz2}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
+                                        <td data-cid="netmgn" style="{{sz2}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
+                                        <td data-cid="roic" style="{{sz2}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
+                                        <td data-cid="fcf" style="{{sz2}}">{{ fmt_number(st.fcf) if st.fcf else '—' }}</td>
+                                        <td data-cid="ndebitda" style="{{sz2}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
+                                        <td data-cid="evebitda" style="{{sz2}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
+                                        <td data-cid="rs" style="{{sz2}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                        <td data-cid="target" style="{{sz2}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-</details>
 <script>
+function switchSectorTab(sectorId, tab) {
+    var indPanel = document.getElementById('panel-ind-' + sectorId);
+    var allPanel = document.getElementById('panel-all-' + sectorId);
+    var indTab = document.getElementById('tab-ind-' + sectorId);
+    var allTab = document.getElementById('tab-all-' + sectorId);
+
+    if (tab === 'ind') {
+        indPanel.style.display = 'block';
+        allPanel.style.display = 'none';
+        indTab.classList.add('sector-tab-active');
+        indTab.style.color = '';
+        allTab.classList.remove('sector-tab-active');
+        allTab.style.color = 'var(--text-dim, #555)';
+    } else {
+        indPanel.style.display = 'none';
+        allPanel.style.display = 'block';
+        allTab.classList.add('sector-tab-active');
+        allTab.style.color = '';
+        indTab.classList.remove('sector-tab-active');
+        indTab.style.color = 'var(--text-dim, #555)';
+    }
+}
+
+function toggleIndustry(id) {
+    var row = document.getElementById(id);
+    var arrow = document.getElementById('ind-arrow-' + id.replace('ind-', ''));
+    if (row.style.display === 'none') {
+        row.style.display = 'table-row';
+        if (arrow) arrow.style.transform = 'rotate(90deg)';
+    } else {
+        row.style.display = 'none';
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
 function toggleSectorStocks(id) {
     var row = document.getElementById(id);
     var arrow = document.getElementById(id.replace('sector-', 'sector-arrow-'));
@@ -248,93 +461,252 @@ function sortSectorTable(th) {
 </script>
 {% endif %}
 
+<script>
+var activeCharts = {};
+function toggleStockChart(symbol, clickedRow) {
+    var chartId = 'chart-' + symbol.replace(/[^a-zA-Z0-9]/g, '_');
+    // Close any existing chart panel first
+    var allCharts = document.querySelectorAll('[id^="chart-"]');
+    allCharts.forEach(function(el) { el.remove(); });
+    Object.keys(activeCharts).forEach(function(k) { delete activeCharts[k]; });
+
+    var existing = document.getElementById(chartId);
+    if (existing) {
+        existing.remove();
+        delete activeCharts[chartId];
+        return;
+    }
+
+    // Create chart as a fixed overlay div (not inside the table)
+    var chartDiv = document.createElement('div');
+    chartDiv.id = chartId;
+    chartDiv.style.position = 'fixed';
+    chartDiv.style.left = '0px';
+    chartDiv.style.right = '0px';
+    chartDiv.style.bottom = '0';
+    chartDiv.style.height = '45vh';
+    chartDiv.style.zIndex = '500';
+    chartDiv.style.background = '#08080c';
+    chartDiv.style.borderTop = '2px solid #33ff00';
+    chartDiv.style.padding = '4px';
+    chartDiv.style.boxShadow = '0 -4px 20px rgba(0,0,0,0.8)';
+
+    // Close button
+    var closeBtn = document.createElement('span');
+    closeBtn.textContent = '✕ ' + symbol;
+    closeBtn.style.cssText = 'position:absolute; top:6px; right:12px; cursor:pointer; color:#ff3333; font-family:VT323,monospace; font-size:18px; z-index:501;';
+    closeBtn.onclick = function(e) { e.stopPropagation(); chartDiv.remove(); delete activeCharts[chartId]; };
+    chartDiv.appendChild(closeBtn);
+
+    var innerChart = document.createElement('div');
+    innerChart.style.width = '100%';
+    innerChart.style.height = 'calc(100% - 8px)';
+    innerChart.innerHTML = '<span style="color: var(--text-dim, #555); font-size: 13px;">Loading ' + symbol + '...</span>';
+    chartDiv.appendChild(innerChart);
+    document.body.appendChild(chartDiv);
+
+    // Fetch chart data — use setTimeout to let DOM layout first
+    setTimeout(function() {
+    fetch('/api/chart/' + symbol)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                innerChart.innerHTML = '<span style="color: var(--red, #f33);">No data for ' + symbol + '</span>';
+                return;
+            }
+            innerChart.innerHTML = '';
+
+            var actualWidth = innerChart.getBoundingClientRect().width;
+            var actualHeight = innerChart.getBoundingClientRect().height;
+            var chart = LightweightCharts.createChart(innerChart, {
+                width: actualWidth,
+                height: actualHeight,
+                layout: { backgroundColor: '#0a0a0e', textColor: '#888', fontFamily: 'VT323, monospace', fontSize: 12 },
+                grid: { vertLines: { color: '#1a1a2a' }, horzLines: { color: '#1a1a2a' } },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                rightPriceScale: { borderColor: '#1a1a2a' },
+                timeScale: { borderColor: '#1a1a2a', timeVisible: false },
+            });
+
+            var cs = chart.addCandlestickSeries({
+                upColor: '#33ff00', downColor: '#ff3333',
+                borderUpColor: '#33ff00', borderDownColor: '#ff3333',
+                wickUpColor: '#33ff0088', wickDownColor: '#ff333388',
+            });
+            var candles = [];
+            for (var i = 0; i < data.dates.length; i++) {
+                candles.push({ time: data.dates[i], open: data.open[i], high: data.high[i], low: data.low[i], close: data.close[i] });
+            }
+            cs.setData(candles);
+
+            var lines = [
+                { data: data.ma_50, color: '#ffb000', title: 'MA50' },
+                { data: data.ma_150, color: '#05d9e8', title: 'MA150' },
+                { data: data.ma_200, color: '#ff2a6d', title: 'MA200' },
+            ];
+            lines.forEach(function(l) {
+                var s = chart.addLineSeries({ color: l.color, lineWidth: 1, title: l.title });
+                var d = [];
+                for (var i = 0; i < data.dates.length; i++) {
+                    if (l.data[i] !== null) d.push({ time: data.dates[i], value: l.data[i] });
+                }
+                s.setData(d);
+            });
+
+            chart.timeScale().fitContent();
+            activeCharts[chartId] = chart;
+
+            window.addEventListener('resize', function() {
+                if (activeCharts[chartId] && document.getElementById(chartId)) {
+                    var ic = document.getElementById(chartId).querySelector('div:last-child');
+                    if (ic) activeCharts[chartId].resize(ic.getBoundingClientRect().width, ic.getBoundingClientRect().height);
+                };
+            });
+        })
+        .catch(function(e) {
+            innerChart.innerHTML = '<span style="color: var(--red, #f33);">Error: ' + e.message + '</span>';
+        });
+    }, 50);  // 50ms delay for DOM layout
+}
+</script>
+
 {% if data | length > 0 %}
-<div class="table-wrap">
-    <table>
-        <thead>
-            <tr>
-                <th>Symbol</th>
-                <th>Name</th>
-                {% if filters.preset != 'all' %}
-                <th>Days</th>
-                {% endif %}
-                <th>Price</th>
-                <th>Chg%</th>
-                {% if filters.preset == 'all' %}
-                <th>Exchange</th>
-                <th>Sector</th>
-                <th>MktCap</th>
-                <th>Turnover</th>
-                <th>52w%</th>
-                <th>PE</th>
-                <th>FwdPE</th>
-                <th>EPS Est</th>
-                <th>DivYld</th>
-                <th>MA50</th>
-                <th>MA200</th>
-                {% else %}
-                <th>MA50</th>
-                <th>MA150</th>
-                <th>MA200</th>
-                <th>RS Rank</th>
-                <th>Mansfield</th>
-                <th>Dist Days</th>
-                <th>ADR%</th>
-                <th>From 52H</th>
-                <th>From 52L</th>
-                <th>Transition</th>
-                {% endif %}
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in data %}
-            <tr onclick="window.location='/chart/{{ row.Symbol }}'" style="cursor: pointer;">
-                <td>{{ row.Symbol }}</td>
-                {% if filters.preset == 'all' %}
-                <td>{{ row.Name | default('—', true) }}</td>
-                {% else %}
-                <td>{{ row.get('Name', '') or '—' }}</td>
-                <td>{{ row.DaysInStage }}</td>
-                {% endif %}
-                <td>{{ "%.2f" | format(row.Price) if row.Price else '—' }}</td>
-                <td class="{{ 'positive' if row.get('Change%', 0) and row['Change%'] > 0 else 'negative' if row.get('Change%', 0) and row['Change%'] < 0 else 'neutral' }}">
-                    {{ "%+.1f%%" | format(row['Change%']) if row.get('Change%') else '—' }}
-                </td>
-                {% if filters.preset == 'all' %}
-                <td>{{ row.Exchange | default('—', true) }}</td>
-                <td>{{ row.Sector | default('—', true) }}</td>
-                <td>{{ fmt_number(row.MktCap) if row.MktCap else '—' }}</td>
-                <td>{{ fmt_number(row.Turnover) if row.Turnover else '—' }}</td>
-                <td class="{{ 'positive' if row.get('52wChg%', 0) and row['52wChg%'] > 0 else 'negative' if row.get('52wChg%', 0) and row['52wChg%'] < 0 else 'neutral' }}">
-                    {{ "%+.1f%%" | format(row['52wChg%']) if row.get('52wChg%') else '—' }}
-                </td>
-                <td>{{ "%.1f" | format(row.PE) if row.get('PE') and row.PE == row.PE else '—' }}</td>
-                <td>{{ "%.1f" | format(row.FwdPE) if row.get('FwdPE') and row.FwdPE == row.FwdPE else '—' }}</td>
-                <td>{{ "%.2f" | format(row.EPS_Est) if row.get('EPS_Est') and row.EPS_Est == row.EPS_Est else '—' }}</td>
-                <td>{{ "%.2f%%" | format(row.DivYield * 100) if row.get('DivYield') and row.DivYield == row.DivYield else '—' }}</td>
-                <td>{{ "%.2f" | format(row.MA50) if row.get('MA50') and row.MA50 == row.MA50 else '—' }}</td>
-                <td>{{ "%.2f" | format(row.MA200) if row.get('MA200') and row.MA200 == row.MA200 else '—' }}</td>
-                {% else %}
-                <td>{{ "%.2f" | format(row.MA50) if row.MA50 == row.MA50 else '—' }}</td>
-                <td>{{ "%.2f" | format(row.MA150) if row.MA150 == row.MA150 else '—' }}</td>
-                <td>{{ "%.2f" | format(row.MA200) if row.MA200 == row.MA200 else '—' }}</td>
-                <td>{{ "%.0f" | format(row.RS_Rank) if row.RS_Rank == row.RS_Rank else '—' }}</td>
-                <td class="{{ 'positive' if row.Mansfield_RS > 0 else 'negative' }}">
-                    {{ "%+.1f" | format(row.Mansfield_RS) if row.Mansfield_RS == row.Mansfield_RS else '—' }}
-                </td>
-                <td>{{ "%.0f" | format(row.DistDays25) if row.DistDays25 == row.DistDays25 else '—' }}</td>
-                <td>{{ "%.1f" | format(row.ADR20) if row.ADR20 == row.ADR20 else '—' }}</td>
-                <td>{{ "%.1f%%" | format(row['Dist52wHigh%']) if row['Dist52wHigh%'] == row['Dist52wHigh%'] else '—' }}</td>
-                <td>{{ "%.1f%%" | format(row['Dist52wLow%']) if row['Dist52wLow%'] == row['Dist52wLow%'] else '—' }}</td>
-                <td style="{% if row.Transition %}color: var(--phosphor-bright, var(--green)); font-weight: bold;{% endif %}">
-                    {{ row.Transition if row.Transition else '—' }}
-                </td>
-                {% endif %}
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+
+<script>
+// Column picker logic
+var COL_DEFS = {
+    sym:      {label:'Symbol',    group:'price',     on:true},
+    name:     {label:'Name',      group:'price',     on:true},
+    price:    {label:'Price',     group:'price',     on:true},
+    chg:      {label:'Chg%',      group:'price',     on:true},
+    sector:   {label:'Sector',    group:'price',     on:false},
+    industry: {label:'Industry',  group:'price',     on:false},
+    pe:       {label:'PE',        group:'valuation',  on:true},
+    fwdpe:    {label:'Fwd PE',    group:'valuation',  on:true},
+    eps:      {label:'EPS TTM',   group:'earnings',   on:false},
+    fy1:      {label:'EPS FY1',   group:'earnings',   on:true},
+    fy2:      {label:'EPS FY2',   group:'earnings',   on:false},
+    opmgn:    {label:'OpMgn%',    group:'quality',    on:true},
+    netmgn:   {label:'NetMgn%',   group:'quality',    on:false},
+    roic:     {label:'ROIC%',     group:'quality',    on:true},
+    fcf:      {label:'FCF',       group:'quality',    on:false},
+    ndebitda: {label:'ND/EBITDA', group:'debt',       on:false},
+    evebitda: {label:'EV/EBITDA', group:'valuation',  on:true},
+    target:   {label:'Target',    group:'valuation',  on:false},
+    analysts: {label:'Analysts',  group:'valuation',  on:false},
+    rs:       {label:'RS Rank',   group:'price',      on:true},
+    mansfield:{label:'Mansfield', group:'price',      on:true},
+    ma50:     {label:'MA50',      group:'price',      on:false},
+    ma150:    {label:'MA150',     group:'price',      on:false},
+    ma200:    {label:'MA200',     group:'price',      on:false},
+    distdays: {label:'Dist Days', group:'price',      on:false},
+    adr:      {label:'ADR%',      group:'price',      on:false},
+    from52h:  {label:'From 52H',  group:'price',      on:false},
+    from52l:  {label:'From 52L',  group:'price',      on:false},
+    trans:    {label:'Transition',group:'price',      on:false},
+};
+
+var COL_GROUPS = {
+    price:     ['sym','name','price','chg','sector','industry','rs','mansfield','ma50','ma150','ma200','distdays','adr','from52h','from52l','trans'],
+    valuation: ['pe','fwdpe','evebitda','target','analysts'],
+    earnings:  ['eps','fy1','fy2'],
+    quality:   ['opmgn','netmgn','roic','fcf'],
+    debt:      ['ndebitda'],
+};
+
+// Load saved prefs (v2 key to avoid stale data from old format)
+try {
+    var saved = JSON.parse(localStorage.getItem('mktt_cols_v2'));
+    if (saved) { for (var k in saved) { if (COL_DEFS[k]) COL_DEFS[k].on = saved[k]; } }
+} catch(e) {}
+
+function buildColPicker() {
+    var container = document.getElementById('col-checks');
+    if (!container) return;
+    container.innerHTML = '';
+    var groupColors = {price:'var(--primary)',valuation:'var(--amber)',earnings:'var(--accent)',quality:'#a78bfa',debt:'var(--red)'};
+    for (var cid in COL_DEFS) {
+        var def = COL_DEFS[cid];
+        // Check if column exists in table
+        if (!document.querySelector('th[data-cid="'+cid+'"]')) continue;
+        var lbl = document.createElement('label');
+        lbl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;cursor:pointer;border-left:3px solid '+(groupColors[def.group]||'var(--border)');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = def.on; cb.dataset.cid = cid;
+        cb.style.cssText = 'cursor:pointer;accent-color:'+(groupColors[def.group]||'var(--primary)');
+        cb.onchange = function(){ toggleCol(this.dataset.cid, this.checked); };
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(def.label));
+        container.appendChild(lbl);
+    }
+    applyColVisibility();
+}
+
+function toggleCol(cid, show) {
+    COL_DEFS[cid].on = show;
+    applyColVisibility();
+    saveColPrefs();
+}
+
+function toggleColGroup(group) {
+    if (group === 'all') {
+        for (var k in COL_DEFS) { if (document.querySelector('th[data-cid="'+k+'"]')) COL_DEFS[k].on = true; }
+    } else if (group === 'minimal') {
+        for (var k in COL_DEFS) COL_DEFS[k].on = false;
+        ['sym','price','chg','pe','fwdpe','opmgn','roic'].forEach(function(c){ COL_DEFS[c].on = true; });
+    } else {
+        var cols = COL_GROUPS[group] || [];
+        var allOn = cols.every(function(c){ return COL_DEFS[c] && COL_DEFS[c].on; });
+        cols.forEach(function(c){ if (COL_DEFS[c] && document.querySelector('th[data-cid="'+c+'"]')) COL_DEFS[c].on = !allOn; });
+    }
+    // Update checkboxes
+    document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
+        cb.checked = COL_DEFS[cb.dataset.cid].on;
+    });
+    applyColVisibility();
+    saveColPrefs();
+}
+
+function applyColVisibility() {
+    // Build CSS rule dynamically
+    console.log('applyColVisibility called');
+    var styleEl = document.getElementById('col-visibility-style');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'col-visibility-style';
+        document.head.appendChild(styleEl);
+    }
+    var rules = [];
+    var visible = 0, total = 0;
+    for (var cid in COL_DEFS) {
+        if (!document.querySelector('[data-cid="'+cid+'"]')) continue;
+        total++;
+        if (!COL_DEFS[cid].on) {
+            rules.push('[data-cid="'+cid+'"] { display: none !important; }');
+        } else {
+            visible++;
+        }
+    }
+    styleEl.textContent = rules.join('\n');
+    console.log('Col rules applied:', rules.length, 'hidden,', visible, 'visible, total:', total);
+    console.log('Rules:', rules.slice(0,3).join(' | '));
+    var countEl = document.getElementById('col-count');
+    if (countEl) countEl.textContent = visible + '/' + total + ' columns';
+    // Sync checkboxes
+    document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
+        cb.checked = COL_DEFS[cb.dataset.cid] ? COL_DEFS[cb.dataset.cid].on : false;
+    });
+}
+
+function saveColPrefs() {
+    var prefs = {};
+    for (var k in COL_DEFS) prefs[k] = COL_DEFS[k].on;
+    try { localStorage.setItem('mktt_cols_v2', JSON.stringify(prefs)); } catch(e){}
+}
+
+document.addEventListener('DOMContentLoaded', buildColPicker);
+</script>
+
 {% else %}
 <div class="loading" style="animation: none;">
     No results matching criteria.
