@@ -926,11 +926,15 @@ function loadPanelFundamentals(symbol, container) {
         .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
 }
 
+var _ttmRevisions = 3;
+var _lastRevSymbol = null;
+
 function loadPanelRevisions(symbol, container) {
+    _lastRevSymbol = symbol;
     // Fetch both revisions and TTM forward in parallel
     Promise.all([
         fetch('/api/revisions/' + encodeURIComponent(symbol)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); }),
-        fetch('/api/eps_ttm_forward/' + encodeURIComponent(symbol)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); })
+        fetch('/api/eps_ttm_forward/' + encodeURIComponent(symbol) + '?n=' + (_ttmRevisions || 3)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); })
     ]).then(function(results) {
         var data = results[0];
         var ttmData = results[1];
@@ -958,21 +962,31 @@ function loadPanelRevisions(symbol, container) {
             var h = container.getBoundingClientRect().height - 8;
 
             // Forward TTM EPS chart
-            if (ttmData && !ttmData.error && ttmData.curves) {
+            if (ttmData && !ttmData.error && ttmData.curves && ttmData.curves.length) {
+                // Add revision count selector
+                var ctrl = document.createElement('div');
+                ctrl.style.cssText = 'position:absolute;top:4px;left:8px;z-index:10;display:flex;align-items:center;gap:6px;';
+                ctrl.innerHTML = '<label style="font-size:10px;color:#666;">Revisions:</label>' +
+                    '<input id="ttm-n-input" type="number" value="' + _ttmRevisions + '" min="1" max="' + (ttmData.n_available || 12) + '" style="width:40px;font-size:11px;padding:2px 4px;background:#1a1a2a;border:1px solid #333;color:#ccc;border-radius:3px;">';
+                div1.style.position = 'relative';
+                div1.appendChild(ctrl);
+                document.getElementById('ttm-n-input').onchange = function() {
+                    _ttmRevisions = parseInt(this.value) || 3;
+                    loadPanelRevisions(_lastRevSymbol, document.getElementById('panel-content'));
+                };
+
                 var ttmTraces = [];
-                var colors = { 'Current': '#4f8cf7', '10d ago': '#10b981', '30d ago': '#f59e0b', '60d ago': '#ef4444' };
-                var dashes = { 'Current': 'solid', '10d ago': 'dash', '30d ago': 'dash', '60d ago': 'dash' };
-                var widths = { 'Current': 3, '10d ago': 2, '30d ago': 2, '60d ago': 2 };
-                for (var label in ttmData.curves) {
+                var palette = ['#4f8cf7', '#10b981', '#f59e0b', '#ef4444', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16'];
+                ttmData.curves.forEach(function(curve, i) {
                     ttmTraces.push({
                         x: ttmData.quarter_labels,
-                        y: ttmData.curves[label],
-                        name: label,
+                        y: curve.values,
+                        name: curve.label,
                         mode: 'lines+markers',
-                        line: { color: colors[label] || '#888', dash: dashes[label] || 'solid', width: widths[label] || 2 },
-                        marker: { size: 5 },
+                        line: { color: palette[i % palette.length], dash: i === 0 ? 'solid' : 'dash', width: i === 0 ? 3 : 1.5 },
+                        marker: { size: i === 0 ? 5 : 3 },
                     });
-                }
+                });
                 // Add horizontal line for current actual TTM
                 if (ttmData.current_ttm) {
                     ttmTraces.push({

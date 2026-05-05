@@ -1064,14 +1064,20 @@ def _eps_ttm_forward_impl(symbol):
 
         return ttm_values
 
-    # Build curves for different snapshots
-    now = fy1['Date'].max()  # latest available date
-    snapshots = [
-        ('Current', now),
-        ('10d ago', now - timedelta(days=10)),
-        ('30d ago', now - timedelta(days=30)),
-        ('60d ago', now - timedelta(days=60)),
-    ]
+    # Build curves based on actual revision dates (not fixed day offsets)
+    # Collect all unique dates where FY1 or FY2 estimate was updated
+    all_dates = sorted(set(
+        fy1[fy1['Mean'].notna()]['Date'].tolist() +
+        fy2[fy2['Mean'].notna()]['Date'].tolist()
+    ), reverse=True)  # most recent first
+
+    # Number of revisions to show (default 3, configurable via query param)
+    from flask import request as _req
+    n_revisions = int(_req.args.get('n', 3))
+    n_revisions = max(1, min(n_revisions, len(all_dates)))
+
+    # Take the last n unique revision dates
+    snapshot_dates = all_dates[:n_revisions]
 
     result = {
         'quarter_labels': [f"{d.year}-Q{(d.month - 1)//3 + 1}" for d in quarter_dates],
@@ -1079,15 +1085,20 @@ def _eps_ttm_forward_impl(symbol):
         'curves': {},
     }
 
-    for label, snap_date in snapshots:
+    curves_list = []
+    for i, snap_date in enumerate(snapshot_dates):
         curve = build_ttm_curve(snap_date)
         if curve:
-            result['curves'][label] = curve
+            label = 'Current (' + snap_date.strftime('%m/%d') + ')' if i == 0 else snap_date.strftime('%Y-%m-%d')
+            curves_list.append({'label': label, 'values': curve})
+
+    result['curves'] = curves_list
 
     # Also add current TTM (actual trailing 4Q)
     if len(q) >= 4:
         result['current_ttm'] = round(float(q['EPS'].tail(4).sum()), 2)
 
+    result['n_available'] = len(all_dates)
     return jsonify(result)
 
 
