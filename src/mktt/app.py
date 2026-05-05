@@ -994,6 +994,8 @@ def _eps_ttm_forward_impl(symbol):
     q = q.sort_values('Date')
     q['EPS'] = pd.to_numeric(q['Earnings Per Share - Actual'], errors='coerce')
     q = q.dropna(subset=['EPS'])
+    if len(q) < 4:
+        return jsonify({'error': f'Not enough quarterly EPS data for {symbol}'}), 404
 
     # Get FY1/FY2 trend data
     fy1 = trend_fy1[trend_fy1['Symbol'] == symbol].copy()
