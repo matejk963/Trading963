@@ -277,6 +277,7 @@ def screener_page():
         'sector': sector,
         'min_price': min_price,
         'sort_by': sort_by,
+        'as_of': request.args.get('as_of', ''),
         'pe_min': pe_min, 'pe_max': pe_max,
         'fwdpe_min': fwdpe_min, 'fwdpe_max': fwdpe_max,
         'opmgn_min': opmgn_min, 'opmgn_max': opmgn_max,
@@ -306,6 +307,7 @@ def screener_page():
     market_regime = None
     universe_total = 0
     sectors = []
+    _as_of_label = ''
 
     if preset == 'all':
         # Plain screener — use local Parquet DB + Refinitiv enrichment (no yfinance API call)
@@ -315,27 +317,40 @@ def screener_page():
         rfv = load_refinitiv_snapshot()
 
         if close is not None and not close.empty:
-            # Find the last row with substantial data (>50% stocks)
+            # Select trading date (query param or latest with substantial data)
+            as_of_date = request.args.get('as_of', '')
             min_stocks = len(close.columns) * 0.5
-            _idx = -1
-            for _i in range(-1, -10, -1):
-                if close.iloc[_i].notna().sum() >= min_stocks:
-                    _idx = _i
-                    break
+            if as_of_date:
+                # Find the exact or nearest prior date
+                target = pd.Timestamp(as_of_date)
+                valid_dates = close.index[close.index <= target]
+                if len(valid_dates) > 0:
+                    _idx = close.index.get_loc(valid_dates[-1])
+                else:
+                    _idx = 0
+            else:
+                # Default: find last row with >50% data
+                _idx = len(close) - 1
+                for _i in range(len(close) - 1, max(len(close) - 10, 0), -1):
+                    if close.iloc[_i].notna().sum() >= min_stocks:
+                        _idx = _i
+                        break
+            _as_of_label = str(close.index[_idx])[:10]
             last_prices = close.iloc[_idx]
-            prev_prices = close.iloc[_idx - 1] if abs(_idx) < len(close) else last_prices
+            prev_prices = close.iloc[_idx - 1] if _idx > 0 else last_prices
 
-            # Compute technicals vectorized (all tickers at once)
-            ma50 = close.rolling(50).mean().iloc[_idx]
-            ma150 = close.rolling(150).mean().iloc[_idx]
-            ma200 = close.rolling(200).mean().iloc[_idx]
-            high_52w = close.iloc[_idx-252:_idx+1].max() if abs(_idx) + 252 <= len(close) else close.iloc[:_idx+1].max()
-            low_52w = close.iloc[_idx-252:_idx+1].min() if abs(_idx) + 252 <= len(close) else close.iloc[:_idx+1].min()
+            # Compute technicals vectorized (using data up to _idx)
+            _close_slice = close.iloc[:_idx + 1]
+            ma50 = _close_slice.rolling(50).mean().iloc[-1]
+            ma150 = _close_slice.rolling(150).mean().iloc[-1]
+            ma200 = _close_slice.rolling(200).mean().iloc[-1]
+            high_52w = _close_slice.iloc[-252:].max() if len(_close_slice) >= 252 else _close_slice.max()
+            low_52w = _close_slice.iloc[-252:].min() if len(_close_slice) >= 252 else _close_slice.min()
 
             # RS rank (6-month return percentile)
             rs_ranks = {}
-            if abs(_idx) + 126 <= len(close):
-                ret_6m = (close.iloc[_idx] / close.iloc[_idx - 126] - 1)
+            if len(_close_slice) > 126:
+                ret_6m = (_close_slice.iloc[-1] / _close_slice.iloc[-126] - 1)
                 rs_pct = ret_6m.rank(pct=True) * 100
                 rs_ranks = rs_pct.to_dict()
 
@@ -808,6 +823,8 @@ def screener_page():
 
             sector_stats.sort(key=lambda x: x['pct_of_sector'], reverse=True)
 
+    _as_of_used = _as_of_label
+
     return render_template('screener.html',
                            active_section='screener',
                            data=data,
@@ -817,7 +834,8 @@ def screener_page():
                            market_regime=market_regime,
                            universe_total=universe_total,
                            sector_stats=sector_stats,
-                           fetch_time=fetch_time)
+                           fetch_time=fetch_time,
+                           as_of_date=_as_of_used)
 
 
 @app.route('/chart/<symbol>')

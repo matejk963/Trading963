@@ -50,6 +50,11 @@
         </div>
 
         <div class="filter-group">
+            <label>As Of</label>
+            <input type="date" name="as_of" value="{{ filters.as_of }}" style="width:130px" onchange="this.form.submit()">
+        </div>
+
+        <div class="filter-group">
             <label>Sort By</label>
             <select name="sort_by">
                 {% if filters.preset != 'all' %}
@@ -247,6 +252,7 @@
 
 <div class="status-bar">
     <span>Results: <span class="count">{{ data | length }}</span></span>
+    {% if as_of_date %}<span>| Date: <strong>{{ as_of_date }}</strong></span>{% endif %}
     {% if not stage_dist %}
     <span>{{ fetch_time }}</span>
     {% endif %}
