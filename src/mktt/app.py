@@ -1072,7 +1072,7 @@ def _eps_ttm_forward_impl(symbol):
     ]
 
     result = {
-        'quarter_labels': [d.strftime('%Y-Q%q').replace('Q%q', 'Q' + str((d.month - 1)//3 + 1)) for d in quarter_dates],
+        'quarter_labels': [f"{d.year}-Q{(d.month - 1)//3 + 1}" for d in quarter_dates],
         'quarter_dates': [d.strftime('%Y-%m-%d') for d in quarter_dates],
         'curves': {},
     }
