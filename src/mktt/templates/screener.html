@@ -174,6 +174,8 @@
                 {% if filters.roic_min %}<span class="tag">ROIC>{{ filters.roic_min }}</span>{% endif %}
                 {% if filters.eps_growth %}<span class="tag">EPS: {{ filters.eps_growth }}</span>{% endif %}
                 {% if filters.evebitda_max %}<span class="tag">EV/EB<{{ filters.evebitda_max }}</span>{% endif %}
+                {% if filters.pe_sect_min or filters.pe_sect_max %}<span class="tag">PE/S: {{ filters.pe_sect_min or '' }}-{{ filters.pe_sect_max or '' }}</span>{% endif %}
+                {% if filters.pe_ind_min or filters.pe_ind_max %}<span class="tag">PE/I: {{ filters.pe_ind_min or '' }}-{{ filters.pe_ind_max or '' }}</span>{% endif %}
             </div>
         </div>
         <div class="filter-section-body">
@@ -195,6 +197,10 @@
                     <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
                     <option value="neg" {% if filters.eps_growth == 'neg' %}selected{% endif %}>Negative</option>
                 </select></div>
+            <div class="filter-group"><label>PE vs Sector</label>
+                <div style="display:flex;gap:4px"><input type="number" name="pe_sect_min" value="{{ filters.pe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="pe_sect_max" value="{{ filters.pe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
+            <div class="filter-group"><label>PE vs Industry</label>
+                <div style="display:flex;gap:4px"><input type="number" name="pe_ind_min" value="{{ filters.pe_ind_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="pe_ind_max" value="{{ filters.pe_ind_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
             <div class="filter-group"><label>Min Analysts</label>
                 <input type="number" name="analysts_min" value="{{ filters.analysts_min or '' }}" placeholder="Min" step="1" style="width:60px"></div>
             <button type="button" class="section-apply" onclick="this.closest('form').submit()">Apply</button>
@@ -276,6 +282,8 @@
                     <th data-cid="chg">Chg%</th>
                     <th data-cid="pe">PE</th>
                     <th data-cid="fwdpe">Fwd PE</th>
+                    <th data-cid="pesect">PE/Sec</th>
+                    <th data-cid="peind">PE/Ind</th>
                     <th data-cid="eps">EPS</th>
                     <th data-cid="fy1">FY1</th>
                     <th data-cid="fy2">FY2</th>
@@ -305,6 +313,8 @@
                     <td data-cid="chg"></td>
                     <td data-cid="pe">{{ sg(s, 'median_pe') }}</td>
                     <td data-cid="fwdpe">{{ sg(s, 'median_fwd_pe') }}</td>
+                    <td data-cid="pesect">—</td>
+                    <td data-cid="peind">—</td>
                     <td data-cid="eps">{{ sg(s, 'median_eps', '%.2f') }}</td>
                     <td data-cid="fy1">{{ sg(s, 'median_fy1', '%.2f') }}</td>
                     <td data-cid="fy2">{{ sg(s, 'median_fy2', '%.2f') }}</td>
@@ -318,7 +328,7 @@
                     <td data-cid="target">{{ sg(s, 'median_target', '%.0f') }}</td>
                 </tr>
                 <tr id="sector-{{ loop.index }}" style="display: none;">
-                    <td colspan="18" style="padding: 4px 0;">
+                    <td colspan="20" style="padding: 4px 0;">
                         {# Tabs #}
                         <div style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border-solid, #2a4a00);">
                             <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'ind')" id="tab-ind-sector-{{ loop.index }}" class="sector-tab sector-tab-active" style="padding: 3px 12px; cursor: pointer; font-size: 13px;">By Industry</span>
@@ -337,6 +347,8 @@
                                         <th data-cid="chg" style="padding:3px 8px"></th>
                                         <th data-cid="pe" style="padding:3px 8px">PE</th>
                                         <th data-cid="fwdpe" style="padding:3px 8px">FwdPE</th>
+                                        <th data-cid="pesect" style="padding:3px 8px">PE/Sec</th>
+                                        <th data-cid="peind" style="padding:3px 8px">PE/Ind</th>
                                         <th data-cid="eps" style="padding:3px 8px">EPS</th>
                                         <th data-cid="fy1" style="padding:3px 8px">FY1</th>
                                         <th data-cid="fy2" style="padding:3px 8px">FY2</th>
@@ -367,6 +379,8 @@
                                         <td data-cid="chg" style="{{isz}}"></td>
                                         <td data-cid="pe" style="{{isz}}">{{ ig(ind, 'median_pe') }}</td>
                                         <td data-cid="fwdpe" style="{{isz}}">{{ ig(ind, 'median_fwd_pe') }}</td>
+                                        <td data-cid="pesect" style="{{isz}}">—</td>
+                                        <td data-cid="peind" style="{{isz}}">—</td>
                                         <td data-cid="eps" style="{{isz}}">{{ ig(ind, 'median_eps', '%.2f') }}</td>
                                         <td data-cid="fy1" style="{{isz}}">{{ ig(ind, 'median_fy1', '%.2f') }}</td>
                                         <td data-cid="fy2" style="{{isz}}">{{ ig(ind, 'median_fy2', '%.2f') }}</td>
@@ -380,7 +394,7 @@
                                         <td data-cid="target" style="{{isz}}">{{ ig(ind, 'median_target', '%.0f') }}</td>
                                     </tr>
                                     <tr id="ind-{{ sector_idx }}-{{ loop.index }}" style="display: none;">
-                                        <td colspan="18" style="padding: 0 0 0 20px;">
+                                        <td colspan="20" style="padding: 0 0 0 20px;">
                                             <table style="width: 100%; border-collapse: collapse;">
                                                 <thead>
                                                     <tr style="background: var(--bg, #0c0c14);">
@@ -391,6 +405,8 @@
                                                         <th data-cid="chg" style="font-size: 11px; padding: 3px 8px;">Chg%</th>
                                                         <th data-cid="pe" style="font-size: 11px; padding: 3px 8px;">PE</th>
                                                         <th data-cid="fwdpe" style="font-size: 11px; padding: 3px 8px;">Fwd PE</th>
+                                                        <th data-cid="pesect" style="font-size: 11px; padding: 3px 8px;">PE/Sec</th>
+                                                        <th data-cid="peind" style="font-size: 11px; padding: 3px 8px;">PE/Ind</th>
                                                         <th data-cid="eps" style="font-size: 11px; padding: 3px 8px;">EPS</th>
                                                         <th data-cid="fy1" style="font-size: 11px; padding: 3px 8px;">FY1</th>
                                                         <th data-cid="fy2" style="font-size: 11px; padding: 3px 8px;">FY2</th>
@@ -415,6 +431,8 @@
                                                         <td data-cid="chg" style="{{sz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
                                                         <td data-cid="pe" style="{{sz}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
                                                         <td data-cid="fwdpe" style="{{sz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                                        <td data-cid="pesect" style="{{sz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
+                                                        <td data-cid="peind" style="{{sz}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
                                                         <td data-cid="eps" style="{{sz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
                                                         <td data-cid="fy1" style="{{sz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
                                                         <td data-cid="fy2" style="{{sz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
@@ -449,6 +467,8 @@
                                         <th data-cid="chg" style="font-size:13px;padding:5px 10px">Chg%</th>
                                         <th data-cid="pe" style="font-size:13px;padding:5px 10px">PE</th>
                                         <th data-cid="fwdpe" style="font-size:13px;padding:5px 10px">Fwd PE</th>
+                                        <th data-cid="pesect" style="font-size:13px;padding:5px 10px">PE/Sec</th>
+                                        <th data-cid="peind" style="font-size:13px;padding:5px 10px">PE/Ind</th>
                                         <th data-cid="eps" style="font-size:13px;padding:5px 10px">EPS</th>
                                         <th data-cid="fy1" style="font-size:13px;padding:5px 10px">FY1</th>
                                         <th data-cid="fy2" style="font-size:13px;padding:5px 10px">FY2</th>
@@ -473,6 +493,8 @@
                                         <td data-cid="chg" style="{{sz2}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
                                         <td data-cid="pe" style="{{sz2}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
                                         <td data-cid="fwdpe" style="{{sz2}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                        <td data-cid="pesect" style="{{sz2}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
+                                        <td data-cid="peind" style="{{sz2}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
                                         <td data-cid="eps" style="{{sz2}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
                                         <td data-cid="fy1" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
                                         <td data-cid="fy2" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
@@ -508,17 +530,19 @@
                     <th data-cid="chg" style="cursor:pointer" onclick="sortFlatTable(this,4,'num')">Chg%</th>
                     <th data-cid="pe" style="cursor:pointer" onclick="sortFlatTable(this,5,'num')">PE</th>
                     <th data-cid="fwdpe" style="cursor:pointer" onclick="sortFlatTable(this,6,'num')">Fwd PE</th>
-                    <th data-cid="eps" style="cursor:pointer" onclick="sortFlatTable(this,7,'num')">EPS</th>
-                    <th data-cid="fy1" style="cursor:pointer" onclick="sortFlatTable(this,8,'num')">FY1</th>
-                    <th data-cid="fy2" style="cursor:pointer" onclick="sortFlatTable(this,9,'num')">FY2</th>
-                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortFlatTable(this,10,'num')">OpMgn%</th>
-                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortFlatTable(this,11,'num')">NetMgn%</th>
-                    <th data-cid="roic" style="cursor:pointer" onclick="sortFlatTable(this,12,'num')">ROIC%</th>
-                    <th data-cid="fcf" style="cursor:pointer" onclick="sortFlatTable(this,13,'num')">FCF</th>
-                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortFlatTable(this,14,'num')">ND/EBITDA</th>
-                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortFlatTable(this,15,'num')">EV/EBITDA</th>
-                    <th data-cid="rs" style="cursor:pointer" onclick="sortFlatTable(this,16,'num')">RS</th>
-                    <th data-cid="target" style="cursor:pointer" onclick="sortFlatTable(this,17,'num')">Target</th>
+                    <th data-cid="pesect" style="cursor:pointer" onclick="sortFlatTable(this,7,'num')">PE/Sec</th>
+                    <th data-cid="peind" style="cursor:pointer" onclick="sortFlatTable(this,8,'num')">PE/Ind</th>
+                    <th data-cid="eps" style="cursor:pointer" onclick="sortFlatTable(this,9,'num')">EPS</th>
+                    <th data-cid="fy1" style="cursor:pointer" onclick="sortFlatTable(this,10,'num')">FY1</th>
+                    <th data-cid="fy2" style="cursor:pointer" onclick="sortFlatTable(this,11,'num')">FY2</th>
+                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortFlatTable(this,12,'num')">OpMgn%</th>
+                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortFlatTable(this,13,'num')">NetMgn%</th>
+                    <th data-cid="roic" style="cursor:pointer" onclick="sortFlatTable(this,14,'num')">ROIC%</th>
+                    <th data-cid="fcf" style="cursor:pointer" onclick="sortFlatTable(this,15,'num')">FCF</th>
+                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortFlatTable(this,16,'num')">ND/EBITDA</th>
+                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortFlatTable(this,17,'num')">EV/EBITDA</th>
+                    <th data-cid="rs" style="cursor:pointer" onclick="sortFlatTable(this,18,'num')">RS</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortFlatTable(this,19,'num')">Target</th>
                 </tr>
             </thead>
             <tbody>
@@ -533,6 +557,8 @@
                     <td data-cid="chg" style="{{fz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
                     <td data-cid="pe" style="{{fz}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
                     <td data-cid="fwdpe" style="{{fz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                    <td data-cid="pesect" style="{{fz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
+                    <td data-cid="peind" style="{{fz}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
                     <td data-cid="eps" style="{{fz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
                     <td data-cid="fy1" style="{{fz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
                     <td data-cid="fy2" style="{{fz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
@@ -821,6 +847,8 @@ var COL_DEFS = {
     industry: {label:'Industry',  group:'price',     on:false},
     pe:       {label:'PE',        group:'valuation',  on:true},
     fwdpe:    {label:'Fwd PE',    group:'valuation',  on:true},
+    pesect:   {label:'PE/Sector', group:'valuation',  on:false},
+    peind:    {label:'PE/Industry',group:'valuation', on:false},
     eps:      {label:'EPS TTM',   group:'earnings',   on:false},
     fy1:      {label:'EPS FY1',   group:'earnings',   on:true},
     fy2:      {label:'EPS FY2',   group:'earnings',   on:false},
@@ -846,7 +874,7 @@ var COL_DEFS = {
 
 var COL_GROUPS = {
     price:     ['sym','name','price','chg','sector','industry','rs','mansfield','ma50','ma150','ma200','distdays','adr','from52h','from52l','trans'],
-    valuation: ['pe','fwdpe','evebitda','target','analysts'],
+    valuation: ['pe','fwdpe','pesect','peind','evebitda','target','analysts'],
     earnings:  ['eps','fy1','fy2'],
     quality:   ['opmgn','netmgn','roic','fcf'],
     debt:      ['ndebitda'],

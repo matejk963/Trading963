@@ -239,6 +239,10 @@ def screener_page():
     rs_min = _flt('rs_min')
     analysts_min = _flt('analysts_min')
     eps_growth = request.args.get('eps_growth', '')
+    pe_sect_min = _flt('pe_sect_min')
+    pe_sect_max = _flt('pe_sect_max')
+    pe_ind_min = _flt('pe_ind_min')
+    pe_ind_max = _flt('pe_ind_max')
 
     # Classification filters
     pca_regime = request.args.get('pca_regime', '')
@@ -259,7 +263,7 @@ def screener_page():
     has_fund_filters = any(x is not None for x in [
         pe_min, pe_max, fwdpe_min, fwdpe_max, opmgn_min, opmgn_max,
         roic_min, roic_max, evebitda_min, evebitda_max, ndebitda_min, ndebitda_max,
-        rs_min, analysts_min]) or eps_growth != ''
+        rs_min, analysts_min, pe_sect_min, pe_sect_max, pe_ind_min, pe_ind_max]) or eps_growth != ''
 
     has_tech_filters = any(x is not None for x in [
         pct50_min, pct50_max, pct200_min, pct200_max,
@@ -279,6 +283,8 @@ def screener_page():
         'roic_min': roic_min, 'roic_max': roic_max,
         'evebitda_min': evebitda_min, 'evebitda_max': evebitda_max,
         'ndebitda_min': ndebitda_min, 'ndebitda_max': ndebitda_max,
+        'pe_sect_min': pe_sect_min, 'pe_sect_max': pe_sect_max,
+        'pe_ind_min': pe_ind_min, 'pe_ind_max': pe_ind_max,
         'rs_min': rs_min, 'analysts_min': analysts_min,
         'eps_growth': eps_growth,
         'has_fund_filters': has_fund_filters,
@@ -516,11 +522,60 @@ def screener_page():
                     if 'forwardPE' in uni_lookup.columns and 'FwdPE' not in results_df.columns:
                         results_df['FwdPE'] = results_df['Symbol'].map(uni_lookup['forwardPE'].to_dict())
 
+        # Compute PE premium vs sector/industry medians (using FULL universe, not filtered)
+        if rfv and 'PE' in results_df.columns:
+            # Build full universe PE by sector/industry from Refinitiv data
+            _all_pe = []
+            from data_manager import load_prices
+            _close = load_prices('close')
+            if _close is not None:
+                _last = _close.iloc[-1]
+                for sym, rec in rfv.items():
+                    eps = rec.get('eps_act')
+                    price = _last.get(sym)
+                    if eps and eps > 0 and pd.notna(price) and price > 0:
+                        _all_pe.append({'sector': rec.get('sector'), 'industry': rec.get('industry'), 'pe': float(price) / float(eps)})
+                if _all_pe:
+                    _pe_df = pd.DataFrame(_all_pe)
+                    _sector_median_pe = _pe_df.groupby('sector')['pe'].median().to_dict()
+                    _industry_median_pe = _pe_df.groupby('industry')['pe'].median().to_dict()
+                else:
+                    _sector_median_pe = {}
+                    _industry_median_pe = {}
+            else:
+                _sector_median_pe = {}
+                _industry_median_pe = {}
+
+            # Compute ratio: stock PE / sector median PE
+            def _pe_prem_sector(row):
+                pe = row.get('PE')
+                sec = row.get('Sector')
+                if pd.isna(pe) or pe is None or not sec:
+                    return None
+                med = _sector_median_pe.get(sec)
+                if not med or med <= 0:
+                    return None
+                return round(float(pe) / med, 2)
+
+            def _pe_prem_industry(row):
+                pe = row.get('PE')
+                ind = row.get('Industry')
+                if pd.isna(pe) or pe is None or not ind:
+                    return None
+                med = _industry_median_pe.get(ind)
+                if not med or med <= 0:
+                    return None
+                return round(float(pe) / med, 2)
+
+            results_df['PE_vs_Sector'] = results_df.apply(_pe_prem_sector, axis=1)
+            results_df['PE_vs_Industry'] = results_df.apply(_pe_prem_industry, axis=1)
+
         # Write enriched data back
         enrich_cols = ['Sector', 'Industry', 'PE', 'FwdPE',
                        'EPS_Act', 'EPS_FY1', 'EPS_FY2', 'OpMargin', 'NetMargin',
                        'FCF', 'ROIC', 'ND_EBITDA', 'EV_EBITDA', 'Target', 'Analysts',
-                       'PCA_Regime', 'Stage_Class', 'EPS_Accel', 'EPS_Acc_Val', 'MA_Screen']
+                       'PCA_Regime', 'Stage_Class', 'EPS_Accel', 'EPS_Acc_Val', 'MA_Screen',
+                       'PE_vs_Sector', 'PE_vs_Industry']
 
         # Enrich with PCA/Stage/EPS classifications
         cls = load_classification_lookups()
@@ -565,6 +620,8 @@ def screener_page():
             results_df = _range_filter(results_df, 'ROIC', roic_min, roic_max)
             results_df = _range_filter(results_df, 'EV_EBITDA', evebitda_min, evebitda_max)
             results_df = _range_filter(results_df, 'ND_EBITDA', ndebitda_min, ndebitda_max)
+            results_df = _range_filter(results_df, 'PE_vs_Sector', pe_sect_min, pe_sect_max)
+            results_df = _range_filter(results_df, 'PE_vs_Industry', pe_ind_min, pe_ind_max)
             results_df = _range_filter(results_df, 'RS_Rank', rs_min, None)
             results_df = _range_filter(results_df, 'Analysts', analysts_min, None)
 
@@ -682,6 +739,8 @@ def screener_page():
                         'change': _g('Change%'),
                         'pe': _g('PE'),
                         'fwd_pe': _g('FwdPE'),
+                        'pe_vs_sector': _g('PE_vs_Sector'),
+                        'pe_vs_industry': _g('PE_vs_Industry'),
                         'rs_rank': _g('RS_Rank'),
                         'mansfield': _g('Mansfield_RS'),
                         'industry': _g('Industry') or '',
