@@ -931,18 +931,30 @@ def _fundamentals_impl(symbol):
     q['Date'] = pd.to_datetime(q['Date'])
     q = q.sort_values('Date')
 
+    def _n(v):
+        """Convert value to float, returning None for empty/invalid."""
+        if v is None or v == '' or (isinstance(v, float) and pd.isna(v)):
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
     def _s(col):
-        return [round(float(v), 2) if pd.notna(v) else None for v in q[col]]
+        return [round(x, 2) if x is not None else None for x in [_n(v) for v in q[col]]]
+
+    def _sm(col, div=1):
+        return [round(x/div, 1) if x is not None else None for x in [_n(v) for v in q[col]]]
 
     return jsonify({
         'dates': [str(d)[:10] for d in q['Date']],
         'eps': _s('Earnings Per Share - Actual'),
         'eps_est': _s('Earnings Per Share - Mean Estimate'),
-        'revenue': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in q['Revenue - Actual']],
-        'rev_est': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in q['Revenue - Mean Estimate']],
+        'revenue': _sm('Revenue - Actual', 1e6),
+        'rev_est': _sm('Revenue - Mean Estimate', 1e6),
         'op_margin': _s('Operating Margin, Percent'),
         'net_margin': _s('Net Profit Margin, (%)'),
-        'fcf': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in q['Free Cash Flow']],
+        'fcf': _sm('Free Cash Flow', 1e6),
     })
 
 
@@ -1107,17 +1119,25 @@ def _revisions_impl(symbol):
             continue
         t['Date'] = pd.to_datetime(t['Date'])
         t = t.sort_values('Date')
+        def _safe(v, div=1):
+            if v is None or v == '' or (isinstance(v, float) and pd.isna(v)):
+                return None
+            try:
+                return round(float(v) / div, 3)
+            except (ValueError, TypeError):
+                return None
+
         if 'Earnings Per Share - Mean' in t.columns:
             result[label] = {
                 'dates': [str(d)[:10] for d in t['Date']],
-                'mean': [round(float(v), 3) if pd.notna(v) else None for v in t['Earnings Per Share - Mean']],
-                'high': [round(float(v), 3) if pd.notna(v) else None for v in t.get('Earnings Per Share - High', [])],
-                'low': [round(float(v), 3) if pd.notna(v) else None for v in t.get('Earnings Per Share - Low', [])],
+                'mean': [_safe(v) for v in t['Earnings Per Share - Mean']],
+                'high': [_safe(v) for v in t.get('Earnings Per Share - High', [])],
+                'low': [_safe(v) for v in t.get('Earnings Per Share - Low', [])],
             }
         elif 'Revenue - Mean' in t.columns:
             result[label] = {
                 'dates': [str(d)[:10] for d in t['Date']],
-                'mean': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in t['Revenue - Mean']],
+                'mean': [_safe(v, 1e6) for v in t['Revenue - Mean']],
             }
 
     if not result:
