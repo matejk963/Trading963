@@ -315,20 +315,27 @@ def screener_page():
         rfv = load_refinitiv_snapshot()
 
         if close is not None and not close.empty:
-            last_prices = close.iloc[-1]
-            prev_prices = close.iloc[-2] if len(close) > 1 else last_prices
+            # Find the last row with substantial data (>50% stocks)
+            min_stocks = len(close.columns) * 0.5
+            _idx = -1
+            for _i in range(-1, -10, -1):
+                if close.iloc[_i].notna().sum() >= min_stocks:
+                    _idx = _i
+                    break
+            last_prices = close.iloc[_idx]
+            prev_prices = close.iloc[_idx - 1] if abs(_idx) < len(close) else last_prices
 
             # Compute technicals vectorized (all tickers at once)
-            ma50 = close.rolling(50).mean().iloc[-1]
-            ma150 = close.rolling(150).mean().iloc[-1]
-            ma200 = close.rolling(200).mean().iloc[-1]
-            high_52w = close.iloc[-252:].max() if len(close) >= 252 else close.max()
-            low_52w = close.iloc[-252:].min() if len(close) >= 252 else close.min()
+            ma50 = close.rolling(50).mean().iloc[_idx]
+            ma150 = close.rolling(150).mean().iloc[_idx]
+            ma200 = close.rolling(200).mean().iloc[_idx]
+            high_52w = close.iloc[_idx-252:_idx+1].max() if abs(_idx) + 252 <= len(close) else close.iloc[:_idx+1].max()
+            low_52w = close.iloc[_idx-252:_idx+1].min() if abs(_idx) + 252 <= len(close) else close.iloc[:_idx+1].min()
 
             # RS rank (6-month return percentile)
             rs_ranks = {}
-            if len(close) > 126:
-                ret_6m = (close.iloc[-1] / close.iloc[-126] - 1)
+            if abs(_idx) + 126 <= len(close):
+                ret_6m = (close.iloc[_idx] / close.iloc[_idx - 126] - 1)
                 rs_pct = ret_6m.rank(pct=True) * 100
                 rs_ranks = rs_pct.to_dict()
 
