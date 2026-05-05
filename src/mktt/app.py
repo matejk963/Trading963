@@ -910,6 +910,8 @@ def fundamentals_api(symbol):
     try:
         return _fundamentals_impl(symbol)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 def _fundamentals_impl(symbol):
@@ -950,6 +952,8 @@ def eps_ttm_forward_api(symbol):
     try:
         return _eps_ttm_forward_impl(symbol)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 def _eps_ttm_forward_impl(symbol):
@@ -1079,6 +1083,8 @@ def revisions_api(symbol):
     try:
         return _revisions_impl(symbol)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 def _revisions_impl(symbol):
