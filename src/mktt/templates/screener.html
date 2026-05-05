@@ -247,6 +247,10 @@
     <button onclick="document.getElementById('col-picker').style.display=document.getElementById('col-picker').style.display==='none'?'block':'none'" style="font-size:12px;padding:5px 12px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:6px;cursor:pointer">Columns ▼</button>
     <span style="font-size:11px;color:var(--text-faint)" id="col-count"></span>
     <span style="font-size:13px;color:var(--text-dim);margin-left:12px">{{ sector_stats | length }} sectors / {{ data | length }} stocks</span>
+    <span style="margin-left:auto;display:flex;gap:0">
+        <button id="view-sectors-btn" onclick="switchView('sectors')" style="font-size:11px;padding:4px 10px;background:var(--primary);border:1px solid var(--border-light);color:white;border-radius:4px 0 0 4px;cursor:pointer">Sectors</button>
+        <button id="view-flat-btn" onclick="switchView('flat')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer">All Stocks</button>
+    </span>
 </div>
 <div id="col-picker" style="display:none;background:var(--bg-card);border:1px solid var(--border-light);border-radius:8px;padding:12px 16px;margin-bottom:8px;max-width:900px">
     <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -491,6 +495,104 @@
             </tbody>
         </table>
     </div>
+
+    {# ====== FLAT TABLE: all stocks in one list ====== #}
+    <div class="table-wrap" id="flat-table-wrap" style="display:none;margin-top:6px;">
+        <table id="flat-table">
+            <thead>
+                <tr>
+                    <th data-cid="sym" style="text-align:left;cursor:pointer" onclick="sortFlatTable(this,0,'str')">Symbol</th>
+                    <th style="text-align:left;cursor:pointer" onclick="sortFlatTable(this,1,'str')">Sector</th>
+                    <th style="text-align:left;cursor:pointer" onclick="sortFlatTable(this,2,'str')">Industry</th>
+                    <th data-cid="price" style="cursor:pointer" onclick="sortFlatTable(this,3,'num')">Price</th>
+                    <th data-cid="chg" style="cursor:pointer" onclick="sortFlatTable(this,4,'num')">Chg%</th>
+                    <th data-cid="pe" style="cursor:pointer" onclick="sortFlatTable(this,5,'num')">PE</th>
+                    <th data-cid="fwdpe" style="cursor:pointer" onclick="sortFlatTable(this,6,'num')">Fwd PE</th>
+                    <th data-cid="eps" style="cursor:pointer" onclick="sortFlatTable(this,7,'num')">EPS</th>
+                    <th data-cid="fy1" style="cursor:pointer" onclick="sortFlatTable(this,8,'num')">FY1</th>
+                    <th data-cid="fy2" style="cursor:pointer" onclick="sortFlatTable(this,9,'num')">FY2</th>
+                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortFlatTable(this,10,'num')">OpMgn%</th>
+                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortFlatTable(this,11,'num')">NetMgn%</th>
+                    <th data-cid="roic" style="cursor:pointer" onclick="sortFlatTable(this,12,'num')">ROIC%</th>
+                    <th data-cid="fcf" style="cursor:pointer" onclick="sortFlatTable(this,13,'num')">FCF</th>
+                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortFlatTable(this,14,'num')">ND/EBITDA</th>
+                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortFlatTable(this,15,'num')">EV/EBITDA</th>
+                    <th data-cid="rs" style="cursor:pointer" onclick="sortFlatTable(this,16,'num')">RS</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortFlatTable(this,17,'num')">Target</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sector_stats %}
+                {% for st in s.stocks %}
+                <tr onclick="toggleStockChart('{{ st.symbol }}', this)" style="cursor:pointer;border-bottom:1px solid var(--border);">
+                    {%- set fz = 'padding:3px 8px;font-size:12px' -%}
+                    <td data-cid="sym" style="text-align:left;{{fz}};font-weight:600">{{ st.symbol }}</td>
+                    <td style="{{fz}};color:var(--text-dim)">{{ s.sector }}</td>
+                    <td style="{{fz}};color:var(--text-dim)">{{ st.industry }}</td>
+                    <td data-cid="price" style="{{fz}}">{{ "%.2f"|format(st.price) if st.price else '—' }}</td>
+                    <td data-cid="chg" style="{{fz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
+                    <td data-cid="pe" style="{{fz}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
+                    <td data-cid="fwdpe" style="{{fz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                    <td data-cid="eps" style="{{fz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                    <td data-cid="fy1" style="{{fz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
+                    <td data-cid="fy2" style="{{fz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                    <td data-cid="opmgn" style="{{fz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
+                    <td data-cid="netmgn" style="{{fz}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
+                    <td data-cid="roic" style="{{fz}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
+                    <td data-cid="fcf" style="{{fz}}">{{ fmt_number(st.fcf) if st.fcf else '—' }}</td>
+                    <td data-cid="ndebitda" style="{{fz}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
+                    <td data-cid="evebitda" style="{{fz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
+                    <td data-cid="rs" style="{{fz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                    <td data-cid="target" style="{{fz}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+<script>
+function switchView(view) {
+    var sectorWrap = document.querySelector('.table-wrap:not(#flat-table-wrap)');
+    var flatWrap = document.getElementById('flat-table-wrap');
+    var sBtn = document.getElementById('view-sectors-btn');
+    var fBtn = document.getElementById('view-flat-btn');
+    if (view === 'flat') {
+        sectorWrap.style.display = 'none';
+        flatWrap.style.display = 'block';
+        sBtn.style.background = 'var(--bg-card)'; sBtn.style.color = 'var(--text-dim)';
+        fBtn.style.background = 'var(--primary)'; fBtn.style.color = 'white';
+    } else {
+        sectorWrap.style.display = 'block';
+        flatWrap.style.display = 'none';
+        fBtn.style.background = 'var(--bg-card)'; fBtn.style.color = 'var(--text-dim)';
+        sBtn.style.background = 'var(--primary)'; sBtn.style.color = 'white';
+    }
+}
+
+var flatSortDir = {};
+function sortFlatTable(th, col, type) {
+    var table = document.getElementById('flat-table');
+    var tbody = table.querySelector('tbody');
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    flatSortDir[col] = !(flatSortDir[col] || false);
+    var asc = flatSortDir[col];
+    rows.sort(function(a, b) {
+        var aVal = a.cells[col].textContent.trim();
+        var bVal = b.cells[col].textContent.trim();
+        if (type === 'num') {
+            aVal = parseFloat(aVal.replace(/[%,▶]/g, '').replace('—', 'NaN'));
+            bVal = parseFloat(bVal.replace(/[%,▶]/g, '').replace('—', 'NaN'));
+            if (isNaN(aVal)) aVal = -Infinity;
+            if (isNaN(bVal)) bVal = -Infinity;
+            return asc ? aVal - bVal : bVal - aVal;
+        }
+        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+}
+</script>
+
 <script>
 function switchSectorTab(sectorId, tab) {
     var indPanel = document.getElementById('panel-ind-' + sectorId);
