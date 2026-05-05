@@ -926,66 +926,98 @@ function loadPanelFundamentals(symbol, container) {
 }
 
 function loadPanelRevisions(symbol, container) {
-    fetch('/api/revisions/' + symbol)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.error) { container.innerHTML = '<span style="color:#f33;">' + data.error + '</span>'; return; }
-            container.innerHTML = '';
-            container.style.overflow = 'auto';
+    // Fetch both revisions and TTM forward in parallel
+    Promise.all([
+        fetch('/api/revisions/' + symbol).then(function(r) { return r.json(); }),
+        fetch('/api/eps_ttm_forward/' + symbol).then(function(r) { return r.json(); })
+    ]).then(function(results) {
+        var data = results[0];
+        var ttmData = results[1];
+        container.innerHTML = '';
+        container.style.overflow = 'auto';
 
-            var row = document.createElement('div');
-            row.style.cssText = 'display:flex;gap:4px;height:100%;';
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:4px;height:100%;';
 
-            var div1 = document.createElement('div');
-            div1.style.cssText = 'flex:1;min-width:0;';
-            div1.id = 'rev-eps';
-            row.appendChild(div1);
+        // Left: Forward TTM EPS
+        var div1 = document.createElement('div');
+        div1.style.cssText = 'flex:1;min-width:0;';
+        div1.id = 'rev-ttm';
+        row.appendChild(div1);
 
-            var div2 = document.createElement('div');
-            div2.style.cssText = 'flex:1;min-width:0;';
-            div2.id = 'rev-revenue';
-            row.appendChild(div2);
+        // Right: EPS estimate revisions
+        var div2 = document.createElement('div');
+        div2.style.cssText = 'flex:1;min-width:0;';
+        div2.id = 'rev-eps';
+        row.appendChild(div2);
 
-            container.appendChild(row);
+        container.appendChild(row);
 
-            setTimeout(function() {
-                var h = container.getBoundingClientRect().height - 8;
-                // EPS revisions
+        setTimeout(function() {
+            var h = container.getBoundingClientRect().height - 8;
+
+            // Forward TTM EPS chart
+            if (ttmData && !ttmData.error && ttmData.curves) {
+                var ttmTraces = [];
+                var colors = { 'Current': '#4f8cf7', '10d ago': '#10b981', '30d ago': '#f59e0b', '60d ago': '#ef4444' };
+                var dashes = { 'Current': 'solid', '10d ago': 'dash', '30d ago': 'dash', '60d ago': 'dash' };
+                var widths = { 'Current': 3, '10d ago': 2, '30d ago': 2, '60d ago': 2 };
+                for (var label in ttmData.curves) {
+                    ttmTraces.push({
+                        x: ttmData.quarter_labels,
+                        y: ttmData.curves[label],
+                        name: label,
+                        mode: 'lines+markers',
+                        line: { color: colors[label] || '#888', dash: dashes[label] || 'solid', width: widths[label] || 2 },
+                        marker: { size: 5 },
+                    });
+                }
+                // Add horizontal line for current actual TTM
+                if (ttmData.current_ttm) {
+                    ttmTraces.push({
+                        x: ttmData.quarter_labels,
+                        y: Array(ttmData.quarter_labels.length).fill(ttmData.current_ttm),
+                        name: 'Actual TTM (' + ttmData.current_ttm + ')',
+                        mode: 'lines',
+                        line: { color: '#666', dash: 'dot', width: 1 },
+                    });
+                }
+                Plotly.newPlot('rev-ttm', ttmTraces, Object.assign({}, PLOTLY_DARK, {
+                    height: h,
+                    title: { text: 'Forward TTM EPS (Next 8Q)', font: { size: 12, color: '#aaa' } },
+                    yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'TTM EPS ($)' }),
+                    xaxis: Object.assign({}, PLOTLY_DARK.xaxis, { type: 'category' }),
+                }), { displayModeBar: false, responsive: true });
+            } else {
+                document.getElementById('rev-ttm').innerHTML = '<span style="color:#666;padding:20px;">' + (ttmData.error || 'No TTM data') + '</span>';
+            }
+
+            // EPS estimate revisions (FY1/FY2 trend over time)
+            if (!data.error) {
                 var epsTraces = [];
                 if (data.eps_fy1) {
-                    epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.mean, name: 'FY1 Mean', line: { color: '#4f8cf7' } });
-                    if (data.eps_fy1.high) epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.high, name: 'FY1 High', line: { color: '#4f8cf7', dash: 'dot', width: 1 } });
-                    if (data.eps_fy1.low) epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.low, name: 'FY1 Low', line: { color: '#4f8cf7', dash: 'dot', width: 1 } });
+                    epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.mean, name: 'FY1 Mean', line: { color: '#4f8cf7', width: 2 } });
+                    if (data.eps_fy1.high) epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.high, name: 'FY1 High', line: { color: '#4f8cf7', dash: 'dot', width: 1 }, showlegend: false });
+                    if (data.eps_fy1.low) epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.low, name: 'FY1 Low', line: { color: '#4f8cf7', dash: 'dot', width: 1 }, showlegend: false });
                 }
                 if (data.eps_fy2) {
-                    epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.mean, name: 'FY2 Mean', line: { color: '#10b981' } });
-                    if (data.eps_fy2.high) epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.high, name: 'FY2 High', line: { color: '#10b981', dash: 'dot', width: 1 } });
-                    if (data.eps_fy2.low) epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.low, name: 'FY2 Low', line: { color: '#10b981', dash: 'dot', width: 1 } });
+                    epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.mean, name: 'FY2 Mean', line: { color: '#10b981', width: 2 } });
+                    if (data.eps_fy2.high) epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.high, name: 'FY2 High', line: { color: '#10b981', dash: 'dot', width: 1 }, showlegend: false });
+                    if (data.eps_fy2.low) epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.low, name: 'FY2 Low', line: { color: '#10b981', dash: 'dot', width: 1 }, showlegend: false });
                 }
                 if (epsTraces.length) {
                     Plotly.newPlot('rev-eps', epsTraces, Object.assign({}, PLOTLY_DARK, {
-                        height: h, title: { text: 'EPS Estimate Revisions', font: { size: 12, color: '#aaa' } },
+                        height: h, title: { text: 'EPS Estimate Revisions (FY1/FY2)', font: { size: 12, color: '#aaa' } },
                         yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'EPS ($)' }),
                     }), { displayModeBar: false, responsive: true });
                 } else {
                     document.getElementById('rev-eps').innerHTML = '<span style="color:#666;padding:20px;">No EPS revision data</span>';
                 }
-
-                // Revenue revisions
-                var revTraces = [];
-                if (data.rev_fy1) revTraces.push({ x: data.rev_fy1.dates, y: data.rev_fy1.mean, name: 'Rev FY1 ($M)', line: { color: '#f59e0b' } });
-                if (data.rev_fy2) revTraces.push({ x: data.rev_fy2.dates, y: data.rev_fy2.mean, name: 'Rev FY2 ($M)', line: { color: '#ec4899' } });
-                if (revTraces.length) {
-                    Plotly.newPlot('rev-revenue', revTraces, Object.assign({}, PLOTLY_DARK, {
-                        height: h, title: { text: 'Revenue Estimate Revisions', font: { size: 12, color: '#aaa' } },
-                        yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'Revenue ($M)' }),
-                    }), { displayModeBar: false, responsive: true });
-                } else {
-                    document.getElementById('rev-revenue').innerHTML = '<span style="color:#666;padding:20px;">No revenue revision data</span>';
-                }
-            }, 30);
-        })
-        .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
+            } else {
+                document.getElementById('rev-eps').innerHTML = '<span style="color:#666;padding:20px;">No revision data</span>';
+            }
+        }, 30);
+    }).catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
 }
 </script>
 
