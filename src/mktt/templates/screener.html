@@ -727,8 +727,11 @@ function sortSectorTable(th) {
 
 <script>
 var activeCharts = {};
+var activeRow = null;
 function toggleStockChart(symbol, clickedRow) {
     var chartId = 'chart-' + symbol.replace(/[^a-zA-Z0-9]/g, '_');
+    // Remove previous row highlight
+    if (activeRow) { activeRow.style.background = ''; activeRow = null; }
     // Close any existing chart panel first
     var allCharts = document.querySelectorAll('[id^="chart-"]');
     allCharts.forEach(function(el) { el.remove(); });
@@ -740,6 +743,10 @@ function toggleStockChart(symbol, clickedRow) {
         delete activeCharts[chartId];
         return;
     }
+
+    // Highlight clicked row
+    clickedRow.style.background = 'rgba(79, 140, 247, 0.15)';
+    activeRow = clickedRow;
 
     // Create chart as a fixed overlay div (not inside the table)
     var chartDiv = document.createElement('div');
@@ -788,8 +795,8 @@ function toggleStockChart(symbol, clickedRow) {
                 layout: { backgroundColor: '#0a0a0e', textColor: '#888', fontFamily: 'VT323, monospace', fontSize: 12 },
                 grid: { vertLines: { color: '#1a1a2a' }, horzLines: { color: '#1a1a2a' } },
                 crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                rightPriceScale: { borderColor: '#1a1a2a' },
-                timeScale: { borderColor: '#1a1a2a', timeVisible: false },
+                rightPriceScale: { borderColor: '#1a1a2a', scaleMargins: { top: 0.05, bottom: 0.05 } },
+                timeScale: { borderColor: '#1a1a2a', timeVisible: false, rightOffset: 192 },
             });
 
             var cs = chart.addCandlestickSeries({
