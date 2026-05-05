@@ -2,7 +2,7 @@
 MKTT — Matej Krajcovic Trading Tool
 Flask web application
 """
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 from datetime import datetime
 import pandas as pd
 import time
@@ -864,7 +864,12 @@ def chart_page(symbol):
 @app.route('/api/chart/<symbol>')
 def chart_api(symbol):
     """Return chart data as JSON for inline rendering"""
-    from flask import jsonify
+    try:
+        return _chart_api_impl(symbol)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def _chart_api_impl(symbol):
     from data_manager import load_prices
 
     close = load_prices('close', tickers=[symbol])
@@ -902,7 +907,12 @@ def chart_api(symbol):
 @app.route('/api/fundamentals/<symbol>')
 def fundamentals_api(symbol):
     """Return quarterly fundamentals (margins, EPS, FCF) for a symbol."""
-    from flask import jsonify
+    try:
+        return _fundamentals_impl(symbol)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def _fundamentals_impl(symbol):
     import pickle
     from pathlib import Path
     pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
@@ -937,7 +947,12 @@ def fundamentals_api(symbol):
 @app.route('/api/eps_ttm_forward/<symbol>')
 def eps_ttm_forward_api(symbol):
     """Return forward TTM EPS curve at current, -10d, -30d, -60d snapshots."""
-    from flask import jsonify
+    try:
+        return _eps_ttm_forward_impl(symbol)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def _eps_ttm_forward_impl(symbol):
     import pickle
     from pathlib import Path
     from datetime import timedelta
@@ -1061,7 +1076,12 @@ def eps_ttm_forward_api(symbol):
 @app.route('/api/revisions/<symbol>')
 def revisions_api(symbol):
     """Return EPS/Revenue estimate revision trends for a symbol."""
-    from flask import jsonify
+    try:
+        return _revisions_impl(symbol)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def _revisions_impl(symbol):
     import pickle
     from pathlib import Path
     pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
