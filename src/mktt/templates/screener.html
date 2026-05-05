@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title_suffix %}// Screener{% endblock %}
 
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <h2 class="page-title">Market Screener</h2>
 
@@ -728,116 +732,260 @@ function sortSectorTable(th) {
 <script>
 var activeCharts = {};
 var activeRow = null;
+var _panelSymbol = null;
+
 function toggleStockChart(symbol, clickedRow) {
-    var chartId = 'chart-' + symbol.replace(/[^a-zA-Z0-9]/g, '_');
+    var panelId = 'stock-panel';
     // Remove previous row highlight
     if (activeRow) { activeRow.style.background = ''; activeRow = null; }
-    // Close any existing chart panel first
-    var allCharts = document.querySelectorAll('[id^="chart-"]');
-    allCharts.forEach(function(el) { el.remove(); });
-    Object.keys(activeCharts).forEach(function(k) { delete activeCharts[k]; });
 
-    var existing = document.getElementById(chartId);
-    if (existing) {
+    // If clicking same symbol, close panel
+    var existing = document.getElementById(panelId);
+    if (existing && _panelSymbol === symbol) {
         existing.remove();
-        delete activeCharts[chartId];
+        _panelSymbol = null;
+        Object.keys(activeCharts).forEach(function(k) { delete activeCharts[k]; });
         return;
     }
+
+    // Remove existing panel
+    if (existing) existing.remove();
+    Object.keys(activeCharts).forEach(function(k) { delete activeCharts[k]; });
 
     // Highlight clicked row
     clickedRow.style.background = 'rgba(79, 140, 247, 0.15)';
     activeRow = clickedRow;
+    _panelSymbol = symbol;
 
-    // Create chart as a fixed overlay div (not inside the table)
-    var chartDiv = document.createElement('div');
-    chartDiv.id = chartId;
-    chartDiv.style.position = 'fixed';
-    chartDiv.style.left = '0px';
-    chartDiv.style.right = '0px';
-    chartDiv.style.bottom = '0';
-    chartDiv.style.height = '45vh';
-    chartDiv.style.zIndex = '500';
-    chartDiv.style.background = '#08080c';
-    chartDiv.style.borderTop = '2px solid #33ff00';
-    chartDiv.style.padding = '4px';
-    chartDiv.style.boxShadow = '0 -4px 20px rgba(0,0,0,0.8)';
+    // Create tabbed panel
+    var panel = document.createElement('div');
+    panel.id = panelId;
+    panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:45vh;z-index:500;background:#08080c;border-top:2px solid var(--primary,#4f8cf7);padding:0;box-shadow:0 -4px 20px rgba(0,0,0,0.8);display:flex;flex-direction:column;';
 
-    // Close button
+    // Header: tabs + close
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;padding:0 8px;border-bottom:1px solid #1a1a2a;flex-shrink:0;';
+    var tabs = [
+        {id:'chart', label:'Chart'},
+        {id:'fundamentals', label:'Fundamentals'},
+        {id:'revisions', label:'Revisions'}
+    ];
+    tabs.forEach(function(tab, i) {
+        var btn = document.createElement('span');
+        btn.id = 'panel-tab-' + tab.id;
+        btn.textContent = tab.label;
+        btn.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;color:' + (i===0?'white':'#666') + ';border-bottom:2px solid ' + (i===0?'var(--primary,#4f8cf7)':'transparent') + ';';
+        btn.onclick = function(e) { e.stopPropagation(); switchPanelTab(tab.id, symbol); };
+        header.appendChild(btn);
+    });
+    var symLabel = document.createElement('span');
+    symLabel.textContent = symbol;
+    symLabel.style.cssText = 'margin-left:auto;font-size:14px;font-weight:700;color:var(--primary,#4f8cf7);padding-right:8px;';
+    header.appendChild(symLabel);
     var closeBtn = document.createElement('span');
-    closeBtn.textContent = '✕ ' + symbol;
-    closeBtn.style.cssText = 'position:absolute; top:6px; right:12px; cursor:pointer; color:#ff3333; font-family:VT323,monospace; font-size:18px; z-index:501;';
-    closeBtn.onclick = function(e) { e.stopPropagation(); chartDiv.remove(); delete activeCharts[chartId]; };
-    chartDiv.appendChild(closeBtn);
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = 'padding:6px 10px;cursor:pointer;color:#ff3333;font-size:16px;font-weight:700;';
+    closeBtn.onclick = function(e) { e.stopPropagation(); panel.remove(); _panelSymbol=null; if(activeRow){activeRow.style.background='';activeRow=null;} };
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
 
-    var innerChart = document.createElement('div');
-    innerChart.style.width = '100%';
-    innerChart.style.height = 'calc(100% - 8px)';
-    innerChart.innerHTML = '<span style="color: var(--text-dim, #555); font-size: 13px;">Loading ' + symbol + '...</span>';
-    chartDiv.appendChild(innerChart);
-    document.body.appendChild(chartDiv);
+    // Content area
+    var content = document.createElement('div');
+    content.id = 'panel-content';
+    content.style.cssText = 'flex:1;overflow:hidden;padding:4px;';
+    panel.appendChild(content);
+    document.body.appendChild(panel);
 
-    // Fetch chart data — use setTimeout to let DOM layout first
+    // Load first tab
+    switchPanelTab('chart', symbol);
+}
+
+function switchPanelTab(tabId, symbol) {
+    // Update tab styles
+    ['chart','fundamentals','revisions'].forEach(function(t) {
+        var el = document.getElementById('panel-tab-' + t);
+        if (el) {
+            el.style.color = t === tabId ? 'white' : '#666';
+            el.style.borderBottom = '2px solid ' + (t === tabId ? 'var(--primary,#4f8cf7)' : 'transparent');
+        }
+    });
+    var content = document.getElementById('panel-content');
+    if (!content) return;
+    content.innerHTML = '<span style="color:#666;font-size:13px;padding:8px;">Loading...</span>';
+
+    if (tabId === 'chart') loadPanelChart(symbol, content);
+    else if (tabId === 'fundamentals') loadPanelFundamentals(symbol, content);
+    else if (tabId === 'revisions') loadPanelRevisions(symbol, content);
+}
+
+function loadPanelChart(symbol, container) {
     setTimeout(function() {
-    fetch('/api/chart/' + symbol)
+        fetch('/api/chart/' + symbol)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) { container.innerHTML = '<span style="color:#f33;">No data for ' + symbol + '</span>'; return; }
+                container.innerHTML = '';
+                var w = container.getBoundingClientRect().width;
+                var h = container.getBoundingClientRect().height;
+                var chart = LightweightCharts.createChart(container, {
+                    width: w, height: h,
+                    layout: { backgroundColor: '#0a0a0e', textColor: '#888', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+                    grid: { vertLines: { color: '#1a1a2a' }, horzLines: { color: '#1a1a2a' } },
+                    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    rightPriceScale: { borderColor: '#1a1a2a', scaleMargins: { top: 0.05, bottom: 0.05 } },
+                    timeScale: { borderColor: '#1a1a2a', timeVisible: false, rightOffset: 192 },
+                });
+                var cs = chart.addCandlestickSeries({
+                    upColor: '#10b981', downColor: '#ef4444',
+                    borderUpColor: '#10b981', borderDownColor: '#ef4444',
+                    wickUpColor: '#10b98188', wickDownColor: '#ef444488',
+                });
+                var candles = [];
+                for (var i = 0; i < data.dates.length; i++) {
+                    candles.push({ time: data.dates[i], open: data.open[i], high: data.high[i], low: data.low[i], close: data.close[i] });
+                }
+                cs.setData(candles);
+                [{data:data.ma_50,color:'#f59e0b',title:'MA50'},{data:data.ma_150,color:'#06b6d4',title:'MA150'},{data:data.ma_200,color:'#ec4899',title:'MA200'}].forEach(function(l) {
+                    var s = chart.addLineSeries({ color: l.color, lineWidth: 1, title: l.title });
+                    var d = [];
+                    for (var i = 0; i < data.dates.length; i++) { if (l.data[i] !== null) d.push({ time: data.dates[i], value: l.data[i] }); }
+                    s.setData(d);
+                });
+                chart.timeScale().fitContent();
+                activeCharts['panel'] = chart;
+                window.addEventListener('resize', function() {
+                    if (activeCharts['panel'] && document.getElementById('panel-content')) {
+                        var c = document.getElementById('panel-content');
+                        activeCharts['panel'].resize(c.getBoundingClientRect().width, c.getBoundingClientRect().height);
+                    }
+                });
+            })
+            .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
+    }, 30);
+}
+
+var PLOTLY_DARK = {
+    paper_bgcolor: '#0a0a0e', plot_bgcolor: '#0a0a0e',
+    font: { color: '#888', family: 'JetBrains Mono, monospace', size: 11 },
+    xaxis: { gridcolor: '#1a1a2a', linecolor: '#1a1a2a' },
+    yaxis: { gridcolor: '#1a1a2a', linecolor: '#1a1a2a' },
+    margin: { l: 50, r: 20, t: 30, b: 35 },
+    legend: { orientation: 'h', y: 1.02, x: 0, font: { size: 10 } },
+};
+
+function loadPanelFundamentals(symbol, container) {
+    fetch('/api/fundamentals/' + symbol)
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.error) {
-                innerChart.innerHTML = '<span style="color: var(--red, #f33);">No data for ' + symbol + '</span>';
-                return;
-            }
-            innerChart.innerHTML = '';
+            if (data.error) { container.innerHTML = '<span style="color:#f33;">' + data.error + '</span>'; return; }
+            container.innerHTML = '';
+            container.style.overflow = 'auto';
 
-            var actualWidth = innerChart.getBoundingClientRect().width;
-            var actualHeight = innerChart.getBoundingClientRect().height;
-            var chart = LightweightCharts.createChart(innerChart, {
-                width: actualWidth,
-                height: actualHeight,
-                layout: { backgroundColor: '#0a0a0e', textColor: '#888', fontFamily: 'VT323, monospace', fontSize: 12 },
-                grid: { vertLines: { color: '#1a1a2a' }, horzLines: { color: '#1a1a2a' } },
-                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-                rightPriceScale: { borderColor: '#1a1a2a', scaleMargins: { top: 0.05, bottom: 0.05 } },
-                timeScale: { borderColor: '#1a1a2a', timeVisible: false, rightOffset: 192 },
-            });
+            // Two charts: Margins + EPS/Revenue
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:4px;height:100%;';
 
-            var cs = chart.addCandlestickSeries({
-                upColor: '#33ff00', downColor: '#ff3333',
-                borderUpColor: '#33ff00', borderDownColor: '#ff3333',
-                wickUpColor: '#33ff0088', wickDownColor: '#ff333388',
-            });
-            var candles = [];
-            for (var i = 0; i < data.dates.length; i++) {
-                candles.push({ time: data.dates[i], open: data.open[i], high: data.high[i], low: data.low[i], close: data.close[i] });
-            }
-            cs.setData(candles);
+            var div1 = document.createElement('div');
+            div1.style.cssText = 'flex:1;min-width:0;';
+            div1.id = 'fund-margins';
+            row.appendChild(div1);
 
-            var lines = [
-                { data: data.ma_50, color: '#ffb000', title: 'MA50' },
-                { data: data.ma_150, color: '#05d9e8', title: 'MA150' },
-                { data: data.ma_200, color: '#ff2a6d', title: 'MA200' },
-            ];
-            lines.forEach(function(l) {
-                var s = chart.addLineSeries({ color: l.color, lineWidth: 1, title: l.title });
-                var d = [];
-                for (var i = 0; i < data.dates.length; i++) {
-                    if (l.data[i] !== null) d.push({ time: data.dates[i], value: l.data[i] });
-                }
-                s.setData(d);
-            });
+            var div2 = document.createElement('div');
+            div2.style.cssText = 'flex:1;min-width:0;';
+            div2.id = 'fund-eps';
+            row.appendChild(div2);
 
-            chart.timeScale().fitContent();
-            activeCharts[chartId] = chart;
+            container.appendChild(row);
 
-            window.addEventListener('resize', function() {
-                if (activeCharts[chartId] && document.getElementById(chartId)) {
-                    var ic = document.getElementById(chartId).querySelector('div:last-child');
-                    if (ic) activeCharts[chartId].resize(ic.getBoundingClientRect().width, ic.getBoundingClientRect().height);
-                };
-            });
+            setTimeout(function() {
+                var h = container.getBoundingClientRect().height - 8;
+                // Margins chart
+                var traces1 = [
+                    { x: data.dates, y: data.op_margin, name: 'Op Margin %', line: { color: '#4f8cf7' } },
+                    { x: data.dates, y: data.net_margin, name: 'Net Margin %', line: { color: '#10b981' } },
+                ];
+                Plotly.newPlot('fund-margins', traces1, Object.assign({}, PLOTLY_DARK, {
+                    height: h, title: { text: 'Margins', font: { size: 12, color: '#aaa' } },
+                    yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { ticksuffix: '%' })
+                }), { displayModeBar: false, responsive: true });
+
+                // EPS + FCF chart
+                var traces2 = [
+                    { x: data.dates, y: data.eps, name: 'EPS Actual', line: { color: '#f59e0b' } },
+                    { x: data.dates, y: data.eps_est, name: 'EPS Estimate', line: { color: '#f59e0b', dash: 'dot' } },
+                    { x: data.dates, y: data.fcf, name: 'FCF ($M)', yaxis: 'y2', line: { color: '#a78bfa' } },
+                ];
+                Plotly.newPlot('fund-eps', traces2, Object.assign({}, PLOTLY_DARK, {
+                    height: h, title: { text: 'EPS & FCF', font: { size: 12, color: '#aaa' } },
+                    yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'EPS ($)' }),
+                    yaxis2: { overlaying: 'y', side: 'right', gridcolor: 'transparent', linecolor: '#1a1a2a', title: 'FCF ($M)', titlefont: { color: '#a78bfa', size: 10 }, tickfont: { color: '#a78bfa' } },
+                }), { displayModeBar: false, responsive: true });
+            }, 30);
         })
-        .catch(function(e) {
-            innerChart.innerHTML = '<span style="color: var(--red, #f33);">Error: ' + e.message + '</span>';
-        });
-    }, 50);  // 50ms delay for DOM layout
+        .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
+}
+
+function loadPanelRevisions(symbol, container) {
+    fetch('/api/revisions/' + symbol)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { container.innerHTML = '<span style="color:#f33;">' + data.error + '</span>'; return; }
+            container.innerHTML = '';
+            container.style.overflow = 'auto';
+
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:4px;height:100%;';
+
+            var div1 = document.createElement('div');
+            div1.style.cssText = 'flex:1;min-width:0;';
+            div1.id = 'rev-eps';
+            row.appendChild(div1);
+
+            var div2 = document.createElement('div');
+            div2.style.cssText = 'flex:1;min-width:0;';
+            div2.id = 'rev-revenue';
+            row.appendChild(div2);
+
+            container.appendChild(row);
+
+            setTimeout(function() {
+                var h = container.getBoundingClientRect().height - 8;
+                // EPS revisions
+                var epsTraces = [];
+                if (data.eps_fy1) {
+                    epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.mean, name: 'FY1 Mean', line: { color: '#4f8cf7' } });
+                    if (data.eps_fy1.high) epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.high, name: 'FY1 High', line: { color: '#4f8cf7', dash: 'dot', width: 1 } });
+                    if (data.eps_fy1.low) epsTraces.push({ x: data.eps_fy1.dates, y: data.eps_fy1.low, name: 'FY1 Low', line: { color: '#4f8cf7', dash: 'dot', width: 1 } });
+                }
+                if (data.eps_fy2) {
+                    epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.mean, name: 'FY2 Mean', line: { color: '#10b981' } });
+                    if (data.eps_fy2.high) epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.high, name: 'FY2 High', line: { color: '#10b981', dash: 'dot', width: 1 } });
+                    if (data.eps_fy2.low) epsTraces.push({ x: data.eps_fy2.dates, y: data.eps_fy2.low, name: 'FY2 Low', line: { color: '#10b981', dash: 'dot', width: 1 } });
+                }
+                if (epsTraces.length) {
+                    Plotly.newPlot('rev-eps', epsTraces, Object.assign({}, PLOTLY_DARK, {
+                        height: h, title: { text: 'EPS Estimate Revisions', font: { size: 12, color: '#aaa' } },
+                        yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'EPS ($)' }),
+                    }), { displayModeBar: false, responsive: true });
+                } else {
+                    document.getElementById('rev-eps').innerHTML = '<span style="color:#666;padding:20px;">No EPS revision data</span>';
+                }
+
+                // Revenue revisions
+                var revTraces = [];
+                if (data.rev_fy1) revTraces.push({ x: data.rev_fy1.dates, y: data.rev_fy1.mean, name: 'Rev FY1 ($M)', line: { color: '#f59e0b' } });
+                if (data.rev_fy2) revTraces.push({ x: data.rev_fy2.dates, y: data.rev_fy2.mean, name: 'Rev FY2 ($M)', line: { color: '#ec4899' } });
+                if (revTraces.length) {
+                    Plotly.newPlot('rev-revenue', revTraces, Object.assign({}, PLOTLY_DARK, {
+                        height: h, title: { text: 'Revenue Estimate Revisions', font: { size: 12, color: '#aaa' } },
+                        yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'Revenue ($M)' }),
+                    }), { displayModeBar: false, responsive: true });
+                } else {
+                    document.getElementById('rev-revenue').innerHTML = '<span style="color:#666;padding:20px;">No revenue revision data</span>';
+                }
+            }, 30);
+        })
+        .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
 }
 </script>
 

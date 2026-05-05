@@ -899,6 +899,82 @@ def chart_api(symbol):
     })
 
 
+@app.route('/api/fundamentals/<symbol>')
+def fundamentals_api(symbol):
+    """Return quarterly fundamentals (margins, EPS, FCF) for a symbol."""
+    from flask import jsonify
+    import pickle
+    from pathlib import Path
+    pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
+    if not pkl_path.exists():
+        return jsonify({'error': 'No data'}), 404
+    with open(pkl_path, 'rb') as f:
+        data = pickle.load(f)
+    quarterly = data.get('quarterly')
+    if quarterly is None:
+        return jsonify({'error': 'No quarterly data'}), 404
+    q = quarterly[quarterly['Symbol'] == symbol].copy()
+    if q.empty:
+        return jsonify({'error': f'No data for {symbol}'}), 404
+    q['Date'] = pd.to_datetime(q['Date'])
+    q = q.sort_values('Date')
+
+    def _s(col):
+        return [round(float(v), 2) if pd.notna(v) else None for v in q[col]]
+
+    return jsonify({
+        'dates': [str(d)[:10] for d in q['Date']],
+        'eps': _s('Earnings Per Share - Actual'),
+        'eps_est': _s('Earnings Per Share - Mean Estimate'),
+        'revenue': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in q['Revenue - Actual']],
+        'rev_est': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in q['Revenue - Mean Estimate']],
+        'op_margin': _s('Operating Margin, Percent'),
+        'net_margin': _s('Net Profit Margin, (%)'),
+        'fcf': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in q['Free Cash Flow']],
+    })
+
+
+@app.route('/api/revisions/<symbol>')
+def revisions_api(symbol):
+    """Return EPS/Revenue estimate revision trends for a symbol."""
+    from flask import jsonify
+    import pickle
+    from pathlib import Path
+    pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
+    if not pkl_path.exists():
+        return jsonify({'error': 'No data'}), 404
+    with open(pkl_path, 'rb') as f:
+        data = pickle.load(f)
+
+    result = {}
+    for key, label in [('trend_eps_fy1', 'eps_fy1'), ('trend_eps_fy2', 'eps_fy2'),
+                        ('trend_rev_fy1', 'rev_fy1'), ('trend_rev_fy2', 'rev_fy2')]:
+        df = data.get(key)
+        if df is None:
+            continue
+        t = df[df['Symbol'] == symbol].copy()
+        if t.empty:
+            continue
+        t['Date'] = pd.to_datetime(t['Date'])
+        t = t.sort_values('Date')
+        if 'Earnings Per Share - Mean' in t.columns:
+            result[label] = {
+                'dates': [str(d)[:10] for d in t['Date']],
+                'mean': [round(float(v), 3) if pd.notna(v) else None for v in t['Earnings Per Share - Mean']],
+                'high': [round(float(v), 3) if pd.notna(v) else None for v in t.get('Earnings Per Share - High', [])],
+                'low': [round(float(v), 3) if pd.notna(v) else None for v in t.get('Earnings Per Share - Low', [])],
+            }
+        elif 'Revenue - Mean' in t.columns:
+            result[label] = {
+                'dates': [str(d)[:10] for d in t['Date']],
+                'mean': [round(float(v)/1e6, 1) if pd.notna(v) else None for v in t['Revenue - Mean']],
+            }
+
+    if not result:
+        return jsonify({'error': f'No revision data for {symbol}'}), 404
+    return jsonify(result)
+
+
 if __name__ == '__main__':
     # Auto-update prices if stale (>16 hours old)
     from data_manager import auto_update_if_stale
