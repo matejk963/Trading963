@@ -7,12 +7,30 @@ Usage:
     python data_freshness.py --json    # JSON output for automation
 """
 import pandas as pd
+import numpy as np
 import pickle
 import os
 import sys
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
+
+
+def _jsonable(obj):
+    """Recursively convert numpy/pandas types to native Python for JSON."""
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if isinstance(obj, pd.Timestamp):
+        return str(obj.date())
+    return obj
 
 DATA_DIR = Path(__file__).parent.parent.parent / 'data' / 'mktt'
 
@@ -206,7 +224,7 @@ def full_report():
     else:
         report['overall'] = 'OK'
 
-    return report
+    return _jsonable(report)
 
 
 def print_report(report):
