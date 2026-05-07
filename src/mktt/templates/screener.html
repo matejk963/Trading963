@@ -291,26 +291,26 @@
         <table id="sector-table">
             <thead>
                 <tr>
-                    <th data-cid="sym" style="text-align:left">Name</th>
-                    <th>Count</th>
-                    <th>%Sector</th>
-                    <th data-cid="price">Price</th>
-                    <th data-cid="chg">Chg%</th>
-                    <th data-cid="pe">PE</th>
-                    <th data-cid="fwdpe">Fwd PE</th>
-                    <th data-cid="pesect">PE/Sec</th>
-                    <th data-cid="peind">PE/Ind</th>
-                    <th data-cid="eps">EPS</th>
-                    <th data-cid="fy1">FY1</th>
-                    <th data-cid="fy2">FY2</th>
-                    <th data-cid="opmgn">OpMgn%</th>
-                    <th data-cid="netmgn">NetMgn%</th>
-                    <th data-cid="roic">ROIC%</th>
-                    <th data-cid="fcf">FCF</th>
-                    <th data-cid="ndebitda">ND/EBITDA</th>
-                    <th data-cid="evebitda">EV/EBITDA</th>
-                    <th data-cid="rs">RS</th>
-                    <th data-cid="target">Target</th>
+                    <th data-cid="sym" style="text-align:left;cursor:pointer" onclick="sortSectorTable(this,0,'str')">Name</th>
+                    <th style="cursor:pointer" onclick="sortSectorTable(this,1,'num')">Count</th>
+                    <th style="cursor:pointer" onclick="sortSectorTable(this,2,'num')">%Sector</th>
+                    <th data-cid="price" style="cursor:pointer" onclick="sortSectorTable(this,3,'num')">Price</th>
+                    <th data-cid="chg" style="cursor:pointer" onclick="sortSectorTable(this,4,'num')">Chg%</th>
+                    <th data-cid="pe" style="cursor:pointer" onclick="sortSectorTable(this,5,'num')">PE</th>
+                    <th data-cid="fwdpe" style="cursor:pointer" onclick="sortSectorTable(this,6,'num')">Fwd PE</th>
+                    <th data-cid="pesect" style="cursor:pointer" onclick="sortSectorTable(this,7,'num')">PE/Sec</th>
+                    <th data-cid="peind" style="cursor:pointer" onclick="sortSectorTable(this,8,'num')">PE/Ind</th>
+                    <th data-cid="eps" style="cursor:pointer" onclick="sortSectorTable(this,9,'num')">EPS</th>
+                    <th data-cid="fy1" style="cursor:pointer" onclick="sortSectorTable(this,10,'num')">FY1</th>
+                    <th data-cid="fy2" style="cursor:pointer" onclick="sortSectorTable(this,11,'num')">FY2</th>
+                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortSectorTable(this,12,'num')">OpMgn%</th>
+                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortSectorTable(this,13,'num')">NetMgn%</th>
+                    <th data-cid="roic" style="cursor:pointer" onclick="sortSectorTable(this,14,'num')">ROIC%</th>
+                    <th data-cid="fcf" style="cursor:pointer" onclick="sortSectorTable(this,15,'num')">FCF</th>
+                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortSectorTable(this,16,'num')">ND/EBITDA</th>
+                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortSectorTable(this,17,'num')">EV/EBITDA</th>
+                    <th data-cid="rs" style="cursor:pointer" onclick="sortSectorTable(this,18,'num')">RS</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortSectorTable(this,19,'num')">Target</th>
                 </tr>
             </thead>
             <tbody>
@@ -356,26 +356,27 @@
                             <table style="width: 100%; border-collapse: collapse;">
                                 <thead>
                                     <tr style="background:var(--bg,#0c0c14);font-size:11px">
-                                        <th data-cid="sym" style="padding:3px 8px;text-align:left">Industry</th>
-                                        <th style="padding:3px 8px">Count</th>
+                                        {%- set hs = 'padding:3px 8px;cursor:pointer' -%}
+                                        <th data-cid="sym" style="{{hs}};text-align:left" onclick="sortSubTable(this,0,'str','ind')">Industry</th>
+                                        <th style="{{hs}}" onclick="sortSubTable(this,1,'num','ind')">Count</th>
                                         <th style="padding:3px 8px"></th>
                                         <th data-cid="price" style="padding:3px 8px"></th>
                                         <th data-cid="chg" style="padding:3px 8px"></th>
-                                        <th data-cid="pe" style="padding:3px 8px">PE</th>
-                                        <th data-cid="fwdpe" style="padding:3px 8px">FwdPE</th>
-                                        <th data-cid="pesect" style="padding:3px 8px">PE/Sec</th>
-                                        <th data-cid="peind" style="padding:3px 8px">PE/Ind</th>
-                                        <th data-cid="eps" style="padding:3px 8px">EPS</th>
-                                        <th data-cid="fy1" style="padding:3px 8px">FY1</th>
-                                        <th data-cid="fy2" style="padding:3px 8px">FY2</th>
-                                        <th data-cid="opmgn" style="padding:3px 8px">OpMgn</th>
-                                        <th data-cid="netmgn" style="padding:3px 8px">NetMgn</th>
-                                        <th data-cid="roic" style="padding:3px 8px">ROIC</th>
-                                        <th data-cid="fcf" style="padding:3px 8px">FCF</th>
-                                        <th data-cid="ndebitda" style="padding:3px 8px">ND/EB</th>
-                                        <th data-cid="evebitda" style="padding:3px 8px">EV/EB</th>
-                                        <th data-cid="rs" style="padding:3px 8px">RS</th>
-                                        <th data-cid="target" style="padding:3px 8px">Tgt</th>
+                                        <th data-cid="pe" style="{{hs}}" onclick="sortSubTable(this,5,'num','ind')">PE</th>
+                                        <th data-cid="fwdpe" style="{{hs}}" onclick="sortSubTable(this,6,'num','ind')">FwdPE</th>
+                                        <th data-cid="pesect" style="{{hs}}" onclick="sortSubTable(this,7,'num','ind')">PE/Sec</th>
+                                        <th data-cid="peind" style="{{hs}}" onclick="sortSubTable(this,8,'num','ind')">PE/Ind</th>
+                                        <th data-cid="eps" style="{{hs}}" onclick="sortSubTable(this,9,'num','ind')">EPS</th>
+                                        <th data-cid="fy1" style="{{hs}}" onclick="sortSubTable(this,10,'num','ind')">FY1</th>
+                                        <th data-cid="fy2" style="{{hs}}" onclick="sortSubTable(this,11,'num','ind')">FY2</th>
+                                        <th data-cid="opmgn" style="{{hs}}" onclick="sortSubTable(this,12,'num','ind')">OpMgn</th>
+                                        <th data-cid="netmgn" style="{{hs}}" onclick="sortSubTable(this,13,'num','ind')">NetMgn</th>
+                                        <th data-cid="roic" style="{{hs}}" onclick="sortSubTable(this,14,'num','ind')">ROIC</th>
+                                        <th data-cid="fcf" style="{{hs}}" onclick="sortSubTable(this,15,'num','ind')">FCF</th>
+                                        <th data-cid="ndebitda" style="{{hs}}" onclick="sortSubTable(this,16,'num','ind')">ND/EB</th>
+                                        <th data-cid="evebitda" style="{{hs}}" onclick="sortSubTable(this,17,'num','ind')">EV/EB</th>
+                                        <th data-cid="rs" style="{{hs}}" onclick="sortSubTable(this,18,'num','ind')">RS</th>
+                                        <th data-cid="target" style="{{hs}}" onclick="sortSubTable(this,19,'num','ind')">Tgt</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -414,26 +415,27 @@
                                             <table style="width: 100%; border-collapse: collapse;">
                                                 <thead>
                                                     <tr style="background: var(--bg, #0c0c14);">
-                                                        <th data-cid="sym" style="font-size: 11px; padding: 3px 8px; text-align: left;">Symbol</th>
+                                                        {%- set ss = 'font-size:11px;padding:3px 8px;cursor:pointer' -%}
+                                                        <th data-cid="sym" style="{{ss}};text-align:left" onclick="sortSubTable(this,0,'str','stk')">Symbol</th>
                                                         <th style="font-size:11px;padding:3px 8px"></th>
                                                         <th style="font-size:11px;padding:3px 8px"></th>
-                                                        <th data-cid="price" style="font-size: 11px; padding: 3px 8px;">Price</th>
-                                                        <th data-cid="chg" style="font-size: 11px; padding: 3px 8px;">Chg%</th>
-                                                        <th data-cid="pe" style="font-size: 11px; padding: 3px 8px;">PE</th>
-                                                        <th data-cid="fwdpe" style="font-size: 11px; padding: 3px 8px;">Fwd PE</th>
-                                                        <th data-cid="pesect" style="font-size: 11px; padding: 3px 8px;">PE/Sec</th>
-                                                        <th data-cid="peind" style="font-size: 11px; padding: 3px 8px;">PE/Ind</th>
-                                                        <th data-cid="eps" style="font-size: 11px; padding: 3px 8px;">EPS</th>
-                                                        <th data-cid="fy1" style="font-size: 11px; padding: 3px 8px;">FY1</th>
-                                                        <th data-cid="fy2" style="font-size: 11px; padding: 3px 8px;">FY2</th>
-                                                        <th data-cid="opmgn" style="font-size: 11px; padding: 3px 8px;">OpMgn%</th>
-                                                        <th data-cid="netmgn" style="font-size: 11px; padding: 3px 8px;">NetMgn%</th>
-                                                        <th data-cid="roic" style="font-size: 11px; padding: 3px 8px;">ROIC%</th>
-                                                        <th data-cid="fcf" style="font-size: 11px; padding: 3px 8px;">FCF</th>
-                                                        <th data-cid="ndebitda" style="font-size: 11px; padding: 3px 8px;">ND/EBITDA</th>
-                                                        <th data-cid="evebitda" style="font-size: 11px; padding: 3px 8px;">EV/EBITDA</th>
-                                                        <th data-cid="rs" style="font-size: 11px; padding: 3px 8px;">RS</th>
-                                                        <th data-cid="target" style="font-size: 11px; padding: 3px 8px;">Target</th>
+                                                        <th data-cid="price" style="{{ss}}" onclick="sortSubTable(this,3,'num','stk')">Price</th>
+                                                        <th data-cid="chg" style="{{ss}}" onclick="sortSubTable(this,4,'num','stk')">Chg%</th>
+                                                        <th data-cid="pe" style="{{ss}}" onclick="sortSubTable(this,5,'num','stk')">PE</th>
+                                                        <th data-cid="fwdpe" style="{{ss}}" onclick="sortSubTable(this,6,'num','stk')">Fwd PE</th>
+                                                        <th data-cid="pesect" style="{{ss}}" onclick="sortSubTable(this,7,'num','stk')">PE/Sec</th>
+                                                        <th data-cid="peind" style="{{ss}}" onclick="sortSubTable(this,8,'num','stk')">PE/Ind</th>
+                                                        <th data-cid="eps" style="{{ss}}" onclick="sortSubTable(this,9,'num','stk')">EPS</th>
+                                                        <th data-cid="fy1" style="{{ss}}" onclick="sortSubTable(this,10,'num','stk')">FY1</th>
+                                                        <th data-cid="fy2" style="{{ss}}" onclick="sortSubTable(this,11,'num','stk')">FY2</th>
+                                                        <th data-cid="opmgn" style="{{ss}}" onclick="sortSubTable(this,12,'num','stk')">OpMgn%</th>
+                                                        <th data-cid="netmgn" style="{{ss}}" onclick="sortSubTable(this,13,'num','stk')">NetMgn%</th>
+                                                        <th data-cid="roic" style="{{ss}}" onclick="sortSubTable(this,14,'num','stk')">ROIC%</th>
+                                                        <th data-cid="fcf" style="{{ss}}" onclick="sortSubTable(this,15,'num','stk')">FCF</th>
+                                                        <th data-cid="ndebitda" style="{{ss}}" onclick="sortSubTable(this,16,'num','stk')">ND/EBITDA</th>
+                                                        <th data-cid="evebitda" style="{{ss}}" onclick="sortSubTable(this,17,'num','stk')">EV/EBITDA</th>
+                                                        <th data-cid="rs" style="{{ss}}" onclick="sortSubTable(this,18,'num','stk')">RS</th>
+                                                        <th data-cid="target" style="{{ss}}" onclick="sortSubTable(this,19,'num','stk')">Target</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -476,26 +478,27 @@
                             <table style="width: 100%; border-collapse: collapse;">
                                 <thead>
                                     <tr style="background: var(--bg, #0c0c14);">
-                                        <th data-cid="sym" style="font-size:13px;padding:5px 10px;text-align:left">Symbol</th>
+                                        {%- set sa = 'font-size:13px;padding:5px 10px;cursor:pointer' -%}
+                                        <th data-cid="sym" style="{{sa}};text-align:left" onclick="sortSubTable(this,0,'str','stk')">Symbol</th>
                                         <th style="font-size:13px;padding:5px 10px"></th>
                                         <th style="font-size:13px;padding:5px 10px"></th>
-                                        <th data-cid="price" style="font-size:13px;padding:5px 10px">Price</th>
-                                        <th data-cid="chg" style="font-size:13px;padding:5px 10px">Chg%</th>
-                                        <th data-cid="pe" style="font-size:13px;padding:5px 10px">PE</th>
-                                        <th data-cid="fwdpe" style="font-size:13px;padding:5px 10px">Fwd PE</th>
-                                        <th data-cid="pesect" style="font-size:13px;padding:5px 10px">PE/Sec</th>
-                                        <th data-cid="peind" style="font-size:13px;padding:5px 10px">PE/Ind</th>
-                                        <th data-cid="eps" style="font-size:13px;padding:5px 10px">EPS</th>
-                                        <th data-cid="fy1" style="font-size:13px;padding:5px 10px">FY1</th>
-                                        <th data-cid="fy2" style="font-size:13px;padding:5px 10px">FY2</th>
-                                        <th data-cid="opmgn" style="font-size:13px;padding:5px 10px">OpMgn%</th>
-                                        <th data-cid="netmgn" style="font-size:13px;padding:5px 10px">NetMgn%</th>
-                                        <th data-cid="roic" style="font-size:13px;padding:5px 10px">ROIC%</th>
-                                        <th data-cid="fcf" style="font-size:13px;padding:5px 10px">FCF</th>
-                                        <th data-cid="ndebitda" style="font-size:13px;padding:5px 10px">ND/EBITDA</th>
-                                        <th data-cid="evebitda" style="font-size:13px;padding:5px 10px">EV/EBITDA</th>
-                                        <th data-cid="rs" style="font-size:13px;padding:5px 10px">RS</th>
-                                        <th data-cid="target" style="font-size:13px;padding:5px 10px">Target</th>
+                                        <th data-cid="price" style="{{sa}}" onclick="sortSubTable(this,3,'num','stk')">Price</th>
+                                        <th data-cid="chg" style="{{sa}}" onclick="sortSubTable(this,4,'num','stk')">Chg%</th>
+                                        <th data-cid="pe" style="{{sa}}" onclick="sortSubTable(this,5,'num','stk')">PE</th>
+                                        <th data-cid="fwdpe" style="{{sa}}" onclick="sortSubTable(this,6,'num','stk')">Fwd PE</th>
+                                        <th data-cid="pesect" style="{{sa}}" onclick="sortSubTable(this,7,'num','stk')">PE/Sec</th>
+                                        <th data-cid="peind" style="{{sa}}" onclick="sortSubTable(this,8,'num','stk')">PE/Ind</th>
+                                        <th data-cid="eps" style="{{sa}}" onclick="sortSubTable(this,9,'num','stk')">EPS</th>
+                                        <th data-cid="fy1" style="{{sa}}" onclick="sortSubTable(this,10,'num','stk')">FY1</th>
+                                        <th data-cid="fy2" style="{{sa}}" onclick="sortSubTable(this,11,'num','stk')">FY2</th>
+                                        <th data-cid="opmgn" style="{{sa}}" onclick="sortSubTable(this,12,'num','stk')">OpMgn%</th>
+                                        <th data-cid="netmgn" style="{{sa}}" onclick="sortSubTable(this,13,'num','stk')">NetMgn%</th>
+                                        <th data-cid="roic" style="{{sa}}" onclick="sortSubTable(this,14,'num','stk')">ROIC%</th>
+                                        <th data-cid="fcf" style="{{sa}}" onclick="sortSubTable(this,15,'num','stk')">FCF</th>
+                                        <th data-cid="ndebitda" style="{{sa}}" onclick="sortSubTable(this,16,'num','stk')">ND/EBITDA</th>
+                                        <th data-cid="evebitda" style="{{sa}}" onclick="sortSubTable(this,17,'num','stk')">EV/EBITDA</th>
+                                        <th data-cid="rs" style="{{sa}}" onclick="sortSubTable(this,18,'num','stk')">RS</th>
+                                        <th data-cid="target" style="{{sa}}" onclick="sortSubTable(this,19,'num','stk')">Target</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -633,6 +636,52 @@ function sortFlatTable(th, col, type) {
     });
     rows.forEach(function(r) { tbody.appendChild(r); });
 }
+
+// Sort any sub-table (industry or stock level) — works on the closest table to the clicked header
+var _subSortDir = {};
+function sortSubTable(th, col, type, level) {
+    event.stopPropagation();
+    var table = th.closest('table');
+    var tbody = table.querySelector('tbody');
+    var key = table.id + '_' + level + '_' + col;
+    _subSortDir[key] = !(_subSortDir[key] || false);
+    var asc = _subSortDir[key];
+
+    if (level === 'ind') {
+        // Industry rows come in pairs: header row + detail row (with stocks)
+        var pairs = [];
+        var rows = Array.from(tbody.children);
+        for (var i = 0; i < rows.length; i++) {
+            var nextRow = rows[i + 1];
+            if (nextRow && nextRow.id && nextRow.id.startsWith('ind-')) {
+                pairs.push({ header: rows[i], detail: nextRow });
+                i++;
+            } else {
+                pairs.push({ header: rows[i], detail: null });
+            }
+        }
+        pairs.sort(function(a, b) {
+            var aVal = _parseCell(a.header.cells[col] ? a.header.cells[col].textContent : '', type);
+            var bVal = _parseCell(b.header.cells[col] ? b.header.cells[col].textContent : '', type);
+            if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
+            return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+        });
+        pairs.forEach(function(p) {
+            tbody.appendChild(p.header);
+            if (p.detail) tbody.appendChild(p.detail);
+        });
+    } else {
+        // Simple stock rows — just sort all rows
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort(function(a, b) {
+            var aVal = _parseCell(a.cells[col] ? a.cells[col].textContent : '', type);
+            var bVal = _parseCell(b.cells[col] ? b.cells[col].textContent : '', type);
+            if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
+            return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+    }
+}
 </script>
 
 <script>
@@ -683,29 +732,33 @@ function toggleSectorStocks(id) {
     }
 }
 
+// Generic cell value parser for sorting
+function _parseCell(text, type) {
+    var v = text.replace(/[%▶,]/g, '').replace('—', '').trim();
+    if (type === 'num') {
+        var f = parseFloat(v);
+        return isNaN(f) ? -Infinity : f;
+    }
+    return v;
+}
+
 var sectorSortDir = {};
-function sortSectorTable(th) {
+function sortSectorTable(th, col, type) {
     var table = document.getElementById('sector-table');
     var tbody = table.querySelector('tbody');
-    var col = parseInt(th.dataset.col);
-    var type = th.dataset.type;
 
     // Toggle direction
-    sectorSortDir[col] = !(sectorSortDir[col] || false);
-    var asc = sectorSortDir[col];
-
-    // Remove sorted class from all, add to clicked
-    table.querySelectorAll('thead th').forEach(function(h) { h.classList.remove('sorted'); });
-    th.classList.add('sorted');
+    var key = 'sec_' + col;
+    sectorSortDir[key] = !(sectorSortDir[key] || false);
+    var asc = sectorSortDir[key];
 
     // Collect pairs: [headerRow, detailRow]
     var pairs = [];
     var rows = Array.from(tbody.children);
     for (var i = 0; i < rows.length; i++) {
-        if (!rows[i].id.startsWith('sector-')) {
-            // This is a header row, next one is its detail
+        if (!rows[i].id || !rows[i].id.startsWith('sector-')) {
             pairs.push({ header: rows[i], detail: rows[i + 1] || null });
-            i++; // skip detail row
+            i++;
         }
     }
 
@@ -718,17 +771,9 @@ function sortSectorTable(th) {
 
     // Sort pairs by header cell value
     pairs.sort(function(a, b) {
-        var aVal = a.header.cells[col].textContent.trim();
-        var bVal = b.header.cells[col].textContent.trim();
-        if (type === 'num') {
-            aVal = parseFloat(aVal.replace(/[%▶]/g, '').replace('—', 'NaN'));
-            bVal = parseFloat(bVal.replace(/[%▶]/g, '').replace('—', 'NaN'));
-            if (isNaN(aVal)) aVal = -Infinity;
-            if (isNaN(bVal)) bVal = -Infinity;
-            return asc ? aVal - bVal : bVal - aVal;
-        }
-        aVal = aVal.replace('▶', '').trim();
-        bVal = bVal.replace('▶', '').trim();
+        var aVal = _parseCell(a.header.cells[col].textContent, type);
+        var bVal = _parseCell(b.header.cells[col].textContent, type);
+        if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
         return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
 
