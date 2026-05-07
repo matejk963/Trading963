@@ -347,12 +347,33 @@ def screener_page():
             high_52w = _close_slice.iloc[-252:].max() if len(_close_slice) >= 252 else _close_slice.max()
             low_52w = _close_slice.iloc[-252:].min() if len(_close_slice) >= 252 else _close_slice.min()
 
-            # RS rank (6-month return percentile)
+            # RS rank (6-month return percentile) — current and historical for delta
             rs_ranks = {}
+            rs_1w = {}
+            rs_1m = {}
+            rs_3m = {}
             if len(_close_slice) > 126:
                 ret_6m = (_close_slice.iloc[-1] / _close_slice.iloc[-126] - 1)
                 rs_pct = ret_6m.rank(pct=True) * 100
                 rs_ranks = rs_pct.to_dict()
+
+                # RS at 1 week ago (5 trading days)
+                if len(_close_slice) > 131:
+                    s = _close_slice.iloc[:-5]
+                    r6 = (s.iloc[-1] / s.iloc[-126] - 1)
+                    rs_1w = (r6.rank(pct=True) * 100).to_dict()
+
+                # RS at 1 month ago (~21 trading days)
+                if len(_close_slice) > 147:
+                    s = _close_slice.iloc[:-21]
+                    r6 = (s.iloc[-1] / s.iloc[-126] - 1)
+                    rs_1m = (r6.rank(pct=True) * 100).to_dict()
+
+                # RS at 3 months ago (~63 trading days)
+                if len(_close_slice) > 189:
+                    s = _close_slice.iloc[:-63]
+                    r6 = (s.iloc[-1] / s.iloc[-126] - 1)
+                    rs_3m = (r6.rank(pct=True) * 100).to_dict()
 
             rows = []
             for sym in close.columns:
@@ -395,6 +416,9 @@ def screener_page():
                     'Industry': r.get('industry', ''),
                     'ADV_Dollar': turnover,
                     'RS_Rank': round(rs_ranks.get(sym, 0), 0) if sym in rs_ranks else None,
+                    'RS_Chg1W': round(rs_ranks.get(sym, 0) - rs_1w.get(sym, 0), 1) if sym in rs_ranks and sym in rs_1w else None,
+                    'RS_Chg1M': round(rs_ranks.get(sym, 0) - rs_1m.get(sym, 0), 1) if sym in rs_ranks and sym in rs_1m else None,
+                    'RS_Chg3M': round(rs_ranks.get(sym, 0) - rs_3m.get(sym, 0), 1) if sym in rs_ranks and sym in rs_3m else None,
                     'MA50': round(float(m50), 2) if pd.notna(m50) else None,
                     'MA150': round(float(m150), 2) if pd.notna(m150) else None,
                     'MA200': round(float(m200), 2) if pd.notna(m200) else None,
@@ -765,6 +789,9 @@ def screener_page():
                         'pe_vs_sector': _g('PE_vs_Sector'),
                         'pe_vs_industry': _g('PE_vs_Industry'),
                         'rs_rank': _g('RS_Rank'),
+                        'rs_chg1w': _g('RS_Chg1W'),
+                        'rs_chg1m': _g('RS_Chg1M'),
+                        'rs_chg3m': _g('RS_Chg3M'),
                         'mansfield': _g('Mansfield_RS'),
                         'industry': _g('Industry') or '',
                         'eps_act': _g('EPS_Act'),

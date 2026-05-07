@@ -302,7 +302,10 @@
                     <th data-cid="ndebitda" style="cursor:pointer" onclick="sortSectorTable(this,16,'num')">ND/EBITDA</th>
                     <th data-cid="evebitda" style="cursor:pointer" onclick="sortSectorTable(this,17,'num')">EV/EBITDA</th>
                     <th data-cid="rs" style="cursor:pointer" onclick="sortSectorTable(this,18,'num')">RS</th>
-                    <th data-cid="target" style="cursor:pointer" onclick="sortSectorTable(this,19,'num')">Target</th>
+                    <th data-cid="rschg1w" style="cursor:pointer" onclick="sortSectorTable(this,19,'num')">RS 1W</th>
+                    <th data-cid="rschg1m" style="cursor:pointer" onclick="sortSectorTable(this,20,'num')">RS 1M</th>
+                    <th data-cid="rschg3m" style="cursor:pointer" onclick="sortSectorTable(this,21,'num')">RS 3M</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortSectorTable(this,22,'num')">Target</th>
                 </tr>
             </thead>
             <tbody>
@@ -333,10 +336,13 @@
                     <td data-cid="ndebitda">{{ sg(s, 'median_nd_ebitda') }}</td>
                     <td data-cid="evebitda">{{ sg(s, 'median_ev_ebitda') }}</td>
                     <td data-cid="rs">{{ sg(s, 'median_rs', '%.0f') }}</td>
+                    <td data-cid="rschg1w">—</td>
+                    <td data-cid="rschg1m">—</td>
+                    <td data-cid="rschg3m">—</td>
                     <td data-cid="target">{{ sg(s, 'median_target', '%.0f') }}</td>
                 </tr>
                 <tr id="sector-{{ loop.index }}" style="display: none;">
-                    <td colspan="20" style="padding: 4px 0;">
+                    <td colspan="23" style="padding: 4px 0;">
                         {# Tabs #}
                         <div style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border-solid, #2a4a00);">
                             <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'ind')" id="tab-ind-sector-{{ loop.index }}" class="sector-tab sector-tab-active" style="padding: 3px 12px; cursor: pointer; font-size: 13px;">By Industry</span>
@@ -368,7 +374,10 @@
                                         <th data-cid="ndebitda" style="{{hs}}" onclick="sortSubTable(this,16,'num','ind')">ND/EB</th>
                                         <th data-cid="evebitda" style="{{hs}}" onclick="sortSubTable(this,17,'num','ind')">EV/EB</th>
                                         <th data-cid="rs" style="{{hs}}" onclick="sortSubTable(this,18,'num','ind')">RS</th>
-                                        <th data-cid="target" style="{{hs}}" onclick="sortSubTable(this,19,'num','ind')">Tgt</th>
+                                        <th data-cid="rschg1w" style="{{hs}}" onclick="sortSubTable(this,19,'num','ind')">1W</th>
+                                        <th data-cid="rschg1m" style="{{hs}}" onclick="sortSubTable(this,20,'num','ind')">1M</th>
+                                        <th data-cid="rschg3m" style="{{hs}}" onclick="sortSubTable(this,21,'num','ind')">3M</th>
+                                        <th data-cid="target" style="{{hs}}" onclick="sortSubTable(this,22,'num','ind')">Tgt</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -400,10 +409,13 @@
                                         <td data-cid="ndebitda" style="{{isz}}">{{ ig(ind, 'median_nd_ebitda') }}</td>
                                         <td data-cid="evebitda" style="{{isz}}">{{ ig(ind, 'median_ev_ebitda') }}</td>
                                         <td data-cid="rs" style="{{isz}}">{{ ig(ind, 'median_rs', '%.0f') }}</td>
+                                        <td data-cid="rschg1w" style="{{isz}}">—</td>
+                                        <td data-cid="rschg1m" style="{{isz}}">—</td>
+                                        <td data-cid="rschg3m" style="{{isz}}">—</td>
                                         <td data-cid="target" style="{{isz}}">{{ ig(ind, 'median_target', '%.0f') }}</td>
                                     </tr>
                                     <tr id="ind-{{ sector_idx }}-{{ loop.index }}" style="display: none;">
-                                        <td colspan="20" style="padding: 0 0 0 20px;">
+                                        <td colspan="23" style="padding: 0 0 0 20px;">
                                             <table style="width: 100%; border-collapse: collapse;">
                                                 <thead>
                                                     <tr style="background: var(--bg, #0c0c14);">
@@ -427,7 +439,10 @@
                                                         <th data-cid="ndebitda" style="{{ss}}" onclick="sortSubTable(this,16,'num','stk')">ND/EBITDA</th>
                                                         <th data-cid="evebitda" style="{{ss}}" onclick="sortSubTable(this,17,'num','stk')">EV/EBITDA</th>
                                                         <th data-cid="rs" style="{{ss}}" onclick="sortSubTable(this,18,'num','stk')">RS</th>
-                                                        <th data-cid="target" style="{{ss}}" onclick="sortSubTable(this,19,'num','stk')">Target</th>
+                                                        <th data-cid="rschg1w" style="{{ss}}" onclick="sortSubTable(this,19,'num','stk')">1W</th>
+                                                        <th data-cid="rschg1m" style="{{ss}}" onclick="sortSubTable(this,20,'num','stk')">1M</th>
+                                                        <th data-cid="rschg3m" style="{{ss}}" onclick="sortSubTable(this,21,'num','stk')">3M</th>
+                                                        <th data-cid="target" style="{{ss}}" onclick="sortSubTable(this,22,'num','stk')">Target</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -453,6 +468,9 @@
                                                         <td data-cid="ndebitda" style="{{sz}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
                                                         <td data-cid="evebitda" style="{{sz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
                                                         <td data-cid="rs" style="{{sz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                                        <td data-cid="rschg1w" style="{{sz}}" class="{{ 'positive' if st.rs_chg1w and st.rs_chg1w > 0 else 'negative' if st.rs_chg1w and st.rs_chg1w < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1w) if st.rs_chg1w else '—' }}</td>
+                                                        <td data-cid="rschg1m" style="{{sz}}" class="{{ 'positive' if st.rs_chg1m and st.rs_chg1m > 0 else 'negative' if st.rs_chg1m and st.rs_chg1m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1m) if st.rs_chg1m else '—' }}</td>
+                                                        <td data-cid="rschg3m" style="{{sz}}" class="{{ 'positive' if st.rs_chg3m and st.rs_chg3m > 0 else 'negative' if st.rs_chg3m and st.rs_chg3m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg3m) if st.rs_chg3m else '—' }}</td>
                                                         <td data-cid="target" style="{{sz}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
                                                     </tr>
                                                     {% endfor %}
@@ -490,7 +508,10 @@
                                         <th data-cid="ndebitda" style="{{sa}}" onclick="sortSubTable(this,16,'num','stk')">ND/EBITDA</th>
                                         <th data-cid="evebitda" style="{{sa}}" onclick="sortSubTable(this,17,'num','stk')">EV/EBITDA</th>
                                         <th data-cid="rs" style="{{sa}}" onclick="sortSubTable(this,18,'num','stk')">RS</th>
-                                        <th data-cid="target" style="{{sa}}" onclick="sortSubTable(this,19,'num','stk')">Target</th>
+                                        <th data-cid="rschg1w" style="{{sa}}" onclick="sortSubTable(this,19,'num','stk')">1W</th>
+                                        <th data-cid="rschg1m" style="{{sa}}" onclick="sortSubTable(this,20,'num','stk')">1M</th>
+                                        <th data-cid="rschg3m" style="{{sa}}" onclick="sortSubTable(this,21,'num','stk')">3M</th>
+                                        <th data-cid="target" style="{{sa}}" onclick="sortSubTable(this,22,'num','stk')">Target</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -516,6 +537,9 @@
                                         <td data-cid="ndebitda" style="{{sz2}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
                                         <td data-cid="evebitda" style="{{sz2}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
                                         <td data-cid="rs" style="{{sz2}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                        <td data-cid="rschg1w" style="{{sz2}}" class="{{ 'positive' if st.rs_chg1w and st.rs_chg1w > 0 else 'negative' if st.rs_chg1w and st.rs_chg1w < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1w) if st.rs_chg1w else '—' }}</td>
+                                        <td data-cid="rschg1m" style="{{sz2}}" class="{{ 'positive' if st.rs_chg1m and st.rs_chg1m > 0 else 'negative' if st.rs_chg1m and st.rs_chg1m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1m) if st.rs_chg1m else '—' }}</td>
+                                        <td data-cid="rschg3m" style="{{sz2}}" class="{{ 'positive' if st.rs_chg3m and st.rs_chg3m > 0 else 'negative' if st.rs_chg3m and st.rs_chg3m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg3m) if st.rs_chg3m else '—' }}</td>
                                         <td data-cid="target" style="{{sz2}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
                                     </tr>
                                     {% endfor %}
@@ -553,7 +577,10 @@
                     <th data-cid="ndebitda" style="cursor:pointer" onclick="sortFlatTable(this,16,'num')">ND/EBITDA</th>
                     <th data-cid="evebitda" style="cursor:pointer" onclick="sortFlatTable(this,17,'num')">EV/EBITDA</th>
                     <th data-cid="rs" style="cursor:pointer" onclick="sortFlatTable(this,18,'num')">RS</th>
-                    <th data-cid="target" style="cursor:pointer" onclick="sortFlatTable(this,19,'num')">Target</th>
+                    <th data-cid="rschg1w" style="cursor:pointer" onclick="sortFlatTable(this,19,'num')">RS 1W</th>
+                    <th data-cid="rschg1m" style="cursor:pointer" onclick="sortFlatTable(this,20,'num')">RS 1M</th>
+                    <th data-cid="rschg3m" style="cursor:pointer" onclick="sortFlatTable(this,21,'num')">RS 3M</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortFlatTable(this,22,'num')">Target</th>
                 </tr>
             </thead>
             <tbody>
@@ -580,6 +607,9 @@
                     <td data-cid="ndebitda" style="{{fz}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
                     <td data-cid="evebitda" style="{{fz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
                     <td data-cid="rs" style="{{fz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                    <td data-cid="rschg1w" style="{{fz}}" class="{{ 'positive' if st.rs_chg1w and st.rs_chg1w > 0 else 'negative' if st.rs_chg1w and st.rs_chg1w < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1w) if st.rs_chg1w else '—' }}</td>
+                    <td data-cid="rschg1m" style="{{fz}}" class="{{ 'positive' if st.rs_chg1m and st.rs_chg1m > 0 else 'negative' if st.rs_chg1m and st.rs_chg1m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1m) if st.rs_chg1m else '—' }}</td>
+                    <td data-cid="rschg3m" style="{{fz}}" class="{{ 'positive' if st.rs_chg3m and st.rs_chg3m > 0 else 'negative' if st.rs_chg3m and st.rs_chg3m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg3m) if st.rs_chg3m else '—' }}</td>
                     <td data-cid="target" style="{{fz}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
                 </tr>
                 {% endfor %}
@@ -1112,6 +1142,9 @@ var COL_DEFS = {
     target:   {label:'Target',    group:'valuation',  on:false},
     analysts: {label:'Analysts',  group:'valuation',  on:false},
     rs:       {label:'RS Rank',   group:'price',      on:true},
+    rschg1w:  {label:'RS Chg 1W', group:'price',     on:false},
+    rschg1m:  {label:'RS Chg 1M', group:'price',     on:false},
+    rschg3m:  {label:'RS Chg 3M', group:'price',     on:false},
     mansfield:{label:'Mansfield', group:'price',      on:true},
     ma50:     {label:'MA50',      group:'price',      on:false},
     ma150:    {label:'MA150',     group:'price',      on:false},
