@@ -551,7 +551,8 @@ def screener_page():
             from data_manager import load_prices
             _close = load_prices('close')
             if _close is not None:
-                _last = _close.iloc[-1]
+                # Use same date as main screener (last_prices already computed above)
+                _last = last_prices
                 for sym, rec in rfv.items():
                     eps = rec.get('eps_act')
                     price = _last.get(sym)
