@@ -788,6 +788,9 @@ def screener_page():
                 stats['median_nd_ebitda'] = _median_of('ND_EBITDA')
                 stats['median_ev_ebitda'] = _median_of('EV_EBITDA', positive_only=True)
                 stats['median_rs'] = _median_of('RS_Rank')
+                stats['median_rs_chg1w'] = _median_of('RS_Chg1W')
+                stats['median_rs_chg1m'] = _median_of('RS_Chg1M')
+                stats['median_rs_chg3m'] = _median_of('RS_Chg3M')
                 stats['median_target'] = _median_of('Target')
                 # Build stock entries
                 def make_stock(row):
@@ -855,6 +858,9 @@ def screener_page():
                             'median_nd_ebitda': _ind_median('ND_EBITDA'),
                             'median_ev_ebitda': _ind_median('EV_EBITDA', pos_only=True),
                             'median_rs': _ind_median('RS_Rank'),
+                            'median_rs_chg1w': _ind_median('RS_Chg1W'),
+                            'median_rs_chg1m': _ind_median('RS_Chg1M'),
+                            'median_rs_chg3m': _ind_median('RS_Chg3M'),
                             'median_target': _ind_median('Target'),
                             'stocks': ind_stocks,
                         })

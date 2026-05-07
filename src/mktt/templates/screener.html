@@ -345,9 +345,9 @@
                     <td data-cid="ndebitda">{{ sg(s, 'median_nd_ebitda') }}</td>
                     <td data-cid="evebitda">{{ sg(s, 'median_ev_ebitda') }}</td>
                     <td data-cid="rs">{{ sg(s, 'median_rs', '%.0f') }}</td>
-                    <td data-cid="rschg1w">—</td>
-                    <td data-cid="rschg1m">—</td>
-                    <td data-cid="rschg3m">—</td>
+                    <td data-cid="rschg1w">{{ sg(s, 'median_rs_chg1w', '%+.0f') }}</td>
+                    <td data-cid="rschg1m">{{ sg(s, 'median_rs_chg1m', '%+.0f') }}</td>
+                    <td data-cid="rschg3m">{{ sg(s, 'median_rs_chg3m', '%+.0f') }}</td>
                     <td data-cid="target">{{ sg(s, 'median_target', '%.0f') }}</td>
                 </tr>
                 <tr id="sector-{{ loop.index }}" style="display: none;">
@@ -418,9 +418,9 @@
                                         <td data-cid="ndebitda" style="{{isz}}">{{ ig(ind, 'median_nd_ebitda') }}</td>
                                         <td data-cid="evebitda" style="{{isz}}">{{ ig(ind, 'median_ev_ebitda') }}</td>
                                         <td data-cid="rs" style="{{isz}}">{{ ig(ind, 'median_rs', '%.0f') }}</td>
-                                        <td data-cid="rschg1w" style="{{isz}}">—</td>
-                                        <td data-cid="rschg1m" style="{{isz}}">—</td>
-                                        <td data-cid="rschg3m" style="{{isz}}">—</td>
+                                        <td data-cid="rschg1w" style="{{isz}}">{{ ig(ind, 'median_rs_chg1w', '%+.0f') }}</td>
+                                        <td data-cid="rschg1m" style="{{isz}}">{{ ig(ind, 'median_rs_chg1m', '%+.0f') }}</td>
+                                        <td data-cid="rschg3m" style="{{isz}}">{{ ig(ind, 'median_rs_chg3m', '%+.0f') }}</td>
                                         <td data-cid="target" style="{{isz}}">{{ ig(ind, 'median_target', '%.0f') }}</td>
                                     </tr>
                                     <tr id="ind-{{ sector_idx }}-{{ loop.index }}" style="display: none;">
