@@ -895,6 +895,16 @@ def chart_api(symbol):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/freshness')
+def freshness_api():
+    """Return data freshness report as JSON."""
+    try:
+        from data_freshness import full_report
+        return jsonify(full_report())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 def _chart_api_impl(symbol):
     from data_manager import load_prices
 
