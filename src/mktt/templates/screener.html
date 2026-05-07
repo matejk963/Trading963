@@ -85,140 +85,132 @@
         </div>
     </div>
 
-    {# ===== FILTER SECTIONS WITH PER-SECTION CONFIRM ===== #}
+    {# ===== ADVANCED FILTERS (single collapsible) ===== #}
     <style>
     .filter-section { border:1px solid var(--border); border-radius:8px; margin-bottom:6px; background:var(--bg-light); }
     .filter-section-header { display:flex; justify-content:space-between; align-items:center; padding:8px 14px; cursor:pointer; }
     .filter-section-header h3 { font-size:13px; font-weight:600; color:var(--text-dim); margin:0; }
     .filter-section-body { display:none; padding:8px 14px 12px; border-top:1px solid var(--border); }
-    .filter-section.open .filter-section-body { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+    .filter-section.open .filter-section-body { display:block; }
     .filter-section .active-tags { display:flex; gap:4px; flex-wrap:wrap; }
     .filter-section .tag { font-size:11px; padding:2px 8px; border-radius:4px; background:var(--primary); color:white; }
-    .filter-section .tag.warn { background:var(--amber); color:#000; }
-    .section-apply { font-size:11px; padding:4px 12px; background:var(--accent); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; }
+    .filter-row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; padding:6px 0; }
+    .filter-row-label { font-size:11px; font-weight:600; color:var(--text-faint); width:100%; padding-bottom:2px; border-bottom:1px solid var(--border); margin-bottom:2px; }
+    .section-apply { font-size:12px; padding:5px 18px; background:var(--accent); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; }
     .section-apply:hover { opacity:0.85; }
-    .section-clear { font-size:11px; padding:4px 8px; background:none; color:var(--text-faint); border:1px solid var(--border); border-radius:4px; cursor:pointer; }
+    .section-clear { font-size:11px; padding:4px 8px; background:none; color:var(--text-faint); border:1px solid var(--border); border-radius:4px; cursor:pointer; margin-left:6px; }
     </style>
 
-    {# Classification #}
-    <div class="filter-section {% if filters.has_class_filters %}open{% endif %}">
+    {% set has_any_filter = filters.has_class_filters or filters.has_tech_filters or filters.has_fund_filters %}
+    <div class="filter-section {% if has_any_filter %}open{% endif %}">
         <div class="filter-section-header" onclick="this.parentElement.classList.toggle('open')">
-            <h3>Classification</h3>
+            <h3>Advanced Filters ▾</h3>
             <div class="active-tags">
                 {% if filters.pca_regime %}<span class="tag">PCA: {{ filters.pca_regime }}</span>{% endif %}
                 {% if filters.stage_class %}<span class="tag">{{ filters.stage_class }}</span>{% endif %}
                 {% if filters.eps_accel %}<span class="tag">EPS: {{ filters.eps_accel }}</span>{% endif %}
                 {% if filters.ma_screen %}<span class="tag">MA: {{ filters.ma_screen }}</span>{% endif %}
-            </div>
-        </div>
-        <div class="filter-section-body">
-            <div class="filter-group"><label>PCA Regime</label>
-                <select name="pca_regime"><option value="">Any</option>
-                    <option value="Strong Leader" {% if filters.pca_regime == 'Strong Leader' %}selected{% endif %}>Strong Leader</option>
-                    <option value="Quiet Uptrend" {% if filters.pca_regime == 'Quiet Uptrend' %}selected{% endif %}>Quiet Uptrend</option>
-                    <option value="Erupting" {% if filters.pca_regime == 'Erupting' %}selected{% endif %}>Erupting</option>
-                    <option value="Distributing" {% if filters.pca_regime == 'Distributing' %}selected{% endif %}>Distributing</option>
-                    <option value="Declining" {% if filters.pca_regime == 'Declining' %}selected{% endif %}>Declining</option>
-                </select></div>
-            <div class="filter-group"><label>Stage</label>
-                <select name="stage_class"><option value="">Any</option>
-                    <option value="Stage 2 Uptrend" {% if filters.stage_class == 'Stage 2 Uptrend' %}selected{% endif %}>S2 Uptrend</option>
-                    <option value="Stage 1 Basing" {% if filters.stage_class == 'Stage 1 Basing' %}selected{% endif %}>S1 Basing</option>
-                    <option value="Stage 3 Topping" {% if filters.stage_class == 'Stage 3 Topping' %}selected{% endif %}>S3 Topping</option>
-                    <option value="Stage 4 Declining" {% if filters.stage_class == 'Stage 4 Declining' %}selected{% endif %}>S4 Declining</option>
-                </select></div>
-            <div class="filter-group"><label>EPS Momentum</label>
-                <select name="eps_accel"><option value="">Any</option>
-                    <option value="Accelerating" {% if filters.eps_accel == 'Accelerating' %}selected{% endif %}>Accelerating</option>
-                    <option value="Decelerating" {% if filters.eps_accel == 'Decelerating' %}selected{% endif %}>Decelerating</option>
-                </select></div>
-            <div class="filter-group"><label>MA Position</label>
-                <select name="ma_screen"><option value="">Any</option>
-                    <option value="Above Both" {% if filters.ma_screen == 'Above Both' %}selected{% endif %}>Above Both</option>
-                    <option value="Above 200 Below 50" {% if filters.ma_screen == 'Above 200 Below 50' %}selected{% endif %}>Above 200 Below 50</option>
-                    <option value="Below 200 Above 50" {% if filters.ma_screen == 'Below 200 Above 50' %}selected{% endif %}>Below 200 Above 50</option>
-                    <option value="Below Both" {% if filters.ma_screen == 'Below Both' %}selected{% endif %}>Below Both</option>
-                </select></div>
-            <button type="button" class="section-apply" onclick="this.closest('form').submit()">Apply</button>
-        </div>
-    </div>
-
-    {# Technical #}
-    <div class="filter-section {% if filters.has_tech_filters %}open{% endif %}">
-        <div class="filter-section-header" onclick="this.parentElement.classList.toggle('open')">
-            <h3>Technical</h3>
-            <div class="active-tags">
-                {% if filters.ma_setup %}<span class="tag">MA: {{ filters.ma_setup }}</span>{% endif %}
-                {% if filters.rs_min %}<span class="tag">RS>{{ filters.rs_min|int }}</span>{% endif %}
-                {% if filters.pct50_min or filters.pct50_max %}<span class="tag">%MA50: {{ filters.pct50_min or '' }}/{{ filters.pct50_max or '' }}</span>{% endif %}
+                {% if filters.ma_setup %}<span class="tag">Setup: {{ filters.ma_setup }}</span>{% endif %}
+                {% if filters.rs_min %}<span class="tag">RS≥{{ filters.rs_min|int }}</span>{% endif %}
+                {% if filters.pct50_min or filters.pct50_max %}<span class="tag">%50: {{ filters.pct50_min or '' }}/{{ filters.pct50_max or '' }}</span>{% endif %}
                 {% if filters.from52h_min or filters.from52h_max %}<span class="tag">52H: {{ filters.from52h_min or '' }}/{{ filters.from52h_max or '' }}</span>{% endif %}
-            </div>
-        </div>
-        <div class="filter-section-body">
-            <div class="filter-group"><label>% vs MA50</label>
-                <div style="display:flex;gap:4px"><input type="number" name="pct50_min" value="{{ filters.pct50_min or '' }}" placeholder="Min" step="1" style="width:60px"><input type="number" name="pct50_max" value="{{ filters.pct50_max or '' }}" placeholder="Max" step="1" style="width:60px"></div></div>
-            <div class="filter-group"><label>% vs MA200</label>
-                <div style="display:flex;gap:4px"><input type="number" name="pct200_min" value="{{ filters.pct200_min or '' }}" placeholder="Min" step="1" style="width:60px"><input type="number" name="pct200_max" value="{{ filters.pct200_max or '' }}" placeholder="Max" step="1" style="width:60px"></div></div>
-            <div class="filter-group"><label>% from 52H</label>
-                <div style="display:flex;gap:4px"><input type="number" name="from52h_min" value="{{ filters.from52h_min or '' }}" placeholder="Min" step="1" style="width:60px"><input type="number" name="from52h_max" value="{{ filters.from52h_max or '' }}" placeholder="Max" step="1" style="width:60px"></div></div>
-            <div class="filter-group"><label>% from 52L</label>
-                <input type="number" name="from52l_min" value="{{ filters.from52l_min or '' }}" placeholder="Min" step="1" style="width:60px"></div>
-            <div class="filter-group"><label>MA Setup</label>
-                <select name="ma_setup"><option value="">Any</option>
-                    <option value="above_all" {% if filters.ma_setup == 'above_all' %}selected{% endif %}>Price > All MAs</option>
-                    <option value="above_50" {% if filters.ma_setup == 'above_50' %}selected{% endif %}>Price > MA50</option>
-                    <option value="below_50" {% if filters.ma_setup == 'below_50' %}selected{% endif %}>Price < MA50</option>
-                    <option value="below_all" {% if filters.ma_setup == 'below_all' %}selected{% endif %}>Price < All MAs</option>
-                    <option value="golden_cross" {% if filters.ma_setup == 'golden_cross' %}selected{% endif %}>Golden Cross</option>
-                    <option value="death_cross" {% if filters.ma_setup == 'death_cross' %}selected{% endif %}>Death Cross</option>
-                    <option value="stacked_bull" {% if filters.ma_setup == 'stacked_bull' %}selected{% endif %}>Stacked Bull</option>
-                </select></div>
-            <div class="filter-group"><label>Min RS</label>
-                <input type="number" name="rs_min" value="{{ filters.rs_min or '' }}" placeholder="0-100" step="1" style="width:60px"></div>
-            <button type="button" class="section-apply" onclick="this.closest('form').submit()">Apply</button>
-        </div>
-    </div>
-
-    {# Fundamental #}
-    <div class="filter-section {% if filters.has_fund_filters %}open{% endif %}">
-        <div class="filter-section-header" onclick="this.parentElement.classList.toggle('open')">
-            <h3>Fundamental</h3>
-            <div class="active-tags">
                 {% if filters.pe_min or filters.pe_max %}<span class="tag">PE: {{ filters.pe_min or '' }}-{{ filters.pe_max or '' }}</span>{% endif %}
-                {% if filters.opmgn_min %}<span class="tag">OpMgn>{{ filters.opmgn_min }}</span>{% endif %}
-                {% if filters.roic_min %}<span class="tag">ROIC>{{ filters.roic_min }}</span>{% endif %}
+                {% if filters.opmgn_min %}<span class="tag">OpMgn≥{{ filters.opmgn_min }}</span>{% endif %}
+                {% if filters.roic_min %}<span class="tag">ROIC≥{{ filters.roic_min }}</span>{% endif %}
                 {% if filters.eps_growth %}<span class="tag">EPS: {{ filters.eps_growth }}</span>{% endif %}
-                {% if filters.evebitda_max %}<span class="tag">EV/EB<{{ filters.evebitda_max }}</span>{% endif %}
+                {% if filters.evebitda_max %}<span class="tag">EV/EB≤{{ filters.evebitda_max }}</span>{% endif %}
                 {% if filters.pe_sect_min or filters.pe_sect_max %}<span class="tag">PE/S: {{ filters.pe_sect_min or '' }}-{{ filters.pe_sect_max or '' }}</span>{% endif %}
                 {% if filters.pe_ind_min or filters.pe_ind_max %}<span class="tag">PE/I: {{ filters.pe_ind_min or '' }}-{{ filters.pe_ind_max or '' }}</span>{% endif %}
             </div>
         </div>
         <div class="filter-section-body">
-            <div class="filter-group"><label>PE</label>
-                <div style="display:flex;gap:4px"><input type="number" name="pe_min" value="{{ filters.pe_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="pe_max" value="{{ filters.pe_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>Fwd PE</label>
-                <div style="display:flex;gap:4px"><input type="number" name="fwdpe_min" value="{{ filters.fwdpe_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="fwdpe_max" value="{{ filters.fwdpe_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>OpMgn%</label>
-                <div style="display:flex;gap:4px"><input type="number" name="opmgn_min" value="{{ filters.opmgn_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="opmgn_max" value="{{ filters.opmgn_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>ROIC%</label>
-                <div style="display:flex;gap:4px"><input type="number" name="roic_min" value="{{ filters.roic_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="roic_max" value="{{ filters.roic_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>EV/EBITDA</label>
-                <div style="display:flex;gap:4px"><input type="number" name="evebitda_min" value="{{ filters.evebitda_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="evebitda_max" value="{{ filters.evebitda_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>ND/EBITDA</label>
-                <div style="display:flex;gap:4px"><input type="number" name="ndebitda_min" value="{{ filters.ndebitda_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="ndebitda_max" value="{{ filters.ndebitda_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>EPS Growth</label>
-                <select name="eps_growth"><option value="">Any</option>
-                    <option value="pos" {% if filters.eps_growth == 'pos' %}selected{% endif %}>Positive</option>
-                    <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
-                    <option value="neg" {% if filters.eps_growth == 'neg' %}selected{% endif %}>Negative</option>
-                </select></div>
-            <div class="filter-group"><label>PE vs Sector</label>
-                <div style="display:flex;gap:4px"><input type="number" name="pe_sect_min" value="{{ filters.pe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="pe_sect_max" value="{{ filters.pe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>PE vs Industry</label>
-                <div style="display:flex;gap:4px"><input type="number" name="pe_ind_min" value="{{ filters.pe_ind_min or '' }}" placeholder="Min" step="0.1" style="width:60px"><input type="number" name="pe_ind_max" value="{{ filters.pe_ind_max or '' }}" placeholder="Max" step="0.1" style="width:60px"></div></div>
-            <div class="filter-group"><label>Min Analysts</label>
-                <input type="number" name="analysts_min" value="{{ filters.analysts_min or '' }}" placeholder="Min" step="1" style="width:60px"></div>
-            <button type="button" class="section-apply" onclick="this.closest('form').submit()">Apply</button>
+            {# Classification row #}
+            <div class="filter-row">
+                <div class="filter-row-label">Classification</div>
+                <div class="filter-group"><label>PCA Regime</label>
+                    <select name="pca_regime"><option value="">Any</option>
+                        <option value="Strong Leader" {% if filters.pca_regime == 'Strong Leader' %}selected{% endif %}>Strong Leader</option>
+                        <option value="Quiet Uptrend" {% if filters.pca_regime == 'Quiet Uptrend' %}selected{% endif %}>Quiet Uptrend</option>
+                        <option value="Erupting" {% if filters.pca_regime == 'Erupting' %}selected{% endif %}>Erupting</option>
+                        <option value="Distributing" {% if filters.pca_regime == 'Distributing' %}selected{% endif %}>Distributing</option>
+                        <option value="Declining" {% if filters.pca_regime == 'Declining' %}selected{% endif %}>Declining</option>
+                    </select></div>
+                <div class="filter-group"><label>Stage</label>
+                    <select name="stage_class"><option value="">Any</option>
+                        <option value="Stage 2 Uptrend" {% if filters.stage_class == 'Stage 2 Uptrend' %}selected{% endif %}>S2 Uptrend</option>
+                        <option value="Stage 1 Basing" {% if filters.stage_class == 'Stage 1 Basing' %}selected{% endif %}>S1 Basing</option>
+                        <option value="Stage 3 Topping" {% if filters.stage_class == 'Stage 3 Topping' %}selected{% endif %}>S3 Topping</option>
+                        <option value="Stage 4 Declining" {% if filters.stage_class == 'Stage 4 Declining' %}selected{% endif %}>S4 Declining</option>
+                    </select></div>
+                <div class="filter-group"><label>EPS Momentum</label>
+                    <select name="eps_accel"><option value="">Any</option>
+                        <option value="Accelerating" {% if filters.eps_accel == 'Accelerating' %}selected{% endif %}>Accelerating</option>
+                        <option value="Decelerating" {% if filters.eps_accel == 'Decelerating' %}selected{% endif %}>Decelerating</option>
+                    </select></div>
+                <div class="filter-group"><label>MA Position</label>
+                    <select name="ma_screen"><option value="">Any</option>
+                        <option value="Above Both" {% if filters.ma_screen == 'Above Both' %}selected{% endif %}>Above Both</option>
+                        <option value="Above 200 Below 50" {% if filters.ma_screen == 'Above 200 Below 50' %}selected{% endif %}>Above 200 Below 50</option>
+                        <option value="Below 200 Above 50" {% if filters.ma_screen == 'Below 200 Above 50' %}selected{% endif %}>Below 200 Above 50</option>
+                        <option value="Below Both" {% if filters.ma_screen == 'Below Both' %}selected{% endif %}>Below Both</option>
+                    </select></div>
+            </div>
+            {# Technical row #}
+            <div class="filter-row">
+                <div class="filter-row-label">Technical</div>
+                <div class="filter-group"><label>% vs MA50</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pct50_min" value="{{ filters.pct50_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="pct50_max" value="{{ filters.pct50_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>% vs MA200</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pct200_min" value="{{ filters.pct200_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="pct200_max" value="{{ filters.pct200_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>% from 52H</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="from52h_min" value="{{ filters.from52h_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="from52h_max" value="{{ filters.from52h_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>% from 52L</label>
+                    <input type="number" name="from52l_min" value="{{ filters.from52l_min or '' }}" placeholder="Min" step="1" style="width:55px"></div>
+                <div class="filter-group"><label>MA Setup</label>
+                    <select name="ma_setup"><option value="">Any</option>
+                        <option value="above_all" {% if filters.ma_setup == 'above_all' %}selected{% endif %}>Price > All MAs</option>
+                        <option value="above_50" {% if filters.ma_setup == 'above_50' %}selected{% endif %}>Price > MA50</option>
+                        <option value="below_50" {% if filters.ma_setup == 'below_50' %}selected{% endif %}>Price < MA50</option>
+                        <option value="below_all" {% if filters.ma_setup == 'below_all' %}selected{% endif %}>Price < All MAs</option>
+                        <option value="golden_cross" {% if filters.ma_setup == 'golden_cross' %}selected{% endif %}>Golden Cross</option>
+                        <option value="death_cross" {% if filters.ma_setup == 'death_cross' %}selected{% endif %}>Death Cross</option>
+                        <option value="stacked_bull" {% if filters.ma_setup == 'stacked_bull' %}selected{% endif %}>Stacked Bull</option>
+                    </select></div>
+                <div class="filter-group"><label>Min RS</label>
+                    <input type="number" name="rs_min" value="{{ filters.rs_min or '' }}" placeholder="0-100" step="1" style="width:55px"></div>
+            </div>
+            {# Fundamental row #}
+            <div class="filter-row">
+                <div class="filter-row-label">Fundamental</div>
+                <div class="filter-group"><label>PE</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pe_min" value="{{ filters.pe_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_max" value="{{ filters.pe_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>Fwd PE</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="fwdpe_min" value="{{ filters.fwdpe_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="fwdpe_max" value="{{ filters.fwdpe_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>OpMgn%</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="opmgn_min" value="{{ filters.opmgn_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="opmgn_max" value="{{ filters.opmgn_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>ROIC%</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="roic_min" value="{{ filters.roic_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="roic_max" value="{{ filters.roic_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>EV/EBITDA</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="evebitda_min" value="{{ filters.evebitda_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="evebitda_max" value="{{ filters.evebitda_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>ND/EBITDA</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="ndebitda_min" value="{{ filters.ndebitda_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="ndebitda_max" value="{{ filters.ndebitda_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>EPS Growth</label>
+                    <select name="eps_growth"><option value="">Any</option>
+                        <option value="pos" {% if filters.eps_growth == 'pos' %}selected{% endif %}>Positive</option>
+                        <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
+                        <option value="neg" {% if filters.eps_growth == 'neg' %}selected{% endif %}>Negative</option>
+                    </select></div>
+                <div class="filter-group"><label>PE/Sector</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pe_sect_min" value="{{ filters.pe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_sect_max" value="{{ filters.pe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>PE/Industry</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pe_ind_min" value="{{ filters.pe_ind_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_ind_max" value="{{ filters.pe_ind_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>Analysts</label>
+                    <input type="number" name="analysts_min" value="{{ filters.analysts_min or '' }}" placeholder="Min" step="1" style="width:55px"></div>
+            </div>
+            <div style="padding:8px 0 2px;display:flex;align-items:center;">
+                <button type="button" class="section-apply" onclick="this.closest('form').submit()">Apply Filters</button>
+                <button type="button" class="section-clear" onclick="window.location='/screener?preset=all&min_turnover='+document.querySelector('[name=min_turnover]').value">Clear All</button>
+            </div>
         </div>
     </div>
 </form>
