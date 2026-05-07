@@ -787,10 +787,16 @@ def screener_page():
                 stats['median_fcf'] = _median_of('FCF')
                 stats['median_nd_ebitda'] = _median_of('ND_EBITDA')
                 stats['median_ev_ebitda'] = _median_of('EV_EBITDA', positive_only=True)
+                def _mean_of(col_name):
+                    if col_name not in group.columns:
+                        return None
+                    vals = pd.to_numeric(group[col_name], errors='coerce').dropna()
+                    return float(vals.mean()) if len(vals) > 0 else None
+
                 stats['median_rs'] = _median_of('RS_Rank')
-                stats['median_rs_chg1w'] = _median_of('RS_Chg1W')
-                stats['median_rs_chg1m'] = _median_of('RS_Chg1M')
-                stats['median_rs_chg3m'] = _median_of('RS_Chg3M')
+                stats['median_rs_chg1w'] = _mean_of('RS_Chg1W')
+                stats['median_rs_chg1m'] = _mean_of('RS_Chg1M')
+                stats['median_rs_chg3m'] = _mean_of('RS_Chg3M')
                 stats['median_target'] = _median_of('Target')
                 # Build stock entries
                 def make_stock(row):
@@ -843,6 +849,10 @@ def screener_page():
                             if pos_only: vals = vals[vals > 0]
                             return float(vals.median()) if len(vals) > 0 else None
 
+                        def _ind_mean(col_name):
+                            vals = pd.to_numeric(ind_group.get(col_name, pd.Series()), errors='coerce').dropna()
+                            return float(vals.mean()) if len(vals) > 0 else None
+
                         industries.append({
                             'industry': ind_name,
                             'count': len(ind_group),
@@ -858,9 +868,9 @@ def screener_page():
                             'median_nd_ebitda': _ind_median('ND_EBITDA'),
                             'median_ev_ebitda': _ind_median('EV_EBITDA', pos_only=True),
                             'median_rs': _ind_median('RS_Rank'),
-                            'median_rs_chg1w': _ind_median('RS_Chg1W'),
-                            'median_rs_chg1m': _ind_median('RS_Chg1M'),
-                            'median_rs_chg3m': _ind_median('RS_Chg3M'),
+                            'median_rs_chg1w': _ind_mean('RS_Chg1W'),
+                            'median_rs_chg1m': _ind_mean('RS_Chg1M'),
+                            'median_rs_chg3m': _ind_mean('RS_Chg3M'),
                             'median_target': _ind_median('Target'),
                             'stocks': ind_stocks,
                         })
