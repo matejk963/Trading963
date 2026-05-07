@@ -114,6 +114,9 @@
                 {% if filters.rs_min %}<span class="tag">RS≥{{ filters.rs_min|int }}</span>{% endif %}
                 {% if filters.pct50_min or filters.pct50_max %}<span class="tag">%50: {{ filters.pct50_min or '' }}/{{ filters.pct50_max or '' }}</span>{% endif %}
                 {% if filters.from52h_min or filters.from52h_max %}<span class="tag">52H: {{ filters.from52h_min or '' }}/{{ filters.from52h_max or '' }}</span>{% endif %}
+                {% if filters.rschg1w_min or filters.rschg1w_max %}<span class="tag">RS1W: {{ filters.rschg1w_min or '' }}/{{ filters.rschg1w_max or '' }}</span>{% endif %}
+                {% if filters.rschg1m_min or filters.rschg1m_max %}<span class="tag">RS1M: {{ filters.rschg1m_min or '' }}/{{ filters.rschg1m_max or '' }}</span>{% endif %}
+                {% if filters.rschg3m_min or filters.rschg3m_max %}<span class="tag">RS3M: {{ filters.rschg3m_min or '' }}/{{ filters.rschg3m_max or '' }}</span>{% endif %}
                 {% if filters.pe_min or filters.pe_max %}<span class="tag">PE: {{ filters.pe_min or '' }}-{{ filters.pe_max or '' }}</span>{% endif %}
                 {% if filters.opmgn_min %}<span class="tag">OpMgn≥{{ filters.opmgn_min }}</span>{% endif %}
                 {% if filters.roic_min %}<span class="tag">ROIC≥{{ filters.roic_min }}</span>{% endif %}
@@ -178,6 +181,12 @@
                     </select></div>
                 <div class="filter-group"><label>Min RS</label>
                     <input type="number" name="rs_min" value="{{ filters.rs_min or '' }}" placeholder="0-100" step="1" style="width:55px"></div>
+                <div class="filter-group"><label>RS Chg 1W</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="rschg1w_min" value="{{ filters.rschg1w_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="rschg1w_max" value="{{ filters.rschg1w_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>RS Chg 1M</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="rschg1m_min" value="{{ filters.rschg1m_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="rschg1m_max" value="{{ filters.rschg1m_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>RS Chg 3M</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="rschg3m_min" value="{{ filters.rschg3m_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="rschg3m_max" value="{{ filters.rschg3m_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
             </div>
             {# Fundamental row #}
             <div class="filter-row">

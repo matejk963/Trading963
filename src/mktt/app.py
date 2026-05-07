@@ -259,6 +259,12 @@ def screener_page():
     from52h_max = _flt('from52h_max')
     from52l_min = _flt('from52l_min')
     ma_setup = request.args.get('ma_setup', '')
+    rschg1w_min = _flt('rschg1w_min')
+    rschg1w_max = _flt('rschg1w_max')
+    rschg1m_min = _flt('rschg1m_min')
+    rschg1m_max = _flt('rschg1m_max')
+    rschg3m_min = _flt('rschg3m_min')
+    rschg3m_max = _flt('rschg3m_max')
 
     has_fund_filters = any(x is not None for x in [
         pe_min, pe_max, fwdpe_min, fwdpe_max, opmgn_min, opmgn_max,
@@ -267,7 +273,9 @@ def screener_page():
 
     has_tech_filters = any(x is not None for x in [
         pct50_min, pct50_max, pct200_min, pct200_max,
-        from52h_min, from52h_max, from52l_min]) or ma_setup != ''
+        from52h_min, from52h_max, from52l_min,
+        rschg1w_min, rschg1w_max, rschg1m_min, rschg1m_max,
+        rschg3m_min, rschg3m_max]) or ma_setup != ''
 
     has_class_filters = any(x != '' for x in [pca_regime, stage_filter, eps_accel_filter, ma_screen_filter])
 
@@ -294,6 +302,9 @@ def screener_page():
         'from52h_min': from52h_min, 'from52h_max': from52h_max,
         'from52l_min': from52l_min,
         'ma_setup': ma_setup,
+        'rschg1w_min': rschg1w_min, 'rschg1w_max': rschg1w_max,
+        'rschg1m_min': rschg1m_min, 'rschg1m_max': rschg1m_max,
+        'rschg3m_min': rschg3m_min, 'rschg3m_max': rschg3m_max,
         'has_tech_filters': has_tech_filters,
         'pca_regime': pca_regime,
         'stage_class': stage_filter,
@@ -695,6 +706,9 @@ def screener_page():
             results_df = _range_filter(results_df, 'PctAbove200', pct200_min, pct200_max)
             results_df = _range_filter(results_df, 'From52H', from52h_min, from52h_max)
             results_df = _range_filter(results_df, 'From52L', from52l_min, None)
+            results_df = _range_filter(results_df, 'RS_Chg1W', rschg1w_min, rschg1w_max)
+            results_df = _range_filter(results_df, 'RS_Chg1M', rschg1m_min, rschg1m_max)
+            results_df = _range_filter(results_df, 'RS_Chg3M', rschg3m_min, rschg3m_max)
 
             if ma_setup == 'above_all' and all(c in results_df.columns for c in ['Price','MA50','MA150','MA200']):
                 results_df = results_df[
