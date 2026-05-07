@@ -15,7 +15,61 @@
             <a href="{{ url_for('screener_page') }}" class="tab {% if active_section|default('screener') == 'screener' %}active{% endif %}">SCREENER</a>
             <a href="{{ url_for('macro.section_page', section='liquidity') }}" class="tab {% if active_section|default('') == 'liquidity' %}active{% endif %}">LIQUIDITY</a>
             <a href="{{ url_for('macro.section_page', section='rrg') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
+            <span style="margin-left:auto;cursor:pointer;font-size:12px;color:var(--text-faint,#666);padding:6px 10px;" onclick="showFreshness()" title="Data freshness">&#9202; DATA</span>
         </div>
+        <div id="freshness-panel" style="display:none;position:fixed;top:40px;right:10px;z-index:900;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:8px;padding:14px 18px;width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <strong style="font-size:13px;">Data Freshness</strong>
+                <span onclick="document.getElementById('freshness-panel').style.display='none'" style="cursor:pointer;color:var(--red,#f33);font-size:16px;font-weight:700;">&times;</span>
+            </div>
+            <div id="freshness-body" style="color:var(--text-dim,#888);">Loading...</div>
+        </div>
+        <script>
+        function showFreshness() {
+            var panel = document.getElementById('freshness-panel');
+            if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+            panel.style.display = 'block';
+            document.getElementById('freshness-body').innerHTML = 'Loading...';
+            fetch('/api/freshness').then(function(r){return r.json();}).then(function(d) {
+                var h = '';
+                var sc = {'OK':'#10b981','STALE':'#f59e0b','OLD':'#ef4444','MISSING':'#ef4444','PARTIAL':'#f59e0b','INCOMPLETE':'#ef4444'};
+                h += '<div style="margin-bottom:8px;">Overall: <strong style="color:'+( sc[d.overall]||'#888')+'">'+d.overall+'</strong></div>';
+                // Prices
+                var p = d.prices;
+                h += '<div style="border-top:1px solid #222;padding:6px 0;">';
+                h += '<strong>Prices</strong> <span style="color:'+(sc[p.status]||'#888')+'">'+p.status+'</span><br>';
+                h += 'Last: '+p.last_date+' ('+p.days_old+'d ago), '+p.stocks+'/'+p.total_stocks+' stocks';
+                if (p.sparse_trailing_rows > 0) h += '<br><span style="color:#f59e0b">'+p.sparse_trailing_rows+' sparse trailing row(s)</span>';
+                h += '</div>';
+                // Universe
+                var u = d.universe;
+                h += '<div style="border-top:1px solid #222;padding:6px 0;">';
+                h += '<strong>Universe</strong> <span style="color:'+(sc[u.status]||'#888')+'">'+u.status+'</span><br>';
+                h += u.stocks+' stocks, modified '+u.file_modified;
+                h += '</div>';
+                // Refinitiv
+                h += '<div style="border-top:1px solid #222;padding:6px 0;"><strong>Refinitiv</strong></div>';
+                h += '<table style="width:100%;font-size:11px;border-collapse:collapse;">';
+                d.refinitiv.forEach(function(r) {
+                    var det = [];
+                    if (r.latest_date) det.push(r.latest_date);
+                    if (r.days_old !== undefined) det.push(r.days_old+'d');
+                    if (r.stocks) det.push(r.stocks+' stk');
+                    if (r.coverage) det.push(r.coverage);
+                    if (r.missing > 0) det.push('<span style="color:#f59e0b">'+r.missing+' miss</span>');
+                    h += '<tr style="border-bottom:1px solid #1a1a2a;">';
+                    h += '<td style="padding:2px 4px;">'+r.source+'</td>';
+                    h += '<td style="padding:2px 4px;color:'+(sc[r.status]||'#888')+'">'+r.status+'</td>';
+                    h += '<td style="padding:2px 4px;color:#888;">'+det.join(', ')+'</td>';
+                    h += '</tr>';
+                });
+                h += '</table>';
+                document.getElementById('freshness-body').innerHTML = h;
+            }).catch(function(e) {
+                document.getElementById('freshness-body').innerHTML = '<span style="color:#f33;">Error: '+e.message+'</span>';
+            });
+        }
+        </script>
     </nav>
 
     <div class="container">
