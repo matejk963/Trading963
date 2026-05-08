@@ -641,6 +641,10 @@
                 <option value="rs_momentum" selected>RS Momentum (1M)</option>
                 <option value="pe_vs_sector">PE vs Sector</option>
             </select>
+            <span style="margin-left:12px;display:flex;gap:0;">
+                <button id="map-mode-sector" onclick="setMapMode('sector')" style="font-size:11px;padding:3px 8px;background:var(--primary);border:1px solid var(--border);color:white;border-radius:4px 0 0 4px;cursor:pointer">% of Sector</button>
+                <button id="map-mode-category" onclick="setMapMode('category')" style="font-size:11px;padding:3px 8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer">% of Category</button>
+            </span>
             <span id="map-total" style="font-size:11px;color:var(--text-faint);margin-left:8px;"></span>
         </div>
         <div id="map-summary" style="overflow-x:auto;"></div>
@@ -675,6 +679,18 @@ function switchView(view) {
 }
 
 var _mapCache = {};
+var _mapMode = 'sector'; // 'sector' = % of sector, 'category' = % of category
+
+function setMapMode(mode) {
+    _mapMode = mode;
+    document.getElementById('map-mode-sector').style.background = mode === 'sector' ? 'var(--primary)' : 'var(--bg-card)';
+    document.getElementById('map-mode-sector').style.color = mode === 'sector' ? 'white' : 'var(--text-dim)';
+    document.getElementById('map-mode-category').style.background = mode === 'category' ? 'var(--primary)' : 'var(--bg-card)';
+    document.getElementById('map-mode-category').style.color = mode === 'category' ? 'white' : 'var(--text-dim)';
+    var dim = document.getElementById('map-dim').value;
+    if (_mapCache[dim]) renderMap(_mapCache[dim]);
+}
+
 function loadSectorMap() {
     var dim = document.getElementById('map-dim').value;
     if (_mapCache[dim]) { renderMap(_mapCache[dim]); return; }
@@ -712,15 +728,6 @@ function renderMap(data) {
         matrix[r.sector][r.dimension] = r.count;
     });
 
-    // Color intensity: sector% vs overall% ratio
-    function cellColor(sectorPct, overallPct, baseColor) {
-        if (sectorPct === 0) return '#1a1a2a';
-        var ratio = sectorPct / overallPct;
-        // ratio > 1 = overrepresented, < 1 = underrepresented
-        var opacity = Math.min(Math.abs(ratio - 1) * 0.8, 0.7) + 0.15;
-        return baseColor.replace(')', ',' + opacity + ')').replace('rgb', 'rgba').replace('#', '');
-    }
-
     function hexToRgba(hex, alpha) {
         var r = parseInt(hex.slice(1,3), 16);
         var g = parseInt(hex.slice(3,5), 16);
@@ -728,7 +735,9 @@ function renderMap(data) {
         return 'rgba('+r+','+g+','+b+','+alpha+')';
     }
 
+    var mode = _mapMode;
     var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+
     // Header
     h += '<tr style="border-bottom:2px solid #333;">';
     h += '<th style="text-align:left;padding:6px 8px;min-width:140px;">Sector</th>';
@@ -738,7 +747,7 @@ function renderMap(data) {
     });
     h += '</tr>';
 
-    // Overall row (benchmark)
+    // Overall row
     h += '<tr style="border-bottom:2px solid #444;background:#111;">';
     h += '<td style="padding:4px 8px;font-weight:700;color:var(--text-dim);">All Stocks</td>';
     h += '<td style="padding:4px;text-align:center;color:var(--text-faint);">'+data.total_stocks+'</td>';
@@ -757,18 +766,32 @@ function renderMap(data) {
         h += '<td style="padding:4px;text-align:center;color:var(--text-faint);font-size:11px;">'+secTotal+'</td>';
         dims.forEach(function(d) {
             var cnt = (matrix[sec] || {})[d] || 0;
-            var secPct = cnt / secTotal * 100;
+            var secPct = secTotal > 0 ? cnt / secTotal * 100 : 0;
+            var catPct = data.overall[d] > 0 ? cnt / data.overall[d] * 100 : 0;
             var ovPct = overallPct[d];
-            var diff = secPct - ovPct;
-            // Color: green if overrepresented, red if under, intensity by magnitude
+
+            var displayPct, tooltip, diff;
+            if (mode === 'sector') {
+                // % of this sector's stocks in this category
+                displayPct = secPct;
+                diff = secPct - ovPct;
+                tooltip = cnt + ' stocks | ' + secPct.toFixed(1) + '% of sector vs ' + ovPct.toFixed(1) + '% overall';
+            } else {
+                // % of this category's stocks that are in this sector
+                displayPct = catPct;
+                var secShareOverall = secTotal / data.total_stocks * 100;
+                diff = catPct - secShareOverall;
+                tooltip = cnt + '/' + data.overall[d] + ' | ' + catPct.toFixed(1) + '% of category vs ' + secShareOverall.toFixed(1) + '% sector weight';
+            }
+
             var bg = 'transparent';
-            if (Math.abs(diff) > 3) {
+            if (cnt > 0 && Math.abs(diff) > 3) {
                 var intensity = Math.min(Math.abs(diff) / 30, 0.5);
                 bg = diff > 0 ? hexToRgba(dimColors[d], intensity) : 'rgba(100,100,100,' + intensity * 0.5 + ')';
             }
             var textColor = cnt > 0 ? '#ccc' : '#333';
-            h += '<td style="padding:4px;text-align:center;background:'+bg+';color:'+textColor+';font-size:11px;" title="'+cnt+' stocks ('+secPct.toFixed(1)+'% vs '+ovPct.toFixed(1)+'% overall)">';
-            h += cnt > 0 ? secPct.toFixed(0) + '%' : '';
+            h += '<td style="padding:4px;text-align:center;background:'+bg+';color:'+textColor+';font-size:11px;" title="'+tooltip+'">';
+            h += cnt > 0 ? displayPct.toFixed(0) + '%' : '';
             h += '</td>';
         });
         h += '</tr>';
@@ -777,11 +800,16 @@ function renderMap(data) {
 
     // Legend
     h += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
-    h += '<span style="font-size:10px;color:var(--text-faint);">Overall:</span>';
+    if (mode === 'sector') {
+        h += '<span style="font-size:10px;color:var(--text-faint);">Each row sums to 100%. Colored = deviates from overall average.</span>';
+    } else {
+        h += '<span style="font-size:10px;color:var(--text-faint);">Each column sums to 100%. Colored = sector over/underweight in category.</span>';
+    }
+    h += '</div>';
+    h += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;">';
     dims.forEach(function(d) {
-        h += '<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:'+dimColors[d]+';color:white;">'+d+': '+data.overall[d]+' ('+overallPct[d].toFixed(0)+'%)</span>';
+        h += '<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:'+dimColors[d]+';color:white;">'+d+': '+data.overall[d]+'</span>';
     });
-    h += '<span style="font-size:10px;color:var(--text-faint);margin-left:8px;">Colored cells = sector deviates from overall average. Hover for detail.</span>';
     h += '</div>';
 
     document.getElementById('map-summary').innerHTML = h;
