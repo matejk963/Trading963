@@ -121,6 +121,7 @@
                 {% if filters.opmgn_min %}<span class="tag">OpMgn≥{{ filters.opmgn_min }}</span>{% endif %}
                 {% if filters.roic_min %}<span class="tag">ROIC≥{{ filters.roic_min }}</span>{% endif %}
                 {% if filters.eps_growth %}<span class="tag">EPS: {{ filters.eps_growth }}</span>{% endif %}
+                {% if filters.rev_growth %}<span class="tag">Rev: {{ filters.rev_growth }}</span>{% endif %}
                 {% if filters.evebitda_max %}<span class="tag">EV/EB≤{{ filters.evebitda_max }}</span>{% endif %}
                 {% if filters.pe_sect_min or filters.pe_sect_max %}<span class="tag">PE/S: {{ filters.pe_sect_min or '' }}-{{ filters.pe_sect_max or '' }}</span>{% endif %}
                 {% if filters.pe_ind_min or filters.pe_ind_max %}<span class="tag">PE/I: {{ filters.pe_ind_min or '' }}-{{ filters.pe_ind_max or '' }}</span>{% endif %}
@@ -227,6 +228,28 @@
                         </optgroup>
                         <optgroup label="Combo">
                             <option value="all_pos" {% if filters.eps_growth == 'all_pos' %}selected{% endif %}>NTM + FY2 both growing</option>
+                        </optgroup>
+                    </select></div>
+                <div class="filter-group"><label>Rev Growth</label>
+                    <select name="rev_growth" style="font-size:11px"><option value="">Any</option>
+                        <optgroup label="NTM vs TTM">
+                            <option value="ntm_pos" {% if filters.rev_growth == 'ntm_pos' %}selected{% endif %}>NTM > TTM</option>
+                            <option value="ntm_neg" {% if filters.rev_growth == 'ntm_neg' %}selected{% endif %}>NTM < TTM</option>
+                        </optgroup>
+                        <optgroup label="FY2 vs FY1">
+                            <option value="fy2_fy1_pos" {% if filters.rev_growth == 'fy2_fy1_pos' %}selected{% endif %}>FY2 > FY1</option>
+                            <option value="fy2_fy1_neg" {% if filters.rev_growth == 'fy2_fy1_neg' %}selected{% endif %}>FY2 < FY1</option>
+                        </optgroup>
+                        <optgroup label="TTM YoY (Act)">
+                            <option value="ttm_yoy_pos" {% if filters.rev_growth == 'ttm_yoy_pos' %}selected{% endif %}>TTM > Prior TTM</option>
+                            <option value="ttm_yoy_neg" {% if filters.rev_growth == 'ttm_yoy_neg' %}selected{% endif %}>TTM < Prior TTM</option>
+                        </optgroup>
+                        <optgroup label="FQ YoY (Act)">
+                            <option value="fq_yoy_pos" {% if filters.rev_growth == 'fq_yoy_pos' %}selected{% endif %}>FQ > Same FQ LY</option>
+                            <option value="fq_yoy_neg" {% if filters.rev_growth == 'fq_yoy_neg' %}selected{% endif %}>FQ < Same FQ LY</option>
+                        </optgroup>
+                        <optgroup label="Combo">
+                            <option value="all_pos" {% if filters.rev_growth == 'all_pos' %}selected{% endif %}>NTM + FY2 both growing</option>
                         </optgroup>
                     </select></div>
                 <div class="filter-group"><label>PE/Sector</label>

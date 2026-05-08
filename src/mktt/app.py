@@ -154,11 +154,14 @@ def load_refinitiv_snapshot():
             f1 = fy1[fy1['Symbol'] == sym]
             if len(f1) > 0:
                 rec['fy1_eps'] = _safe_num(f1.iloc[0].get('Earnings Per Share - Mean'))
+                rec['fy1_rev'] = _safe_num(f1.iloc[0].get('Revenue - Mean'))
                 rec['fy2_eps'] = None
+                rec['fy2_rev'] = None
         if fy2 is not None:
             f2 = fy2[fy2['Symbol'] == sym]
             if len(f2) > 0:
                 rec['fy2_eps'] = _safe_num(f2.iloc[0].get('Earnings Per Share - Mean'))
+                rec['fy2_rev'] = _safe_num(f2.iloc[0].get('Revenue - Mean'))
         lookup[sym] = rec
     _refinitiv_cache['data'] = lookup
     _refinitiv_cache['mtime'] = mtime
@@ -239,6 +242,7 @@ def screener_page():
     rs_min = _flt('rs_min')
     analysts_min = _flt('analysts_min')
     eps_growth = request.args.get('eps_growth', '')
+    rev_growth = request.args.get('rev_growth', '')
     pe_sect_min = _flt('pe_sect_min')
     pe_sect_max = _flt('pe_sect_max')
     pe_ind_min = _flt('pe_ind_min')
@@ -269,7 +273,7 @@ def screener_page():
     has_fund_filters = any(x is not None for x in [
         pe_min, pe_max, fwdpe_min, fwdpe_max, opmgn_min, opmgn_max,
         roic_min, roic_max, evebitda_min, evebitda_max, ndebitda_min, ndebitda_max,
-        rs_min, analysts_min, pe_sect_min, pe_sect_max, pe_ind_min, pe_ind_max]) or eps_growth != ''
+        rs_min, analysts_min, pe_sect_min, pe_sect_max, pe_ind_min, pe_ind_max]) or eps_growth != '' or rev_growth != ''
 
     has_tech_filters = any(x is not None for x in [
         pct50_min, pct50_max, pct200_min, pct200_max,
@@ -296,6 +300,7 @@ def screener_page():
         'pe_ind_min': pe_ind_min, 'pe_ind_max': pe_ind_max,
         'rs_min': rs_min, 'analysts_min': analysts_min,
         'eps_growth': eps_growth,
+        'rev_growth': rev_growth,
         'has_fund_filters': has_fund_filters,
         'pct50_min': pct50_min, 'pct50_max': pct50_max,
         'pct200_min': pct200_min, 'pct200_max': pct200_max,
@@ -539,6 +544,7 @@ def screener_page():
             results_df['Industry'] = results_df['Symbol'].map(lambda s: rfv.get(s, {}).get('industry'))
             # Refinitiv fundamental columns
             for col, key in [('EPS_Act', 'eps_act'), ('EPS_FY1', 'fy1_eps'), ('EPS_FY2', 'fy2_eps'),
+                             ('Rev_Act', 'rev_act'), ('Rev_FY1', 'fy1_rev'), ('Rev_FY2', 'fy2_rev'),
                              ('OpMargin', 'op_margin'), ('NetMargin', 'net_margin'),
                              ('FCF', 'fcf'), ('ROIC', 'roic'), ('ND_EBITDA', 'nd_ebitda'),
                              ('EV_EBITDA', 'ev_ebitda'), ('Target', 'target'), ('Analysts', 'analysts')]:
@@ -696,13 +702,65 @@ def screener_page():
                 results_df['G_TTM_YOY'] = results_df['Symbol'].map(_g_ttm_yoy)
                 results_df['G_FQ_YOY'] = results_df['Symbol'].map(_g_fq_yoy)
 
+                # Revenue growth metrics (same logic, different columns)
+                _rev_metrics = {}
+                _qr_valid = _qdata.copy()
+                _qr_valid['Rev'] = pd.to_numeric(_qr_valid['Revenue - Actual'], errors='coerce')
+                _qr_valid = _qr_valid.dropna(subset=['Rev', 'Date'])
+                for sym, grp in _qr_valid.groupby('Symbol'):
+                    grp = grp.sort_values('Date')
+                    rv = grp['Rev'].values
+                    n = len(rv)
+                    if n >= 4:
+                        ttm = rv[-4:].sum()
+                        prior_ttm = rv[-8:-4].sum() if n >= 8 else None
+                        fq_latest = rv[-1]
+                        fq_yoy = rv[-5] if n >= 5 else None
+                        _rev_metrics[sym] = {
+                            'ttm': ttm, 'prior_ttm': prior_ttm,
+                            'fq_latest': fq_latest, 'fq_yoy': fq_yoy,
+                        }
+
+                def _rg_ntm_ttm(row):
+                    fy1 = row.get('Rev_FY1')
+                    act = row.get('Rev_Act')
+                    if pd.notna(fy1) and pd.notna(act) and act and act != 0:
+                        return round((float(fy1) / float(act) - 1) * 100, 1)
+                    return None
+
+                def _rg_fy2_fy1(row):
+                    fy1 = row.get('Rev_FY1')
+                    fy2 = row.get('Rev_FY2')
+                    if pd.notna(fy1) and pd.notna(fy2) and fy1 and fy1 != 0:
+                        return round((float(fy2) / float(fy1) - 1) * 100, 1)
+                    return None
+
+                def _rg_ttm_yoy(sym):
+                    m = _rev_metrics.get(sym)
+                    if m and m['prior_ttm'] and m['prior_ttm'] != 0:
+                        return round((m['ttm'] / m['prior_ttm'] - 1) * 100, 1)
+                    return None
+
+                def _rg_fq_yoy(sym):
+                    m = _rev_metrics.get(sym)
+                    if m and m['fq_yoy'] and m['fq_yoy'] != 0:
+                        return round((m['fq_latest'] / m['fq_yoy'] - 1) * 100, 1)
+                    return None
+
+                results_df['RG_NTM_TTM'] = results_df.apply(_rg_ntm_ttm, axis=1)
+                results_df['RG_FY2_FY1'] = results_df.apply(_rg_fy2_fy1, axis=1)
+                results_df['RG_TTM_YOY'] = results_df['Symbol'].map(_rg_ttm_yoy)
+                results_df['RG_FQ_YOY'] = results_df['Symbol'].map(_rg_fq_yoy)
+
         # Write enriched data back
         enrich_cols = ['Sector', 'Industry', 'PE', 'FwdPE',
-                       'EPS_Act', 'EPS_FY1', 'EPS_FY2', 'OpMargin', 'NetMargin',
+                       'EPS_Act', 'EPS_FY1', 'EPS_FY2', 'Rev_Act', 'Rev_FY1', 'Rev_FY2',
+                       'OpMargin', 'NetMargin',
                        'FCF', 'ROIC', 'ND_EBITDA', 'EV_EBITDA', 'Target', 'Analysts',
                        'PCA_Regime', 'Stage_Class', 'EPS_Accel', 'EPS_Acc_Val', 'MA_Screen',
                        'PE_vs_Sector', 'PE_vs_Industry',
-                       'G_NTM_TTM', 'G_FY2_FY1', 'G_TTM_YOY', 'G_FQ_YOY']
+                       'G_NTM_TTM', 'G_FY2_FY1', 'G_TTM_YOY', 'G_FQ_YOY',
+                       'RG_NTM_TTM', 'RG_FY2_FY1', 'RG_TTM_YOY', 'RG_FQ_YOY']
 
         # Enrich with PCA/Stage/EPS classifications
         cls = load_classification_lookups()
@@ -778,6 +836,26 @@ def screener_page():
                 results_df = results_df[(fy2 - fy1) < (fy1 - ttm)]
             elif eps_growth == 'all_pos':
                 results_df = results_df[(_gc('G_NTM_TTM') > 0) & (_gc('G_FY2_FY1') > 0)]
+
+            # Revenue growth filters
+            if rev_growth == 'ntm_pos':
+                results_df = results_df[_gc('RG_NTM_TTM') > 0]
+            elif rev_growth == 'ntm_neg':
+                results_df = results_df[_gc('RG_NTM_TTM') < 0]
+            elif rev_growth == 'fy2_fy1_pos':
+                results_df = results_df[_gc('RG_FY2_FY1') > 0]
+            elif rev_growth == 'fy2_fy1_neg':
+                results_df = results_df[_gc('RG_FY2_FY1') < 0]
+            elif rev_growth == 'ttm_yoy_pos':
+                results_df = results_df[_gc('RG_TTM_YOY') > 0]
+            elif rev_growth == 'ttm_yoy_neg':
+                results_df = results_df[_gc('RG_TTM_YOY') < 0]
+            elif rev_growth == 'fq_yoy_pos':
+                results_df = results_df[_gc('RG_FQ_YOY') > 0]
+            elif rev_growth == 'fq_yoy_neg':
+                results_df = results_df[_gc('RG_FQ_YOY') < 0]
+            elif rev_growth == 'all_pos':
+                results_df = results_df[(_gc('RG_NTM_TTM') > 0) & (_gc('RG_FY2_FY1') > 0)]
 
             # Rebuild data list after filtering
             data = results_df.to_dict('records')
