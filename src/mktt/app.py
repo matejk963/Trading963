@@ -402,6 +402,8 @@ def screener_page():
 
                 r = rfv.get(sym, {})
                 sec_name = r.get('sector', '')
+                if not sec_name:
+                    continue
                 if sector and sector != 'All' and sec_name != sector:
                     continue
 
@@ -954,7 +956,9 @@ def _sector_map_impl():
             continue
 
         r = rfv.get(sym, {})
-        sector = r.get('sector') or 'Unknown'
+        sector = r.get('sector')
+        if not sector:
+            continue
         industry = r.get('industry') or 'Unknown'
         eps_act = r.get('eps_act')
         fy1_eps = r.get('fy1_eps')
