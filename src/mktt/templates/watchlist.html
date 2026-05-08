@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title_suffix %}// Watchlist{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<h2 class="page-title">Watchlist</h2>
+
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+    <span id="wl-status" style="font-size:13px;color:var(--text-dim);"></span>
+    <button onclick="clearWatchlist()" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--border);color:var(--text-faint);border-radius:4px;cursor:pointer;margin-left:auto;">Clear All</button>
+</div>
+
+<div id="wl-table-wrap" style="overflow-x:auto;">
+    <div style="color:var(--text-faint);font-size:13px;padding:20px;">Loading watchlist...</div>
+</div>
+
+<script>
+function loadWatchlist() {
+    var wl = getWatchlist();
+    if (wl.length === 0) {
+        document.getElementById('wl-table-wrap').innerHTML = '<div style="color:var(--text-faint);font-size:13px;padding:20px;">No stocks in watchlist. Right-click a stock in the Screener to add it.</div>';
+        document.getElementById('wl-status').textContent = '0 stocks';
+        return;
+    }
+    document.getElementById('wl-status').textContent = wl.length + ' stocks — loading...';
+
+    var url = '/api/watchlist?' + wl.map(function(s) { return 'sym=' + encodeURIComponent(s); }).join('&');
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { document.getElementById('wl-table-wrap').innerHTML = '<span style="color:#f33;">'+data.error+'</span>'; return; }
+            renderWatchlist(data);
+        })
+        .catch(function(e) { document.getElementById('wl-table-wrap').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
+}
+
+function renderWatchlist(data) {
+    document.getElementById('wl-status').textContent = data.stocks.length + ' stocks | ' + data.as_of;
+
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    h += '<thead><tr style="border-bottom:2px solid #333;">';
+    var cols = [
+        {k:'symbol',l:'Symbol',t:'str'}, {k:'sector',l:'Sector',t:'str'}, {k:'industry',l:'Industry',t:'str'},
+        {k:'price',l:'Price',t:'num'}, {k:'change',l:'Chg%',t:'num'},
+        {k:'pe',l:'PE',t:'num'}, {k:'fwd_pe',l:'Fwd PE',t:'num'},
+        {k:'eps_act',l:'EPS',t:'num'}, {k:'eps_fy1',l:'FY1',t:'num'}, {k:'eps_fy2',l:'FY2',t:'num'},
+        {k:'op_margin',l:'OpMgn%',t:'num'}, {k:'roic',l:'ROIC%',t:'num'},
+        {k:'rs',l:'RS',t:'num'}, {k:'target',l:'Target',t:'num'},
+        {k:'_remove',l:'',t:'str'},
+    ];
+    cols.forEach(function(c, i) {
+        var st = c.k === 'symbol' ? 'text-align:left;' : '';
+        h += '<th style="padding:5px 8px;cursor:pointer;'+st+'" onclick="sortWlTable('+i+',\''+c.t+'\')">' + c.l + '</th>';
+    });
+    h += '</tr></thead><tbody id="wl-tbody">';
+
+    data.stocks.forEach(function(st) {
+        if (st.error) {
+            h += '<tr><td style="padding:4px 8px;font-weight:600;">'+st.symbol+'</td><td colspan="14" style="color:var(--text-faint);padding:4px;">'+st.error+'</td></tr>';
+            return;
+        }
+        var chgClass = st.change > 0 ? 'positive' : st.change < 0 ? 'negative' : '';
+        h += '<tr onclick="toggleStockChart(\''+st.symbol+'\', this)" style="cursor:pointer;border-bottom:1px solid var(--border);">';
+        h += '<td style="padding:4px 8px;font-weight:600;text-align:left;">'+st.symbol+'</td>';
+        h += '<td style="padding:4px 8px;color:var(--text-dim);">'+( st.sector || '')+'</td>';
+        h += '<td style="padding:4px 8px;color:var(--text-dim);">'+( st.industry || '')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.price != null ? st.price.toFixed(2) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;" class="'+chgClass+'">'+(st.change != null ? (st.change > 0 ? '+' : '') + st.change.toFixed(1) + '%' : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.pe != null ? st.pe.toFixed(1) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.fwd_pe != null ? st.fwd_pe.toFixed(1) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.eps_act != null ? st.eps_act.toFixed(2) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.eps_fy1 != null ? st.eps_fy1.toFixed(2) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.eps_fy2 != null ? st.eps_fy2.toFixed(2) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.op_margin != null ? st.op_margin.toFixed(1) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.roic != null ? st.roic.toFixed(1) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.rs != null ? st.rs : '—')+'</td>';
+        h += '<td style="padding:4px 8px;">'+(st.target != null ? st.target.toFixed(0) : '—')+'</td>';
+        h += '<td style="padding:4px 8px;"><span onclick="event.stopPropagation();removeFromWatchlist(\''+st.symbol+'\');loadWatchlist();" style="cursor:pointer;color:var(--red,#ef4444);font-size:14px;" title="Remove">✕</span></td>';
+        h += '</tr>';
+    });
+    h += '</tbody></table>';
+    document.getElementById('wl-table-wrap').innerHTML = h;
+}
+
+var _wlSortDir = {};
+function sortWlTable(col, type) {
+    var tbody = document.getElementById('wl-tbody');
+    if (!tbody) return;
+    _wlSortDir[col] = !(_wlSortDir[col] || false);
+    var asc = _wlSortDir[col];
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a, b) {
+        var aVal = a.cells[col] ? a.cells[col].textContent.trim() : '';
+        var bVal = b.cells[col] ? b.cells[col].textContent.trim() : '';
+        if (type === 'num') {
+            aVal = parseFloat(aVal.replace(/[%,+]/g, '')) || -Infinity;
+            bVal = parseFloat(bVal.replace(/[%,+]/g, '')) || -Infinity;
+            return asc ? aVal - bVal : bVal - aVal;
+        }
+        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+}
+
+function clearWatchlist() {
+    if (confirm('Remove all stocks from watchlist?')) {
+        saveWatchlist([]);
+        loadWatchlist();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadWatchlist);
+</script>
+{% endblock %}

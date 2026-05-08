@@ -1105,6 +1105,81 @@ def screener_page():
                            as_of_date=_as_of_used)
 
 
+@app.route('/watchlist')
+def watchlist_page():
+    """Watchlist page — stocks stored client-side, data fetched server-side."""
+    return render_template('watchlist.html', active_section='watchlist')
+
+
+@app.route('/api/watchlist')
+def watchlist_api():
+    """Return enriched data for a list of symbols (passed as ?sym=X&sym=Y)."""
+    try:
+        return _watchlist_api_impl()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def _watchlist_api_impl():
+    from data_manager import load_prices, load_universe
+    symbols = request.args.getlist('sym')
+    if not symbols:
+        return jsonify({'stocks': []})
+
+    close = load_prices('close')
+    uni = load_universe()
+    rfv = load_refinitiv_snapshot()
+
+    # Find last dense row
+    min_stocks = len(close.columns) * 0.5
+    _idx = len(close) - 1
+    for _i in range(len(close) - 1, max(len(close) - 10, 0), -1):
+        if close.iloc[_i].notna().sum() >= min_stocks:
+            _idx = _i
+            break
+    _close_slice = close.iloc[:_idx + 1]
+    last_prices = _close_slice.iloc[-1]
+    prev_prices = _close_slice.iloc[-2] if _idx > 0 else last_prices
+
+    # RS
+    rs_ranks = {}
+    if len(_close_slice) > 126:
+        ret_6m = (_close_slice.iloc[-1] / _close_slice.iloc[-126] - 1)
+        rs_ranks = (ret_6m.rank(pct=True) * 100).to_dict()
+
+    stocks = []
+    for sym in symbols:
+        price = last_prices.get(sym)
+        if pd.isna(price) or price is None:
+            stocks.append({'symbol': sym, 'error': 'No price data'})
+            continue
+        prev = prev_prices.get(sym)
+        r = rfv.get(sym, {})
+        eps = r.get('eps_act')
+        pe = float(price) / float(eps) if eps and eps > 0 else None
+        fy1 = r.get('fy1_eps')
+        fwd_pe = float(price) / float(fy1) if fy1 and fy1 > 0 else None
+        stocks.append({
+            'symbol': sym,
+            'price': round(float(price), 2),
+            'change': round(((price / prev) - 1) * 100, 2) if pd.notna(prev) and prev > 0 else 0,
+            'sector': r.get('sector', ''),
+            'industry': r.get('industry', ''),
+            'pe': round(pe, 1) if pe else None,
+            'fwd_pe': round(fwd_pe, 1) if fwd_pe else None,
+            'eps_act': r.get('eps_act'),
+            'eps_fy1': r.get('fy1_eps'),
+            'eps_fy2': r.get('fy2_eps'),
+            'op_margin': r.get('op_margin'),
+            'roic': r.get('roic'),
+            'rs': round(rs_ranks.get(sym, 0)) if sym in rs_ranks else None,
+            'target': r.get('target'),
+        })
+
+    return jsonify({'stocks': stocks, 'as_of': str(_close_slice.index[_idx])[:10]})
+
+
 @app.route('/api/sector_map')
 def sector_map_api():
     """Return sector/industry breakdown by a given criteria dimension."""

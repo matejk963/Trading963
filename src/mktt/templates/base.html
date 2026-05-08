@@ -15,6 +15,7 @@
             <a id="screener-tab" href="{{ url_for('screener_page') }}" class="tab {% if active_section|default('screener') == 'screener' %}active{% endif %}">SCREENER</a>
             <a href="{{ url_for('macro.section_page', section='liquidity') }}" class="tab {% if active_section|default('') == 'liquidity' %}active{% endif %}">LIQUIDITY</a>
             <a href="{{ url_for('macro.section_page', section='rrg') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
+            <a href="{{ url_for('watchlist_page') }}" class="tab {% if active_section|default('') == 'watchlist' %}active{% endif %}">WATCHLIST<span id="wl-badge" style="font-size:9px;background:var(--primary);color:white;border-radius:50%;padding:1px 5px;margin-left:4px;display:none;"></span></a>
             <span style="margin-left:auto;cursor:pointer;font-size:12px;color:var(--text-faint,#666);padding:6px 10px;" onclick="showFreshness()" title="Data freshness">&#9202; DATA</span>
         </div>
         <div id="freshness-panel" style="display:none;position:fixed;top:40px;right:10px;z-index:900;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:8px;padding:14px 18px;width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-size:12px;">
@@ -96,6 +97,71 @@
             if (tab) tab.href = saved;
         }
     })();
+
+    // Watchlist — stored in localStorage
+    function getWatchlist() {
+        try { return JSON.parse(localStorage.getItem('mktt_watchlist') || '[]'); } catch(e) { return []; }
+    }
+    function saveWatchlist(wl) {
+        localStorage.setItem('mktt_watchlist', JSON.stringify(wl));
+        updateWlBadge();
+    }
+    function addToWatchlist(sym) {
+        var wl = getWatchlist();
+        if (wl.indexOf(sym) === -1) { wl.push(sym); saveWatchlist(wl); }
+    }
+    function removeFromWatchlist(sym) {
+        var wl = getWatchlist().filter(function(s) { return s !== sym; });
+        saveWatchlist(wl);
+    }
+    function updateWlBadge() {
+        var badge = document.getElementById('wl-badge');
+        var n = getWatchlist().length;
+        if (badge) { badge.textContent = n; badge.style.display = n > 0 ? 'inline' : 'none'; }
+    }
+    updateWlBadge();
+
+    // Context menu for adding to watchlist
+    var _ctxMenu = null;
+    document.addEventListener('contextmenu', function(e) {
+        // Find closest stock row with a symbol
+        var row = e.target.closest('tr[onclick*="toggleStockChart"]');
+        if (!row) return;
+        e.preventDefault();
+        var symCell = row.querySelector('td[data-cid="sym"]');
+        if (!symCell) return;
+        var sym = symCell.textContent.trim();
+        if (!sym) return;
+
+        // Remove old menu
+        if (_ctxMenu) _ctxMenu.remove();
+
+        var wl = getWatchlist();
+        var inWl = wl.indexOf(sym) !== -1;
+
+        _ctxMenu = document.createElement('div');
+        _ctxMenu.style.cssText = 'position:fixed;z-index:1000;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:6px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,0.6);min-width:160px;';
+        _ctxMenu.style.left = e.clientX + 'px';
+        _ctxMenu.style.top = e.clientY + 'px';
+
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;color:var(--text);';
+        item.onmouseenter = function() { this.style.background = 'var(--bg,#111)'; };
+        item.onmouseleave = function() { this.style.background = ''; };
+
+        if (inWl) {
+            item.textContent = '✕ Remove ' + sym + ' from Watchlist';
+            item.style.color = 'var(--red,#ef4444)';
+            item.onclick = function() { removeFromWatchlist(sym); _ctxMenu.remove(); _ctxMenu=null; };
+        } else {
+            item.textContent = '★ Add ' + sym + ' to Watchlist';
+            item.style.color = 'var(--accent,#10b981)';
+            item.onclick = function() { addToWatchlist(sym); _ctxMenu.remove(); _ctxMenu=null; };
+        }
+        _ctxMenu.appendChild(item);
+        document.body.appendChild(_ctxMenu);
+    });
+    document.addEventListener('click', function() { if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu=null; } });
     </script>
 </body>
 </html>
