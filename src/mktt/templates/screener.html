@@ -753,7 +753,7 @@ function renderMap(data) {
     h += '<td style="padding:4px;text-align:center;color:var(--text-faint);">'+data.total_stocks+'</td>';
     dims.forEach(function(d) {
         var pct = overallPct[d];
-        h += '<td style="padding:4px;text-align:center;font-weight:600;color:'+dimColors[d]+'">'+pct.toFixed(0)+'%</td>';
+        h += '<td style="padding:4px;text-align:center;font-weight:600;color:'+dimColors[d]+'">'+(mode === 'category' ? '1.00x' : pct.toFixed(0)+'%')+'</td>';
     });
     h += '</tr>';
 
@@ -777,21 +777,29 @@ function renderMap(data) {
                 diff = secPct - ovPct;
                 tooltip = cnt + ' stocks | ' + secPct.toFixed(1) + '% of sector vs ' + ovPct.toFixed(1) + '% overall';
             } else {
-                // % of this category's stocks that are in this sector
-                displayPct = catPct;
+                // Ratio: (sector's share of category) / (sector's share of total)
                 var secShareOverall = secTotal / data.total_stocks * 100;
-                diff = catPct - secShareOverall;
-                tooltip = cnt + '/' + data.overall[d] + ' | ' + catPct.toFixed(1) + '% of category vs ' + secShareOverall.toFixed(1) + '% sector weight';
+                var ratio = secShareOverall > 0 ? catPct / secShareOverall : 0;
+                displayPct = ratio * 100;  // show as percentage where 100% = proportional
+                diff = displayPct - 100;
+                tooltip = cnt + ' stocks | ' + catPct.toFixed(1) + '% of category / ' + secShareOverall.toFixed(1) + '% sector weight = ' + ratio.toFixed(2) + 'x';
             }
 
             var bg = 'transparent';
-            if (cnt > 0 && Math.abs(diff) > 3) {
-                var intensity = Math.min(Math.abs(diff) / 30, 0.5);
+            if (cnt > 0 && Math.abs(diff) > (mode === 'category' ? 15 : 3)) {
+                var maxDiff = mode === 'category' ? 100 : 30;
+                var intensity = Math.min(Math.abs(diff) / maxDiff, 0.5);
                 bg = diff > 0 ? hexToRgba(dimColors[d], intensity) : 'rgba(100,100,100,' + intensity * 0.5 + ')';
             }
             var textColor = cnt > 0 ? '#ccc' : '#333';
             h += '<td style="padding:4px;text-align:center;background:'+bg+';color:'+textColor+';font-size:11px;" title="'+tooltip+'">';
-            h += cnt > 0 ? displayPct.toFixed(0) + '%' : '';
+            if (cnt > 0) {
+                if (mode === 'category') {
+                    h += (displayPct / 100).toFixed(2) + 'x';
+                } else {
+                    h += displayPct.toFixed(0) + '%';
+                }
+            }
             h += '</td>';
         });
         h += '</tr>';
@@ -803,7 +811,7 @@ function renderMap(data) {
     if (mode === 'sector') {
         h += '<span style="font-size:10px;color:var(--text-faint);">Each row sums to 100%. Colored = deviates from overall average.</span>';
     } else {
-        h += '<span style="font-size:10px;color:var(--text-faint);">Each column sums to 100%. Colored = sector over/underweight in category.</span>';
+        h += '<span style="font-size:10px;color:var(--text-faint);">1.00x = proportional. >1x = overrepresented, <1x = underrepresented. Hover for detail.</span>';
     }
     h += '</div>';
     h += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;">';
