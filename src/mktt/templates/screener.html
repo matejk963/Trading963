@@ -346,19 +346,25 @@
                     <th data-cid="pesect" style="cursor:pointer" onclick="sortSectorTable(this,7,'num')">PE/Sec</th>
                     <th data-cid="peind" style="cursor:pointer" onclick="sortSectorTable(this,8,'num')">PE/Ind</th>
                     <th data-cid="eps" style="cursor:pointer" onclick="sortSectorTable(this,9,'num')">EPS</th>
-                    <th data-cid="fy1" style="cursor:pointer" onclick="sortSectorTable(this,10,'num')">FY1</th>
-                    <th data-cid="fy2" style="cursor:pointer" onclick="sortSectorTable(this,11,'num')">FY2</th>
-                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortSectorTable(this,12,'num')">OpMgn%</th>
-                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortSectorTable(this,13,'num')">NetMgn%</th>
-                    <th data-cid="roic" style="cursor:pointer" onclick="sortSectorTable(this,14,'num')">ROIC%</th>
-                    <th data-cid="fcf" style="cursor:pointer" onclick="sortSectorTable(this,15,'num')">FCF</th>
-                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortSectorTable(this,16,'num')">ND/EBITDA</th>
-                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortSectorTable(this,17,'num')">EV/EBITDA</th>
-                    <th data-cid="rs" style="cursor:pointer" onclick="sortSectorTable(this,18,'num')">RS</th>
-                    <th data-cid="rschg1w" style="cursor:pointer" onclick="sortSectorTable(this,19,'num')">RS 1W</th>
-                    <th data-cid="rschg1m" style="cursor:pointer" onclick="sortSectorTable(this,20,'num')">RS 1M</th>
-                    <th data-cid="rschg3m" style="cursor:pointer" onclick="sortSectorTable(this,21,'num')">RS 3M</th>
-                    <th data-cid="target" style="cursor:pointer" onclick="sortSectorTable(this,22,'num')">Target</th>
+                    <th data-cid="epsttm" style="cursor:pointer" onclick="sortSectorTable(this,10,'num')">EPS TTM</th>
+                    <th data-cid="epsntm" style="cursor:pointer" onclick="sortSectorTable(this,11,'num')">EPS NTM</th>
+                    <th data-cid="fy1" style="cursor:pointer" onclick="sortSectorTable(this,12,'num')">EPS FY1</th>
+                    <th data-cid="fy2" style="cursor:pointer" onclick="sortSectorTable(this,13,'num')">EPS FY2</th>
+                    <th data-cid="revttm" style="cursor:pointer" onclick="sortSectorTable(this,14,'num')">Rev TTM</th>
+                    <th data-cid="revntm" style="cursor:pointer" onclick="sortSectorTable(this,15,'num')">Rev NTM</th>
+                    <th data-cid="revfy1" style="cursor:pointer" onclick="sortSectorTable(this,16,'num')">Rev FY1</th>
+                    <th data-cid="revfy2" style="cursor:pointer" onclick="sortSectorTable(this,17,'num')">Rev FY2</th>
+                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortSectorTable(this,18,'num')">OpMgn%</th>
+                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortSectorTable(this,19,'num')">NetMgn%</th>
+                    <th data-cid="roic" style="cursor:pointer" onclick="sortSectorTable(this,20,'num')">ROIC%</th>
+                    <th data-cid="fcf" style="cursor:pointer" onclick="sortSectorTable(this,21,'num')">FCF</th>
+                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortSectorTable(this,22,'num')">ND/EBITDA</th>
+                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortSectorTable(this,23,'num')">EV/EBITDA</th>
+                    <th data-cid="rs" style="cursor:pointer" onclick="sortSectorTable(this,24,'num')">RS</th>
+                    <th data-cid="rschg1w" style="cursor:pointer" onclick="sortSectorTable(this,25,'num')">RS 1W</th>
+                    <th data-cid="rschg1m" style="cursor:pointer" onclick="sortSectorTable(this,26,'num')">RS 1M</th>
+                    <th data-cid="rschg3m" style="cursor:pointer" onclick="sortSectorTable(this,27,'num')">RS 3M</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortSectorTable(this,28,'num')">Target</th>
                 </tr>
             </thead>
             <tbody>
@@ -380,8 +386,14 @@
                     <td data-cid="pesect">—</td>
                     <td data-cid="peind">—</td>
                     <td data-cid="eps">{{ sg(s, 'median_eps', '%.2f') }}</td>
+                    <td data-cid="epsttm">{{ sg(s, 'median_eps_ttm', '%.2f') }}</td>
+                    <td data-cid="epsntm">{{ sg(s, 'median_eps_ntm', '%.2f') }}</td>
                     <td data-cid="fy1">{{ sg(s, 'median_fy1', '%.2f') }}</td>
                     <td data-cid="fy2">{{ sg(s, 'median_fy2', '%.2f') }}</td>
+                    <td data-cid="revttm">{{ sgn(s, 'median_rev_ttm') }}</td>
+                    <td data-cid="revntm">{{ sgn(s, 'median_rev_ntm') }}</td>
+                    <td data-cid="revfy1">—</td>
+                    <td data-cid="revfy2">—</td>
                     <td data-cid="opmgn">{{ sg(s, 'median_op_margin') }}</td>
                     <td data-cid="netmgn">{{ sg(s, 'median_net_margin') }}</td>
                     <td data-cid="roic">{{ sg(s, 'median_roic') }}</td>
@@ -395,7 +407,7 @@
                     <td data-cid="target">{{ sg(s, 'median_target', '%.0f') }}</td>
                 </tr>
                 <tr id="sector-{{ loop.index }}" style="display: none;">
-                    <td colspan="23" style="padding: 4px 0;">
+                    <td colspan="29" style="padding: 4px 0;">
                         {# Tabs #}
                         <div style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border-solid, #2a4a00);">
                             <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'ind')" id="tab-ind-sector-{{ loop.index }}" class="sector-tab sector-tab-active" style="padding: 3px 12px; cursor: pointer; font-size: 13px;">By Industry</span>
@@ -417,9 +429,15 @@
                                         <th data-cid="fwdpe" style="{{hs}}" onclick="sortSubTable(this,6,'num','ind')">FwdPE</th>
                                         <th data-cid="pesect" style="{{hs}}" onclick="sortSubTable(this,7,'num','ind')">PE/Sec</th>
                                         <th data-cid="peind" style="{{hs}}" onclick="sortSubTable(this,8,'num','ind')">PE/Ind</th>
-                                        <th data-cid="eps" style="{{hs}}" onclick="sortSubTable(this,9,'num','ind')">EPS</th>
-                                        <th data-cid="fy1" style="{{hs}}" onclick="sortSubTable(this,10,'num','ind')">FY1</th>
-                                        <th data-cid="fy2" style="{{hs}}" onclick="sortSubTable(this,11,'num','ind')">FY2</th>
+                                        <th data-cid="eps" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">EPS</th>
+                                        <th data-cid="epsttm" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">TTM</th>
+                                        <th data-cid="epsntm" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">NTM</th>
+                                        <th data-cid="fy1" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">FY1</th>
+                                        <th data-cid="fy2" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">FY2</th>
+                                        <th data-cid="revttm" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">R.TTM</th>
+                                        <th data-cid="revntm" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">R.NTM</th>
+                                        <th data-cid="revfy1" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">R.FY1</th>
+                                        <th data-cid="revfy2" style="{{hs}}" onclick="sortSubTable(this,0,'num','ind')">R.FY2</th>
                                         <th data-cid="opmgn" style="{{hs}}" onclick="sortSubTable(this,12,'num','ind')">OpMgn</th>
                                         <th data-cid="netmgn" style="{{hs}}" onclick="sortSubTable(this,13,'num','ind')">NetMgn</th>
                                         <th data-cid="roic" style="{{hs}}" onclick="sortSubTable(this,14,'num','ind')">ROIC</th>
@@ -453,8 +471,14 @@
                                         <td data-cid="pesect" style="{{isz}}">{{ ig(ind, 'pe_vs_sector', '%.2f') }}</td>
                                         <td data-cid="peind" style="{{isz}}">—</td>
                                         <td data-cid="eps" style="{{isz}}">{{ ig(ind, 'median_eps', '%.2f') }}</td>
+                                        <td data-cid="epsttm" style="{{isz}}">{{ ig(ind, 'median_eps_ttm', '%.2f') }}</td>
+                                        <td data-cid="epsntm" style="{{isz}}">{{ ig(ind, 'median_eps_ntm', '%.2f') }}</td>
                                         <td data-cid="fy1" style="{{isz}}">{{ ig(ind, 'median_fy1', '%.2f') }}</td>
                                         <td data-cid="fy2" style="{{isz}}">{{ ig(ind, 'median_fy2', '%.2f') }}</td>
+                                        <td data-cid="revttm" style="{{isz}}">{{ ign(ind, 'median_rev_ttm') }}</td>
+                                        <td data-cid="revntm" style="{{isz}}">{{ ign(ind, 'median_rev_ntm') }}</td>
+                                        <td data-cid="revfy1" style="{{isz}}">—</td>
+                                        <td data-cid="revfy2" style="{{isz}}">—</td>
                                         <td data-cid="opmgn" style="{{isz}}">{{ ig(ind, 'median_op_margin') }}</td>
                                         <td data-cid="netmgn" style="{{isz}}">{{ ig(ind, 'median_net_margin') }}</td>
                                         <td data-cid="roic" style="{{isz}}">{{ ig(ind, 'median_roic') }}</td>
@@ -468,7 +492,7 @@
                                         <td data-cid="target" style="{{isz}}">{{ ig(ind, 'median_target', '%.0f') }}</td>
                                     </tr>
                                     <tr id="ind-{{ sector_idx }}-{{ loop.index }}" style="display: none;">
-                                        <td colspan="23" style="padding: 0 0 0 20px;">
+                                        <td colspan="29" style="padding: 0 0 0 20px;">
                                             <table style="width: 100%; border-collapse: collapse;">
                                                 <thead>
                                                     <tr style="background: var(--bg, #0c0c14);">
@@ -482,9 +506,15 @@
                                                         <th data-cid="fwdpe" style="{{ss}}" onclick="sortSubTable(this,6,'num','stk')">Fwd PE</th>
                                                         <th data-cid="pesect" style="{{ss}}" onclick="sortSubTable(this,7,'num','stk')">PE/Sec</th>
                                                         <th data-cid="peind" style="{{ss}}" onclick="sortSubTable(this,8,'num','stk')">PE/Ind</th>
-                                                        <th data-cid="eps" style="{{ss}}" onclick="sortSubTable(this,9,'num','stk')">EPS</th>
-                                                        <th data-cid="fy1" style="{{ss}}" onclick="sortSubTable(this,10,'num','stk')">FY1</th>
-                                                        <th data-cid="fy2" style="{{ss}}" onclick="sortSubTable(this,11,'num','stk')">FY2</th>
+                                                        <th data-cid="eps" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">EPS</th>
+                                                        <th data-cid="epsttm" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">TTM</th>
+                                                        <th data-cid="epsntm" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">NTM</th>
+                                                        <th data-cid="fy1" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">FY1</th>
+                                                        <th data-cid="fy2" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">FY2</th>
+                                                        <th data-cid="revttm" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">R.TTM</th>
+                                                        <th data-cid="revntm" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">R.NTM</th>
+                                                        <th data-cid="revfy1" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">R.FY1</th>
+                                                        <th data-cid="revfy2" style="{{ss}}" onclick="sortSubTable(this,0,'num','stk')">R.FY2</th>
                                                         <th data-cid="opmgn" style="{{ss}}" onclick="sortSubTable(this,12,'num','stk')">OpMgn%</th>
                                                         <th data-cid="netmgn" style="{{ss}}" onclick="sortSubTable(this,13,'num','stk')">NetMgn%</th>
                                                         <th data-cid="roic" style="{{ss}}" onclick="sortSubTable(this,14,'num','stk')">ROIC%</th>
@@ -512,8 +542,14 @@
                                                         <td data-cid="pesect" style="{{sz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
                                                         <td data-cid="peind" style="{{sz}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
                                                         <td data-cid="eps" style="{{sz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                                                        <td data-cid="epsttm" style="{{sz}}">{{ "%.2f"|format(st.eps_ttm) if st.eps_ttm else '—' }}</td>
+                                                        <td data-cid="epsntm" style="{{sz}}">{{ "%.2f"|format(st.eps_ntm) if st.eps_ntm else '—' }}</td>
                                                         <td data-cid="fy1" style="{{sz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
                                                         <td data-cid="fy2" style="{{sz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                                                        <td data-cid="revttm" style="{{sz}}">{{ fmt_number(st.rev_ttm) if st.rev_ttm else '—' }}</td>
+                                                        <td data-cid="revntm" style="{{sz}}">{{ fmt_number(st.rev_ntm) if st.rev_ntm else '—' }}</td>
+                                                        <td data-cid="revfy1" style="{{sz}}">{{ fmt_number(st.rev_fy1) if st.rev_fy1 else '—' }}</td>
+                                                        <td data-cid="revfy2" style="{{sz}}">{{ fmt_number(st.rev_fy2) if st.rev_fy2 else '—' }}</td>
                                                         <td data-cid="opmgn" style="{{sz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
                                                         <td data-cid="netmgn" style="{{sz}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
                                                         <td data-cid="roic" style="{{sz}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
@@ -551,9 +587,15 @@
                                         <th data-cid="fwdpe" style="{{sa}}" onclick="sortSubTable(this,6,'num','stk')">Fwd PE</th>
                                         <th data-cid="pesect" style="{{sa}}" onclick="sortSubTable(this,7,'num','stk')">PE/Sec</th>
                                         <th data-cid="peind" style="{{sa}}" onclick="sortSubTable(this,8,'num','stk')">PE/Ind</th>
-                                        <th data-cid="eps" style="{{sa}}" onclick="sortSubTable(this,9,'num','stk')">EPS</th>
-                                        <th data-cid="fy1" style="{{sa}}" onclick="sortSubTable(this,10,'num','stk')">FY1</th>
-                                        <th data-cid="fy2" style="{{sa}}" onclick="sortSubTable(this,11,'num','stk')">FY2</th>
+                                        <th data-cid="eps" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">EPS</th>
+                                        <th data-cid="epsttm" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">TTM</th>
+                                        <th data-cid="epsntm" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">NTM</th>
+                                        <th data-cid="fy1" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">FY1</th>
+                                        <th data-cid="fy2" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">FY2</th>
+                                        <th data-cid="revttm" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">R.TTM</th>
+                                        <th data-cid="revntm" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">R.NTM</th>
+                                        <th data-cid="revfy1" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">R.FY1</th>
+                                        <th data-cid="revfy2" style="{{sa}}" onclick="sortSubTable(this,0,'num','stk')">R.FY2</th>
                                         <th data-cid="opmgn" style="{{sa}}" onclick="sortSubTable(this,12,'num','stk')">OpMgn%</th>
                                         <th data-cid="netmgn" style="{{sa}}" onclick="sortSubTable(this,13,'num','stk')">NetMgn%</th>
                                         <th data-cid="roic" style="{{sa}}" onclick="sortSubTable(this,14,'num','stk')">ROIC%</th>
@@ -581,8 +623,14 @@
                                         <td data-cid="pesect" style="{{sz2}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
                                         <td data-cid="peind" style="{{sz2}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
                                         <td data-cid="eps" style="{{sz2}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                                        <td data-cid="epsttm" style="{{sz2}}">{{ "%.2f"|format(st.eps_ttm) if st.eps_ttm else '—' }}</td>
+                                        <td data-cid="epsntm" style="{{sz2}}">{{ "%.2f"|format(st.eps_ntm) if st.eps_ntm else '—' }}</td>
                                         <td data-cid="fy1" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
                                         <td data-cid="fy2" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                                        <td data-cid="revttm" style="{{sz2}}">{{ fmt_number(st.rev_ttm) if st.rev_ttm else '—' }}</td>
+                                        <td data-cid="revntm" style="{{sz2}}">{{ fmt_number(st.rev_ntm) if st.rev_ntm else '—' }}</td>
+                                        <td data-cid="revfy1" style="{{sz2}}">{{ fmt_number(st.rev_fy1) if st.rev_fy1 else '—' }}</td>
+                                        <td data-cid="revfy2" style="{{sz2}}">{{ fmt_number(st.rev_fy2) if st.rev_fy2 else '—' }}</td>
                                         <td data-cid="opmgn" style="{{sz2}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
                                         <td data-cid="netmgn" style="{{sz2}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
                                         <td data-cid="roic" style="{{sz2}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
@@ -620,9 +668,15 @@
                     <th data-cid="fwdpe" style="cursor:pointer" onclick="sortFlatTable(this,6,'num')">Fwd PE</th>
                     <th data-cid="pesect" style="cursor:pointer" onclick="sortFlatTable(this,7,'num')">PE/Sec</th>
                     <th data-cid="peind" style="cursor:pointer" onclick="sortFlatTable(this,8,'num')">PE/Ind</th>
-                    <th data-cid="eps" style="cursor:pointer" onclick="sortFlatTable(this,9,'num')">EPS</th>
-                    <th data-cid="fy1" style="cursor:pointer" onclick="sortFlatTable(this,10,'num')">FY1</th>
-                    <th data-cid="fy2" style="cursor:pointer" onclick="sortFlatTable(this,11,'num')">FY2</th>
+                    <th data-cid="eps" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">EPS</th>
+                    <th data-cid="epsttm" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">EPS TTM</th>
+                    <th data-cid="epsntm" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">EPS NTM</th>
+                    <th data-cid="fy1" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">EPS FY1</th>
+                    <th data-cid="fy2" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">EPS FY2</th>
+                    <th data-cid="revttm" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">Rev TTM</th>
+                    <th data-cid="revntm" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">Rev NTM</th>
+                    <th data-cid="revfy1" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">Rev FY1</th>
+                    <th data-cid="revfy2" style="cursor:pointer" onclick="sortFlatTable(this,0,'num')">Rev FY2</th>
                     <th data-cid="opmgn" style="cursor:pointer" onclick="sortFlatTable(this,12,'num')">OpMgn%</th>
                     <th data-cid="netmgn" style="cursor:pointer" onclick="sortFlatTable(this,13,'num')">NetMgn%</th>
                     <th data-cid="roic" style="cursor:pointer" onclick="sortFlatTable(this,14,'num')">ROIC%</th>
@@ -651,8 +705,14 @@
                     <td data-cid="pesect" style="{{fz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
                     <td data-cid="peind" style="{{fz}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
                     <td data-cid="eps" style="{{fz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                    <td data-cid="epsttm" style="{{fz}}">{{ "%.2f"|format(st.eps_ttm) if st.eps_ttm else '—' }}</td>
+                    <td data-cid="epsntm" style="{{fz}}">{{ "%.2f"|format(st.eps_ntm) if st.eps_ntm else '—' }}</td>
                     <td data-cid="fy1" style="{{fz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
                     <td data-cid="fy2" style="{{fz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                    <td data-cid="revttm" style="{{fz}}">{{ fmt_number(st.rev_ttm) if st.rev_ttm else '—' }}</td>
+                    <td data-cid="revntm" style="{{fz}}">{{ fmt_number(st.rev_ntm) if st.rev_ntm else '—' }}</td>
+                    <td data-cid="revfy1" style="{{fz}}">{{ fmt_number(st.rev_fy1) if st.rev_fy1 else '—' }}</td>
+                    <td data-cid="revfy2" style="{{fz}}">{{ fmt_number(st.rev_fy2) if st.rev_fy2 else '—' }}</td>
                     <td data-cid="opmgn" style="{{fz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
                     <td data-cid="netmgn" style="{{fz}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
                     <td data-cid="roic" style="{{fz}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
@@ -967,9 +1027,10 @@ function sortMapTable(col, type) {
 
 <script>
 var flatSortDir = {};
-function sortFlatTable(th, col, type) {
+function sortFlatTable(th, _col, type) {
     var table = document.getElementById('flat-table');
     var tbody = table.querySelector('tbody');
+    var col = Array.from(th.parentElement.children).indexOf(th);
     var rows = Array.from(tbody.querySelectorAll('tr'));
     flatSortDir[col] = !(flatSortDir[col] || false);
     var asc = flatSortDir[col];
@@ -990,10 +1051,12 @@ function sortFlatTable(th, col, type) {
 
 // Sort any sub-table (industry or stock level) — works on the closest table to the clicked header
 var _subSortDir = {};
-function sortSubTable(th, col, type, level) {
+function sortSubTable(th, _col, type, level) {
     event.stopPropagation();
     var table = th.closest('table');
     var tbody = table.querySelector('tbody');
+    // Use actual th position instead of hardcoded col
+    var col = Array.from(th.parentElement.children).indexOf(th);
     var key = table.id + '_' + level + '_' + col;
     _subSortDir[key] = !(_subSortDir[key] || false);
     var asc = _subSortDir[key];
@@ -1094,9 +1157,10 @@ function _parseCell(text, type) {
 }
 
 var sectorSortDir = {};
-function sortSectorTable(th, col, type) {
+function sortSectorTable(th, _col, type) {
     var table = document.getElementById('sector-table');
     var tbody = table.querySelector('tbody');
+    var col = Array.from(th.parentElement.children).indexOf(th);
 
     // Toggle direction
     var key = 'sec_' + col;
@@ -1459,9 +1523,15 @@ var COL_DEFS = {
     fwdpe:    {label:'Fwd PE',    group:'valuation',  on:true},
     pesect:   {label:'PE/Sector', group:'valuation',  on:false},
     peind:    {label:'PE/Industry',group:'valuation', on:false},
-    eps:      {label:'EPS TTM',   group:'earnings',   on:false},
+    eps:      {label:'EPS Act',    group:'earnings',   on:false},
+    epsttm:   {label:'EPS TTM',   group:'earnings',   on:false},
+    epsntm:   {label:'EPS NTM',   group:'earnings',   on:false},
     fy1:      {label:'EPS FY1',   group:'earnings',   on:true},
     fy2:      {label:'EPS FY2',   group:'earnings',   on:false},
+    revttm:   {label:'Rev TTM',   group:'earnings',   on:false},
+    revntm:   {label:'Rev NTM',   group:'earnings',   on:false},
+    revfy1:   {label:'Rev FY1',   group:'earnings',   on:false},
+    revfy2:   {label:'Rev FY2',   group:'earnings',   on:false},
     opmgn:    {label:'OpMgn%',    group:'quality',    on:true},
     netmgn:   {label:'NetMgn%',   group:'quality',    on:false},
     roic:     {label:'ROIC%',     group:'quality',    on:true},
@@ -1488,7 +1558,7 @@ var COL_DEFS = {
 var COL_GROUPS = {
     price:     ['sym','name','price','chg','sector','industry','rs','mansfield','ma50','ma150','ma200','distdays','adr','from52h','from52l','trans'],
     valuation: ['pe','fwdpe','pesect','peind','evebitda','target','analysts'],
-    earnings:  ['eps','fy1','fy2'],
+    earnings:  ['eps','epsttm','epsntm','fy1','fy2','revttm','revntm','revfy1','revfy2'],
     quality:   ['opmgn','netmgn','roic','fcf'],
     debt:      ['ndebitda'],
 };

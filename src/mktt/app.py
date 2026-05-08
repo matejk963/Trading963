@@ -702,6 +702,11 @@ def screener_page():
                 results_df['G_TTM_YOY'] = results_df['Symbol'].map(_g_ttm_yoy)
                 results_df['G_FQ_YOY'] = results_df['Symbol'].map(_g_fq_yoy)
 
+                # TTM / NTM absolute values
+                results_df['EPS_TTM'] = results_df['Symbol'].map(
+                    lambda s: round(_eps_metrics[s]['ttm'], 2) if s in _eps_metrics else None)
+                results_df['EPS_NTM'] = results_df['EPS_FY1']  # FY1 = best NTM proxy
+
                 # Revenue growth metrics (same logic, different columns)
                 _rev_metrics = {}
                 _qr_valid = _qdata.copy()
@@ -752,6 +757,12 @@ def screener_page():
                 results_df['RG_TTM_YOY'] = results_df['Symbol'].map(_rg_ttm_yoy)
                 results_df['RG_FQ_YOY'] = results_df['Symbol'].map(_rg_fq_yoy)
 
+                # Revenue TTM / NTM absolute values
+                results_df['Rev_TTM'] = results_df['Symbol'].map(
+                    lambda s: round(_rev_metrics[s]['ttm'] / 1e6, 1) if s in _rev_metrics else None)
+                results_df['Rev_NTM'] = results_df['Rev_FY1'].map(
+                    lambda v: round(float(v) / 1e6, 1) if pd.notna(v) and v else None)
+
         # Write enriched data back
         enrich_cols = ['Sector', 'Industry', 'PE', 'FwdPE',
                        'EPS_Act', 'EPS_FY1', 'EPS_FY2', 'Rev_Act', 'Rev_FY1', 'Rev_FY2',
@@ -759,6 +770,7 @@ def screener_page():
                        'FCF', 'ROIC', 'ND_EBITDA', 'EV_EBITDA', 'Target', 'Analysts',
                        'PCA_Regime', 'Stage_Class', 'EPS_Accel', 'EPS_Acc_Val', 'MA_Screen',
                        'PE_vs_Sector', 'PE_vs_Industry',
+                       'EPS_TTM', 'EPS_NTM', 'Rev_TTM', 'Rev_NTM',
                        'G_NTM_TTM', 'G_FY2_FY1', 'G_TTM_YOY', 'G_FQ_YOY',
                        'RG_NTM_TTM', 'RG_FY2_FY1', 'RG_TTM_YOY', 'RG_FQ_YOY']
 
@@ -939,8 +951,12 @@ def screener_page():
                 stats['median_pe'] = _median_of('PE', positive_only=True)
                 stats['median_fwd_pe'] = _median_of('FwdPE', positive_only=True)
                 stats['median_eps'] = _median_of('EPS_Act')
+                stats['median_eps_ttm'] = _median_of('EPS_TTM')
+                stats['median_eps_ntm'] = _median_of('EPS_NTM')
                 stats['median_fy1'] = _median_of('EPS_FY1')
                 stats['median_fy2'] = _median_of('EPS_FY2')
+                stats['median_rev_ttm'] = _median_of('Rev_TTM')
+                stats['median_rev_ntm'] = _median_of('Rev_NTM')
                 stats['median_op_margin'] = _median_of('OpMargin')
                 stats['median_net_margin'] = _median_of('NetMargin')
                 stats['median_roic'] = _median_of('ROIC')
@@ -982,8 +998,14 @@ def screener_page():
                         'mansfield': _g('Mansfield_RS'),
                         'industry': _g('Industry') or '',
                         'eps_act': _g('EPS_Act'),
+                        'eps_ttm': _g('EPS_TTM'),
+                        'eps_ntm': _g('EPS_NTM'),
                         'eps_fy1': _g('EPS_FY1'),
                         'eps_fy2': _g('EPS_FY2'),
+                        'rev_ttm': _g('Rev_TTM'),
+                        'rev_ntm': _g('Rev_NTM'),
+                        'rev_fy1': _g('Rev_FY1'),
+                        'rev_fy2': _g('Rev_FY2'),
                         'op_margin': _g('OpMargin'),
                         'net_margin': _g('NetMargin'),
                         'fcf': _g('FCF'),
@@ -1028,8 +1050,12 @@ def screener_page():
                             'pe_vs_sector': _ind_pe_vs_sec,
                             'median_fwd_pe': _ind_median('FwdPE', pos_only=True),
                             'median_eps': _ind_median('EPS_Act'),
+                            'median_eps_ttm': _ind_median('EPS_TTM'),
+                            'median_eps_ntm': _ind_median('EPS_NTM'),
                             'median_fy1': _ind_median('EPS_FY1'),
                             'median_fy2': _ind_median('EPS_FY2'),
+                            'median_rev_ttm': _ind_median('Rev_TTM'),
+                            'median_rev_ntm': _ind_median('Rev_NTM'),
                             'median_op_margin': _ind_median('OpMargin'),
                             'median_net_margin': _ind_median('NetMargin'),
                             'median_roic': _ind_median('ROIC'),
