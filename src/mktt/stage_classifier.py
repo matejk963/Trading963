@@ -158,29 +158,26 @@ def classify_all_stages(d):
     )
 
     # Stage 3 — Topping / Distribution
-    # Comes AFTER uptrend: MA50 still above MA150 (remnant of S2), but weakening
-    # Key: high distribution days + RS rolling over + MA structure still bullish
+    # Comes AFTER uptrend: MA structure still bullish (MA150 > MA200)
+    # Key: high distribution + price weakening relative to MAs
     stage3 = (
-        (ma50_vs_ma150 > -3) &                            # MA50 near or above MA150 (was in uptrend)
-        (ma150_vs_ma200 > -2) &                           # MA150 near or above MA200 (recent strength)
-        (pct_vs_ma50 < 5) &                               # Price below or near MA50 (lost momentum)
-        (d['distribution_days_25'] >= 5) &                 # HIGH distribution (the key topping signal)
-        (d['dist_52w_high'] >= 0.65) &                     # Still reasonably near highs
-        (d['rs_rank'] < 75)                                # RS not top quartile
+        (ma150_vs_ma200 > 0) &                             # MA150 above MA200 (bullish history — came from S2)
+        (pct_vs_ma50 < 5) &                                # Price at or below MA50 (momentum lost)
+        (d['distribution_days_25'] >= 4) &                 # Distribution present
+        (d['dist_52w_high'] >= 0.60) &                     # Not completely crashed yet
+        (d['rs_rank'] < 75)                                # RS weakening
     )
 
     # Stage 1 — Basing / Accumulation
-    # Comes AFTER decline: MA structure is bearish or flat, but price stabilizing
-    # Key: MA150 flat, low distribution, volatility contracting, NOT coming from uptrend
-    adr_contracting = d['adr_20'] < d['adr_20'].rolling(40).mean()
+    # Comes AFTER decline: MA150 below or near MA200 (bearish/neutral history)
+    # Key: price consolidating, volatility drying up, NOT from bullish MA structure
     stage1 = (
-        (d['ma_150_slope_pct'].abs() < 0.15) &            # MA150 flat
-        (pct_vs_ma150 > -15) & (pct_vs_ma150 < 15) &      # Price near MA150
-        (ma50_vs_ma150 < 5) &                              # MA50 NOT well above MA150 (not ex-uptrend)
-        (ma150_vs_ma200 < 3) &                             # MA150 NOT above MA200 (not bullish structure)
+        (d['ma_150_slope_pct'].abs() < 0.40) &             # MA150 not in steep trend
+        (pct_vs_ma150 > -20) & (pct_vs_ma150 < 20) &      # Price near MA150
+        (ma150_vs_ma200 <= 0) &                            # MA150 at or below MA200 (NOT bullish → separates from S3)
         (d['distribution_days_25'] < 5) &                  # Low distribution
-        (d['dist_52w_high'] <= 0.80) &                     # Not near highs (came from decline)
-        adr_contracting                                     # Volatility drying up
+        (d['dist_52w_high'] <= 0.85) &                     # Not near highs
+        (d['rs_rank'] < 70)                                # Not leading
     )
 
     # Priority: S2 > S4 > S3 > S1 > 0
