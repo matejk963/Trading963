@@ -248,11 +248,11 @@ def screener_page():
     pe_ind_min = _flt('pe_ind_min')
     pe_ind_max = _flt('pe_ind_max')
 
-    # Classification filters
-    pca_regime = request.args.get('pca_regime', '')
-    stage_filter = request.args.get('stage_class', '')
-    eps_accel_filter = request.args.get('eps_accel', '')
-    ma_screen_filter = request.args.get('ma_screen', '')
+    # Classification filters (multi-select)
+    pca_regime = request.args.getlist('pca_regime')
+    stage_filter = request.args.getlist('stage_class')
+    eps_accel_filter = request.args.getlist('eps_accel')
+    ma_screen_filter = request.args.getlist('ma_screen')
 
     # Technical filters
     pct50_min = _flt('pct50_min')
@@ -281,7 +281,7 @@ def screener_page():
         rschg1w_min, rschg1w_max, rschg1m_min, rschg1m_max,
         rschg3m_min, rschg3m_max]) or ma_setup != ''
 
-    has_class_filters = any(x != '' for x in [pca_regime, stage_filter, eps_accel_filter, ma_screen_filter])
+    has_class_filters = any(len(x) > 0 for x in [pca_regime, stage_filter, eps_accel_filter, ma_screen_filter])
 
     filters = {
         'preset': preset,
@@ -791,13 +791,13 @@ def screener_page():
         # Apply classification filters
         if has_class_filters:
             if pca_regime and 'PCA_Regime' in results_df.columns:
-                results_df = results_df[results_df['PCA_Regime'] == pca_regime]
+                results_df = results_df[results_df['PCA_Regime'].isin(pca_regime)]
             if stage_filter and 'Stage_Class' in results_df.columns:
-                results_df = results_df[results_df['Stage_Class'] == stage_filter]
+                results_df = results_df[results_df['Stage_Class'].isin(stage_filter)]
             if eps_accel_filter and 'EPS_Accel' in results_df.columns:
-                results_df = results_df[results_df['EPS_Accel'] == eps_accel_filter]
+                results_df = results_df[results_df['EPS_Accel'].isin(eps_accel_filter)]
             if ma_screen_filter and 'MA_Screen' in results_df.columns:
-                results_df = results_df[results_df['MA_Screen'] == ma_screen_filter]
+                results_df = results_df[results_df['MA_Screen'].isin(ma_screen_filter)]
             data = results_df.to_dict('records')
 
         # Apply fundamental filters BEFORE building sector stats

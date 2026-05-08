@@ -99,6 +99,7 @@
     .section-apply { font-size:12px; padding:5px 18px; background:var(--accent); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; }
     .section-apply:hover { opacity:0.85; }
     .section-clear { font-size:11px; padding:4px 8px; background:none; color:var(--text-faint); border:1px solid var(--border); border-radius:4px; cursor:pointer; margin-left:6px; }
+    .filter-row select[multiple] { font-size:11px; padding:2px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; }
     </style>
 
     {% set has_any_filter = filters.has_class_filters or filters.has_tech_filters or filters.has_fund_filters %}
@@ -106,10 +107,10 @@
         <div class="filter-section-header" onclick="this.parentElement.classList.toggle('open')">
             <h3>Advanced Filters ▾</h3>
             <div class="active-tags">
-                {% if filters.pca_regime %}<span class="tag">PCA: {{ filters.pca_regime }}</span>{% endif %}
-                {% if filters.stage_class %}<span class="tag">{{ filters.stage_class }}</span>{% endif %}
-                {% if filters.eps_accel %}<span class="tag">EPS: {{ filters.eps_accel }}</span>{% endif %}
-                {% if filters.ma_screen %}<span class="tag">MA: {{ filters.ma_screen }}</span>{% endif %}
+                {% if filters.pca_regime %}<span class="tag">PCA: {{ filters.pca_regime|join(', ') }}</span>{% endif %}
+                {% if filters.stage_class %}<span class="tag">{{ filters.stage_class|join(', ') }}</span>{% endif %}
+                {% if filters.eps_accel %}<span class="tag">EPS: {{ filters.eps_accel|join(', ') }}</span>{% endif %}
+                {% if filters.ma_screen %}<span class="tag">MA: {{ filters.ma_screen|join(', ') }}</span>{% endif %}
                 {% if filters.ma_setup %}<span class="tag">Setup: {{ filters.ma_setup }}</span>{% endif %}
                 {% if filters.rs_min %}<span class="tag">RS≥{{ filters.rs_min|int }}</span>{% endif %}
                 {% if filters.pct50_min or filters.pct50_max %}<span class="tag">%50: {{ filters.pct50_min or '' }}/{{ filters.pct50_max or '' }}</span>{% endif %}
@@ -132,31 +133,31 @@
             <div class="filter-row">
                 <div class="filter-row-label">Classification</div>
                 <div class="filter-group"><label>PCA Regime</label>
-                    <select name="pca_regime"><option value="">Any</option>
-                        <option value="Strong Leader" {% if filters.pca_regime == 'Strong Leader' %}selected{% endif %}>Strong Leader</option>
-                        <option value="Quiet Uptrend" {% if filters.pca_regime == 'Quiet Uptrend' %}selected{% endif %}>Quiet Uptrend</option>
-                        <option value="Erupting" {% if filters.pca_regime == 'Erupting' %}selected{% endif %}>Erupting</option>
-                        <option value="Distributing" {% if filters.pca_regime == 'Distributing' %}selected{% endif %}>Distributing</option>
-                        <option value="Declining" {% if filters.pca_regime == 'Declining' %}selected{% endif %}>Declining</option>
+                    <select name="pca_regime" multiple size="3" style="min-width:110px">
+                        <option value="Strong Leader" {% if 'Strong Leader' in filters.pca_regime %}selected{% endif %}>Strong Leader</option>
+                        <option value="Quiet Uptrend" {% if 'Quiet Uptrend' in filters.pca_regime %}selected{% endif %}>Quiet Uptrend</option>
+                        <option value="Erupting" {% if 'Erupting' in filters.pca_regime %}selected{% endif %}>Erupting</option>
+                        <option value="Distributing" {% if 'Distributing' in filters.pca_regime %}selected{% endif %}>Distributing</option>
+                        <option value="Declining" {% if 'Declining' in filters.pca_regime %}selected{% endif %}>Declining</option>
                     </select></div>
                 <div class="filter-group"><label>Stage</label>
-                    <select name="stage_class"><option value="">Any</option>
-                        <option value="Stage 2 Uptrend" {% if filters.stage_class == 'Stage 2 Uptrend' %}selected{% endif %}>S2 Uptrend</option>
-                        <option value="Stage 1 Basing" {% if filters.stage_class == 'Stage 1 Basing' %}selected{% endif %}>S1 Basing</option>
-                        <option value="Stage 3 Topping" {% if filters.stage_class == 'Stage 3 Topping' %}selected{% endif %}>S3 Topping</option>
-                        <option value="Stage 4 Declining" {% if filters.stage_class == 'Stage 4 Declining' %}selected{% endif %}>S4 Declining</option>
+                    <select name="stage_class" multiple size="3" style="min-width:100px">
+                        <option value="Stage 2 Uptrend" {% if 'Stage 2 Uptrend' in filters.stage_class %}selected{% endif %}>S2 Uptrend</option>
+                        <option value="Stage 1 Basing" {% if 'Stage 1 Basing' in filters.stage_class %}selected{% endif %}>S1 Basing</option>
+                        <option value="Stage 3 Topping" {% if 'Stage 3 Topping' in filters.stage_class %}selected{% endif %}>S3 Topping</option>
+                        <option value="Stage 4 Declining" {% if 'Stage 4 Declining' in filters.stage_class %}selected{% endif %}>S4 Declining</option>
                     </select></div>
                 <div class="filter-group"><label>EPS Momentum</label>
-                    <select name="eps_accel"><option value="">Any</option>
-                        <option value="Accelerating" {% if filters.eps_accel == 'Accelerating' %}selected{% endif %}>Accelerating</option>
-                        <option value="Decelerating" {% if filters.eps_accel == 'Decelerating' %}selected{% endif %}>Decelerating</option>
+                    <select name="eps_accel" multiple size="2" style="min-width:100px">
+                        <option value="Accelerating" {% if 'Accelerating' in filters.eps_accel %}selected{% endif %}>Accelerating</option>
+                        <option value="Decelerating" {% if 'Decelerating' in filters.eps_accel %}selected{% endif %}>Decelerating</option>
                     </select></div>
                 <div class="filter-group"><label>MA Position</label>
-                    <select name="ma_screen"><option value="">Any</option>
-                        <option value="Above Both" {% if filters.ma_screen == 'Above Both' %}selected{% endif %}>Above Both</option>
-                        <option value="Above 200 Below 50" {% if filters.ma_screen == 'Above 200 Below 50' %}selected{% endif %}>Above 200 Below 50</option>
-                        <option value="Below 200 Above 50" {% if filters.ma_screen == 'Below 200 Above 50' %}selected{% endif %}>Below 200 Above 50</option>
-                        <option value="Below Both" {% if filters.ma_screen == 'Below Both' %}selected{% endif %}>Below Both</option>
+                    <select name="ma_screen" multiple size="3" style="min-width:120px">
+                        <option value="Above Both" {% if 'Above Both' in filters.ma_screen %}selected{% endif %}>Above Both</option>
+                        <option value="Above 200 Below 50" {% if 'Above 200 Below 50' in filters.ma_screen %}selected{% endif %}>Above 200 Below 50</option>
+                        <option value="Below 200 Above 50" {% if 'Below 200 Above 50' in filters.ma_screen %}selected{% endif %}>Below 200 Above 50</option>
+                        <option value="Below Both" {% if 'Below Both' in filters.ma_screen %}selected{% endif %}>Below Both</option>
                     </select></div>
             </div>
             {# Technical row #}
