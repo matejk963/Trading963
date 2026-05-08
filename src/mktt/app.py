@@ -630,12 +630,79 @@ def screener_page():
             results_df['PE_vs_Sector'] = results_df.apply(_pe_prem_sector, axis=1)
             results_df['PE_vs_Industry'] = results_df.apply(_pe_prem_industry, axis=1)
 
+        # Compute EPS growth metrics from quarterly data
+        if rfv:
+            import pickle
+            from pathlib import Path
+            _pkl = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
+            _qdata = None
+            if _pkl.exists():
+                try:
+                    with open(_pkl, 'rb') as f:
+                        _qdata = pickle.load(f).get('quarterly')
+                except:
+                    pass
+
+            if _qdata is not None:
+                _qdata['Date'] = pd.to_datetime(_qdata['Date'], errors='coerce')
+                _qdata['EPS'] = pd.to_numeric(_qdata['Earnings Per Share - Actual'], errors='coerce')
+                _q_valid = _qdata.dropna(subset=['EPS', 'Date'])
+
+                # Pre-compute per-symbol: TTM, prior TTM, latest FQ, same FQ year ago
+                _eps_metrics = {}
+                for sym, grp in _q_valid.groupby('Symbol'):
+                    grp = grp.sort_values('Date')
+                    eps_vals = grp['EPS'].values
+                    n = len(eps_vals)
+                    if n >= 4:
+                        ttm = eps_vals[-4:].sum()
+                        prior_ttm = eps_vals[-8:-4].sum() if n >= 8 else None
+                        fq_latest = eps_vals[-1]
+                        fq_yoy = eps_vals[-5] if n >= 5 else None
+                        _eps_metrics[sym] = {
+                            'ttm': ttm, 'prior_ttm': prior_ttm,
+                            'fq_latest': fq_latest, 'fq_yoy': fq_yoy,
+                        }
+
+                # Compute growth columns
+                def _g_ntm_ttm(row):
+                    fy1 = row.get('EPS_FY1')
+                    act = row.get('EPS_Act')
+                    if pd.notna(fy1) and pd.notna(act) and act != 0:
+                        return round((float(fy1) / float(act) - 1) * 100, 1)
+                    return None
+
+                def _g_fy2_fy1(row):
+                    fy1 = row.get('EPS_FY1')
+                    fy2 = row.get('EPS_FY2')
+                    if pd.notna(fy1) and pd.notna(fy2) and fy1 != 0:
+                        return round((float(fy2) / float(fy1) - 1) * 100, 1)
+                    return None
+
+                def _g_ttm_yoy(sym):
+                    m = _eps_metrics.get(sym)
+                    if m and m['prior_ttm'] and m['prior_ttm'] != 0:
+                        return round((m['ttm'] / m['prior_ttm'] - 1) * 100, 1)
+                    return None
+
+                def _g_fq_yoy(sym):
+                    m = _eps_metrics.get(sym)
+                    if m and m['fq_yoy'] and m['fq_yoy'] != 0:
+                        return round((m['fq_latest'] / m['fq_yoy'] - 1) * 100, 1)
+                    return None
+
+                results_df['G_NTM_TTM'] = results_df.apply(_g_ntm_ttm, axis=1)
+                results_df['G_FY2_FY1'] = results_df.apply(_g_fy2_fy1, axis=1)
+                results_df['G_TTM_YOY'] = results_df['Symbol'].map(_g_ttm_yoy)
+                results_df['G_FQ_YOY'] = results_df['Symbol'].map(_g_fq_yoy)
+
         # Write enriched data back
         enrich_cols = ['Sector', 'Industry', 'PE', 'FwdPE',
                        'EPS_Act', 'EPS_FY1', 'EPS_FY2', 'OpMargin', 'NetMargin',
                        'FCF', 'ROIC', 'ND_EBITDA', 'EV_EBITDA', 'Target', 'Analysts',
                        'PCA_Regime', 'Stage_Class', 'EPS_Accel', 'EPS_Acc_Val', 'MA_Screen',
-                       'PE_vs_Sector', 'PE_vs_Industry']
+                       'PE_vs_Sector', 'PE_vs_Industry',
+                       'G_NTM_TTM', 'G_FY2_FY1', 'G_TTM_YOY', 'G_FQ_YOY']
 
         # Enrich with PCA/Stage/EPS classifications
         cls = load_classification_lookups()
@@ -685,19 +752,32 @@ def screener_page():
             results_df = _range_filter(results_df, 'RS_Rank', rs_min, None)
             results_df = _range_filter(results_df, 'Analysts', analysts_min, None)
 
-            if eps_growth == 'pos' and 'EPS_FY1' in results_df.columns and 'EPS_Act' in results_df.columns:
-                fy1 = pd.to_numeric(results_df['EPS_FY1'], errors='coerce')
-                ttm = pd.to_numeric(results_df['EPS_Act'], errors='coerce')
-                results_df = results_df[fy1 > ttm]
-            elif eps_growth == 'neg' and 'EPS_FY1' in results_df.columns and 'EPS_Act' in results_df.columns:
-                fy1 = pd.to_numeric(results_df['EPS_FY1'], errors='coerce')
-                ttm = pd.to_numeric(results_df['EPS_Act'], errors='coerce')
-                results_df = results_df[fy1 < ttm]
-            elif eps_growth == 'accel' and all(c in results_df.columns for c in ['EPS_FY1','EPS_FY2','EPS_Act']):
-                fy1 = pd.to_numeric(results_df['EPS_FY1'], errors='coerce')
-                fy2 = pd.to_numeric(results_df['EPS_FY2'], errors='coerce')
-                ttm = pd.to_numeric(results_df['EPS_Act'], errors='coerce')
+            # EPS growth filters
+            _gc = lambda col: pd.to_numeric(results_df[col], errors='coerce') if col in results_df.columns else pd.Series(dtype=float)
+            if eps_growth == 'ntm_pos':
+                results_df = results_df[_gc('G_NTM_TTM') > 0]
+            elif eps_growth == 'ntm_neg':
+                results_df = results_df[_gc('G_NTM_TTM') < 0]
+            elif eps_growth == 'fy2_fy1_pos':
+                results_df = results_df[_gc('G_FY2_FY1') > 0]
+            elif eps_growth == 'fy2_fy1_neg':
+                results_df = results_df[_gc('G_FY2_FY1') < 0]
+            elif eps_growth == 'ttm_yoy_pos':
+                results_df = results_df[_gc('G_TTM_YOY') > 0]
+            elif eps_growth == 'ttm_yoy_neg':
+                results_df = results_df[_gc('G_TTM_YOY') < 0]
+            elif eps_growth == 'fq_yoy_pos':
+                results_df = results_df[_gc('G_FQ_YOY') > 0]
+            elif eps_growth == 'fq_yoy_neg':
+                results_df = results_df[_gc('G_FQ_YOY') < 0]
+            elif eps_growth == 'accel':
+                fy1 = _gc('EPS_FY1'); fy2 = _gc('EPS_FY2'); ttm = _gc('EPS_Act')
                 results_df = results_df[(fy2 - fy1) > (fy1 - ttm)]
+            elif eps_growth == 'decel':
+                fy1 = _gc('EPS_FY1'); fy2 = _gc('EPS_FY2'); ttm = _gc('EPS_Act')
+                results_df = results_df[(fy2 - fy1) < (fy1 - ttm)]
+            elif eps_growth == 'all_pos':
+                results_df = results_df[(_gc('G_NTM_TTM') > 0) & (_gc('G_FY2_FY1') > 0)]
 
             # Rebuild data list after filtering
             data = results_df.to_dict('records')
@@ -817,6 +897,10 @@ def screener_page():
                         'rs_chg1w': _g('RS_Chg1W'),
                         'rs_chg1m': _g('RS_Chg1M'),
                         'rs_chg3m': _g('RS_Chg3M'),
+                        'g_ntm_ttm': _g('G_NTM_TTM'),
+                        'g_fy2_fy1': _g('G_FY2_FY1'),
+                        'g_ttm_yoy': _g('G_TTM_YOY'),
+                        'g_fq_yoy': _g('G_FQ_YOY'),
                         'mansfield': _g('Mansfield_RS'),
                         'industry': _g('Industry') or '',
                         'eps_act': _g('EPS_Act'),

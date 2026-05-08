@@ -204,10 +204,30 @@
                 <div class="filter-group"><label>ND/EBITDA</label>
                     <div style="display:flex;gap:4px"><input type="number" name="ndebitda_min" value="{{ filters.ndebitda_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="ndebitda_max" value="{{ filters.ndebitda_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
                 <div class="filter-group"><label>EPS Growth</label>
-                    <select name="eps_growth"><option value="">Any</option>
-                        <option value="pos" {% if filters.eps_growth == 'pos' %}selected{% endif %}>Positive</option>
-                        <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
-                        <option value="neg" {% if filters.eps_growth == 'neg' %}selected{% endif %}>Negative</option>
+                    <select name="eps_growth" style="font-size:11px"><option value="">Any</option>
+                        <optgroup label="NTM vs TTM (FY1/Act)">
+                            <option value="ntm_pos" {% if filters.eps_growth == 'ntm_pos' %}selected{% endif %}>NTM > TTM</option>
+                            <option value="ntm_neg" {% if filters.eps_growth == 'ntm_neg' %}selected{% endif %}>NTM < TTM</option>
+                        </optgroup>
+                        <optgroup label="FY2 vs FY1">
+                            <option value="fy2_fy1_pos" {% if filters.eps_growth == 'fy2_fy1_pos' %}selected{% endif %}>FY2 > FY1</option>
+                            <option value="fy2_fy1_neg" {% if filters.eps_growth == 'fy2_fy1_neg' %}selected{% endif %}>FY2 < FY1</option>
+                        </optgroup>
+                        <optgroup label="TTM YoY (Act)">
+                            <option value="ttm_yoy_pos" {% if filters.eps_growth == 'ttm_yoy_pos' %}selected{% endif %}>TTM > Prior TTM</option>
+                            <option value="ttm_yoy_neg" {% if filters.eps_growth == 'ttm_yoy_neg' %}selected{% endif %}>TTM < Prior TTM</option>
+                        </optgroup>
+                        <optgroup label="FQ YoY (Act)">
+                            <option value="fq_yoy_pos" {% if filters.eps_growth == 'fq_yoy_pos' %}selected{% endif %}>FQ > Same FQ LY</option>
+                            <option value="fq_yoy_neg" {% if filters.eps_growth == 'fq_yoy_neg' %}selected{% endif %}>FQ < Same FQ LY</option>
+                        </optgroup>
+                        <optgroup label="Acceleration">
+                            <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
+                            <option value="decel" {% if filters.eps_growth == 'decel' %}selected{% endif %}>Decelerating</option>
+                        </optgroup>
+                        <optgroup label="Combo">
+                            <option value="all_pos" {% if filters.eps_growth == 'all_pos' %}selected{% endif %}>NTM + FY2 both growing</option>
+                        </optgroup>
                     </select></div>
                 <div class="filter-group"><label>PE/Sector</label>
                     <div style="display:flex;gap:4px"><input type="number" name="pe_sect_min" value="{{ filters.pe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_sect_max" value="{{ filters.pe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
