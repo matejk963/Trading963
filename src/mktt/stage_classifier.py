@@ -113,57 +113,81 @@ def compute_all_derived_vectorized(close_df, high_df, low_df, volume_df, spy_clo
 
 def classify_all_stages(d):
     """
-    Classify all tickers at once. Each condition is a wide boolean DataFrame.
+    Classify all tickers at once using data-driven criteria.
+    Based on feature distribution analysis across confirmed stage samples.
+
+    Stage cycle:  S4 (Declining) → S1 (Basing) → S2 (Uptrend) → S3 (Topping) → S4
+    Key features: MA alignment, MA150 slope, price vs MAs, distribution days, RS rank.
+
     Returns wide DataFrame of stage labels (0-4).
     """
     close = d['close']
+    ma50 = d['ma_50']
+    ma150 = d['ma_150']
+    ma200 = d['ma_200']
 
+    # Derived: price position relative to MAs
+    pct_vs_ma50 = (close / ma50 - 1) * 100
+    pct_vs_ma150 = (close / ma150 - 1) * 100
+    ma50_vs_ma150 = (ma50 / ma150 - 1) * 100
+    ma150_vs_ma200 = (ma150 / ma200 - 1) * 100
+
+    # Stage 2 — Uptrend
+    # Data: price +21% above MA150, MA50 +12% above MA150, MA150 rising, RS >70
     stage2 = (
-        (close > d['ma_150']) &
-        (close > d['ma_50']) &
-        (d['ma_50'] > d['ma_150']) &
-        (d['ma_150'] > d['ma_200']) &
-        (d['ma_150_slope_21d'] > 0) &
-        (d['dist_52w_high'] >= 0.75) &
-        (d['dist_52w_low'] >= 1.25) &
-        (d['rs_rank'] >= 70) &
-        (d['distribution_days_25'] < 5)
+        (close > ma50) &
+        (close > ma150) &
+        (ma50 > ma150) &
+        (ma150_vs_ma200 > 0) &                    # MA150 above MA200
+        (d['ma_150_slope_pct'] > 0.20) &           # MA150 clearly rising (P25=0.36)
+        (d['dist_52w_high'] >= 0.85) &             # Within 15% of 52w high
+        (d['rs_rank'] >= 60) &                      # Strong RS (loosened from 70)
+        (d['distribution_days_25'] < 5)             # Low distribution
     )
 
+    # Stage 4 — Declining
+    # Data: price -29% below MA150, MA50 -17% below MA150, MA150 falling, RS <20
     stage4 = (
-        (close < d['ma_150']) &
-        (close < d['ma_50']) &
-        (d['ma_50'] < d['ma_150']) &
-        (d['ma_150'] < d['ma_200']) &
-        (d['ma_150_slope_21d'] < 0) &
-        (d['dist_52w_low'] <= 1.25) &
-        (d['dist_52w_high'] < 0.75) &
-        (d['rs_rank'] < 30)
+        (close < ma50) &
+        (close < ma150) &
+        (ma50 < ma150) &
+        (ma150_vs_ma200 < 0) &                     # MA150 below MA200
+        (d['ma_150_slope_pct'] < -0.30) &           # MA150 clearly falling (P75=-0.49)
+        (d['dist_52w_high'] < 0.65) &               # Well off 52w high (>35% below)
+        (d['rs_rank'] < 25)                          # Weak RS
     )
 
-    ma150_decel = d['ma_150_slope_21d'] < d['ma_150_slope_21d'].shift(21)
-    rs_rollover = d['rs_line'] < d['rs_line'].rolling(50).max().shift(10)
-    adr_expanding = d['adr_20'] > d['adr_20'].rolling(60).mean()
-
+    # Stage 3 — Topping / Distribution
+    # Comes AFTER uptrend: MA50 still above MA150 (remnant of S2), but weakening
+    # Key: high distribution days + RS rolling over + MA structure still bullish
     stage3 = (
-        ma150_decel &
-        (d['dist_52w_high'] >= 0.75) &
-        rs_rollover &
-        (d['distribution_days_25'] >= 5) &
-        adr_expanding
+        (ma50_vs_ma150 > -3) &                            # MA50 near or above MA150 (was in uptrend)
+        (ma150_vs_ma200 > -2) &                           # MA150 near or above MA200 (recent strength)
+        (pct_vs_ma50 < 5) &                               # Price below or near MA50 (lost momentum)
+        (d['distribution_days_25'] >= 5) &                 # HIGH distribution (the key topping signal)
+        (d['dist_52w_high'] >= 0.65) &                     # Still reasonably near highs
+        (d['rs_rank'] < 75)                                # RS not top quartile
     )
 
+    # Stage 1 — Basing / Accumulation
+    # Comes AFTER decline: MA structure is bearish or flat, but price stabilizing
+    # Key: MA150 flat, low distribution, volatility contracting, NOT coming from uptrend
     adr_contracting = d['adr_20'] < d['adr_20'].rolling(40).mean()
     stage1 = (
-        (d['ma_150_slope_pct'].abs() < 0.10) &
-        (close >= 0.85 * d['ma_150']) &
-        (close <= 1.15 * d['ma_150']) &
-        (d['dist_52w_low'] >= 1.20) &
-        (d['dist_52w_high'] <= 0.80) &
-        adr_contracting
+        (d['ma_150_slope_pct'].abs() < 0.15) &            # MA150 flat
+        (pct_vs_ma150 > -15) & (pct_vs_ma150 < 15) &      # Price near MA150
+        (ma50_vs_ma150 < 5) &                              # MA50 NOT well above MA150 (not ex-uptrend)
+        (ma150_vs_ma200 < 3) &                             # MA150 NOT above MA200 (not bullish structure)
+        (d['distribution_days_25'] < 5) &                  # Low distribution
+        (d['dist_52w_high'] <= 0.80) &                     # Not near highs (came from decline)
+        adr_contracting                                     # Volatility drying up
     )
 
     # Priority: S2 > S4 > S3 > S1 > 0
+    # This ensures the strongest signals win:
+    # - Confirmed uptrends (S2) take priority over everything
+    # - Confirmed downtrends (S4) override ambiguous topping/basing
+    # - Topping (S3) overrides basing (S1) since distribution is more actionable
     stages = pd.DataFrame(0, index=close.index, columns=close.columns)
     stages[stage1] = 1
     stages[stage3] = 3
