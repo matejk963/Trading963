@@ -1185,7 +1185,24 @@ def _watchlist_api_impl():
             'ret_3m': round(((price / _p3m.get(sym)) - 1) * 100, 1) if pd.notna(_p3m.get(sym)) and _p3m.get(sym) > 0 else None,
         })
 
-    return jsonify({'stocks': stocks, 'as_of': str(_close_slice.index[_idx])[:10]})
+    # Total stocks per sector/industry in full universe (for % calculation)
+    sector_counts = {}
+    industry_counts = {}
+    for sym, rec in rfv.items():
+        s = rec.get('sector')
+        ind = rec.get('industry')
+        if s:
+            sector_counts[s] = sector_counts.get(s, 0) + 1
+        if ind:
+            industry_counts[ind] = industry_counts.get(ind, 0) + 1
+
+    return jsonify({
+        'stocks': stocks,
+        'as_of': str(_close_slice.index[_idx])[:10],
+        'sector_counts': sector_counts,
+        'industry_counts': industry_counts,
+        'universe_total': len([r for r in rfv.values() if r.get('sector')]),
+    })
 
 
 @app.route('/api/sector_map')

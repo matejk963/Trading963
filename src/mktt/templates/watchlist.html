@@ -72,13 +72,19 @@ function renderWatchlist(data) {
     sh += '</div>';
     sh += '<div class="wl-summary-body" style="display:none;padding:6px 10px 10px;border-top:1px solid var(--border);overflow-x:auto;">';
 
+    var secTotals = data.sector_counts || {};
+    var indTotals = data.industry_counts || {};
+    var uniTotal = data.universe_total || 1;
+    var cs = 'padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;';
+
     sh += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
     sh += '<thead><tr style="border-bottom:2px solid #333;">';
-    sh += '<th style="text-align:left;padding:4px 8px;">Sector / Industry</th>';
-    sh += '<th style="padding:4px 6px;">#</th>';
-    sh += '<th style="padding:4px 6px;">Avg 1W</th>';
-    sh += '<th style="padding:4px 6px;">Avg 1M</th>';
-    sh += '<th style="padding:4px 6px;">Avg 3M</th>';
+    sh += '<th style="text-align:left;padding:4px 8px;min-width:180px;">Sector / Industry</th>';
+    sh += '<th style="'+cs+'min-width:30px;">#</th>';
+    sh += '<th style="'+cs+'min-width:55px;">% Univ</th>';
+    sh += '<th style="'+cs+'min-width:55px;">Avg 1W</th>';
+    sh += '<th style="'+cs+'min-width:55px;">Avg 1M</th>';
+    sh += '<th style="'+cs+'min-width:55px;">Avg 3M</th>';
     sh += '<th style="text-align:left;padding:4px 8px;">Stocks</th>';
     sh += '</tr></thead><tbody>';
 
@@ -86,33 +92,40 @@ function renderWatchlist(data) {
     var allStocks = data.stocks.filter(function(s) { return !s.error; });
     sh += '<tr style="border-bottom:2px solid #444;background:#111;">';
     sh += '<td style="padding:4px 8px;font-weight:700;color:var(--text-dim);">Total</td>';
-    sh += '<td style="padding:4px 6px;text-align:center;">' + allStocks.length + '</td>';
-    sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(allStocks, 'ret_1w')) + '</td>';
-    sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(allStocks, 'ret_1m')) + '</td>';
-    sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(allStocks, 'ret_3m')) + '</td>';
+    sh += '<td style="'+cs+'">' + allStocks.length + '</td>';
+    sh += '<td style="'+cs+'color:var(--text-faint);">' + (allStocks.length / uniTotal * 100).toFixed(1) + '%</td>';
+    sh += '<td style="'+cs+'">' + fmtPct(avgField(allStocks, 'ret_1w')) + '</td>';
+    sh += '<td style="'+cs+'">' + fmtPct(avgField(allStocks, 'ret_1m')) + '</td>';
+    sh += '<td style="'+cs+'">' + fmtPct(avgField(allStocks, 'ret_3m')) + '</td>';
     sh += '<td></td></tr>';
 
     var sortedSec = Object.keys(secData).sort(function(a, b) { return secData[b].stocks.length - secData[a].stocks.length; });
     sortedSec.forEach(function(sec) {
         var sd = secData[sec];
+        var secTotal = secTotals[sec] || 1;
+        var secPct = (sd.stocks.length / secTotal * 100).toFixed(0);
         sh += '<tr style="border-bottom:1px solid var(--border);background:var(--bg-card);">';
         sh += '<td style="padding:4px 8px;font-weight:600;">' + sec + '</td>';
-        sh += '<td style="padding:4px 6px;text-align:center;">' + sd.stocks.length + '</td>';
-        sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(sd.stocks, 'ret_1w')) + '</td>';
-        sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(sd.stocks, 'ret_1m')) + '</td>';
-        sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(sd.stocks, 'ret_3m')) + '</td>';
+        sh += '<td style="'+cs+'">' + sd.stocks.length + '</td>';
+        sh += '<td style="'+cs+'color:var(--text-faint);">' + secPct + '% <span style="font-size:9px;color:#555;">/ ' + secTotal + '</span></td>';
+        sh += '<td style="'+cs+'">' + fmtPct(avgField(sd.stocks, 'ret_1w')) + '</td>';
+        sh += '<td style="'+cs+'">' + fmtPct(avgField(sd.stocks, 'ret_1m')) + '</td>';
+        sh += '<td style="'+cs+'">' + fmtPct(avgField(sd.stocks, 'ret_3m')) + '</td>';
         sh += '<td style="padding:4px 8px;color:var(--text-faint);font-size:10px;">' + sd.stocks.map(function(s){return s.symbol;}).join(', ') + '</td>';
         sh += '</tr>';
 
         var sortedInd = Object.keys(sd.inds).sort(function(a, b) { return sd.inds[b].length - sd.inds[a].length; });
         sortedInd.forEach(function(ind) {
             var stocks = sd.inds[ind];
+            var indTotal = indTotals[ind] || 1;
+            var indPct = (stocks.length / indTotal * 100).toFixed(0);
             sh += '<tr style="border-bottom:1px solid #1a1a2a;">';
             sh += '<td style="padding:3px 8px 3px 24px;color:var(--text-dim);">' + ind + '</td>';
-            sh += '<td style="padding:3px 6px;text-align:center;color:var(--text-faint);">' + stocks.length + '</td>';
-            sh += '<td style="padding:3px 6px;text-align:center;">' + fmtPct(avgField(stocks, 'ret_1w')) + '</td>';
-            sh += '<td style="padding:3px 6px;text-align:center;">' + fmtPct(avgField(stocks, 'ret_1m')) + '</td>';
-            sh += '<td style="padding:3px 6px;text-align:center;">' + fmtPct(avgField(stocks, 'ret_3m')) + '</td>';
+            sh += '<td style="'+cs+'color:var(--text-faint);">' + stocks.length + '</td>';
+            sh += '<td style="'+cs+'color:var(--text-faint);">' + indPct + '% <span style="font-size:9px;color:#555;">/ ' + indTotal + '</span></td>';
+            sh += '<td style="'+cs+'">' + fmtPct(avgField(stocks, 'ret_1w')) + '</td>';
+            sh += '<td style="'+cs+'">' + fmtPct(avgField(stocks, 'ret_1m')) + '</td>';
+            sh += '<td style="'+cs+'">' + fmtPct(avgField(stocks, 'ret_3m')) + '</td>';
             sh += '<td style="padding:3px 8px;color:var(--primary);font-size:10px;">' + stocks.map(function(s){return s.symbol;}).join(', ') + '</td>';
             sh += '</tr>';
         });
