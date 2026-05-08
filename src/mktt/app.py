@@ -896,6 +896,171 @@ def screener_page():
                            as_of_date=_as_of_used)
 
 
+@app.route('/api/sector_map')
+def sector_map_api():
+    """Return sector/industry breakdown by a given criteria dimension."""
+    try:
+        return _sector_map_impl()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def _sector_map_impl():
+    from data_manager import load_prices, load_universe
+    import numpy as np
+
+    dimension = request.args.get('dim', 'pca_regime')  # what to color/group by
+    min_turnover = int(float(request.args.get('min_turnover', '500000')))
+
+    close = load_prices('close')
+    uni = load_universe()
+    rfv = load_refinitiv_snapshot()
+    cls = load_classification_lookups()
+
+    if close is None or close.empty:
+        return jsonify({'error': 'No price data'}), 404
+
+    # Find last dense row
+    min_stocks = len(close.columns) * 0.5
+    _idx = len(close) - 1
+    for _i in range(len(close) - 1, max(len(close) - 10, 0), -1):
+        if close.iloc[_i].notna().sum() >= min_stocks:
+            _idx = _i
+            break
+    _close_slice = close.iloc[:_idx + 1]
+    last_prices = _close_slice.iloc[-1]
+
+    # RS ranks
+    rs_ranks = {}
+    rs_chg1m = {}
+    if len(_close_slice) > 147:
+        ret_6m = (_close_slice.iloc[-1] / _close_slice.iloc[-126] - 1)
+        rs_pct = ret_6m.rank(pct=True) * 100
+        rs_ranks = rs_pct.to_dict()
+        s = _close_slice.iloc[:-21]
+        r6_old = (s.iloc[-1] / s.iloc[-126] - 1)
+        rs_old = (r6_old.rank(pct=True) * 100).to_dict()
+        rs_chg1m = {sym: rs_ranks.get(sym, 0) - rs_old.get(sym, 0) for sym in rs_ranks}
+
+    rows = []
+    for sym in close.columns:
+        price = last_prices.get(sym)
+        if pd.isna(price) or price <= 0:
+            continue
+        uni_row = uni[uni['symbol'] == sym].iloc[0] if uni is not None and sym in uni['symbol'].values else None
+        turnover = float(uni_row['turnover']) if uni_row is not None and pd.notna(uni_row.get('turnover')) else 0
+        if turnover < min_turnover:
+            continue
+
+        r = rfv.get(sym, {})
+        sector = r.get('sector') or 'Unknown'
+        industry = r.get('industry') or 'Unknown'
+        eps_act = r.get('eps_act')
+        fy1_eps = r.get('fy1_eps')
+
+        # Compute PE
+        pe = float(price) / float(eps_act) if eps_act and eps_act > 0 else None
+
+        # Classification values
+        pca = cls.get('pca20', {}).get(sym, 'Unknown')
+        stage = cls.get('stages', {}).get(sym, 'Unknown')
+        eps_acc_info = cls.get('eps_accel', {}).get(sym, {})
+        eps_mom = eps_acc_info.get('label', 'Unknown') if isinstance(eps_acc_info, dict) else 'Unknown'
+
+        # EPS growth direction
+        eps_growth_dir = 'Unknown'
+        if eps_act and fy1_eps:
+            eps_growth_dir = 'Growing' if fy1_eps > eps_act else 'Declining' if fy1_eps < eps_act else 'Flat'
+
+        # RS bucket
+        rs_val = rs_ranks.get(sym)
+        rs_bucket = 'Unknown'
+        if rs_val is not None:
+            if rs_val >= 80: rs_bucket = 'RS 80+'
+            elif rs_val >= 60: rs_bucket = 'RS 60-80'
+            elif rs_val >= 40: rs_bucket = 'RS 40-60'
+            elif rs_val >= 20: rs_bucket = 'RS 20-40'
+            else: rs_bucket = 'RS 0-20'
+
+        # RS momentum bucket
+        chg1m = rs_chg1m.get(sym, 0)
+        rs_mom = 'Unknown'
+        if chg1m > 5: rs_mom = 'Improving'
+        elif chg1m > -5: rs_mom = 'Stable'
+        else: rs_mom = 'Deteriorating'
+
+        # PE vs sector bucket (need sector median)
+        pe_bucket = 'Unknown'  # filled below
+
+        rows.append({
+            'symbol': sym, 'sector': sector, 'industry': industry,
+            'pe': pe, 'turnover': turnover,
+            'pca_regime': pca, 'stage': stage, 'eps_momentum': eps_mom,
+            'eps_growth': eps_growth_dir, 'rs_bucket': rs_bucket,
+            'rs_momentum': rs_mom,
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return jsonify({'error': 'No data'}), 404
+
+    # PE vs sector bucket
+    if 'pe' in df.columns:
+        sector_med_pe = df[df['pe'].notna() & (df['pe'] > 0)].groupby('sector')['pe'].median()
+        def _pe_bucket(row):
+            if pd.isna(row.get('pe')) or row['pe'] is None:
+                return 'No PE'
+            med = sector_med_pe.get(row['sector'])
+            if med is None or med <= 0:
+                return 'No PE'
+            ratio = row['pe'] / med
+            if ratio < 0.7: return 'Deep Discount'
+            elif ratio < 0.9: return 'Discount'
+            elif ratio < 1.1: return 'Fair'
+            elif ratio < 1.3: return 'Premium'
+            else: return 'High Premium'
+        df['pe_vs_sector'] = df.apply(_pe_bucket, axis=1)
+
+    # Available dimensions
+    dim_map = {
+        'pca_regime': 'pca_regime', 'stage': 'stage', 'eps_momentum': 'eps_momentum',
+        'eps_growth': 'eps_growth', 'rs_bucket': 'rs_bucket', 'rs_momentum': 'rs_momentum',
+        'pe_vs_sector': 'pe_vs_sector',
+    }
+    col = dim_map.get(dimension, 'pca_regime')
+
+    # Build treemap data: sector -> industry -> count, colored by dimension
+    treemap_data = []
+    for sector, sec_group in df.groupby('sector'):
+        for industry, ind_group in sec_group.groupby('industry'):
+            for dim_val, dim_group in ind_group.groupby(col):
+                treemap_data.append({
+                    'sector': sector,
+                    'industry': industry,
+                    'dimension': str(dim_val),
+                    'count': len(dim_group),
+                    'symbols': dim_group['symbol'].tolist(),
+                })
+
+    # Summary: sector × dimension counts
+    summary = df.groupby(['sector', col]).size().reset_index(name='count')
+    summary.columns = ['sector', 'dimension', 'count']
+    summary_list = summary.to_dict('records')
+
+    # Overall dimension distribution
+    overall = df[col].value_counts().to_dict()
+
+    return jsonify({
+        'dimension': dimension,
+        'dimensions_available': list(dim_map.keys()),
+        'treemap': treemap_data,
+        'summary': summary_list,
+        'overall': {str(k): int(v) for k, v in overall.items()},
+        'total_stocks': len(df),
+    })
+
+
 @app.route('/chart/<symbol>')
 def chart_page(symbol):
     """Render OHLC chart for a single symbol"""

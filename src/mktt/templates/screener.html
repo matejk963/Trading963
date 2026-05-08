@@ -272,7 +272,8 @@
     <span style="font-size:13px;color:var(--text-dim);margin-left:12px">{{ sector_stats | length }} sectors / {{ data | length }} stocks</span>
     <span style="margin-left:auto;display:flex;gap:0">
         <button id="view-sectors-btn" onclick="switchView('sectors')" style="font-size:11px;padding:4px 10px;background:var(--primary);border:1px solid var(--border-light);color:white;border-radius:4px 0 0 4px;cursor:pointer">Sectors</button>
-        <button id="view-flat-btn" onclick="switchView('flat')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer">All Stocks</button>
+        <button id="view-flat-btn" onclick="switchView('flat')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:0;cursor:pointer">All Stocks</button>
+        <button id="view-map-btn" onclick="switchView('map')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer">Map</button>
     </span>
 </div>
 <div id="col-picker" style="display:none;background:var(--bg-card);border:1px solid var(--border-light);border-radius:8px;padding:12px 16px;margin-bottom:8px;max-width:900px">
@@ -627,24 +628,155 @@
         </table>
     </div>
 
+    {# ====== MAP VIEW ====== #}
+    <div id="map-view-wrap" style="display:none;margin-top:6px;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="font-size:12px;color:var(--text-dim)">Color by:</label>
+            <select id="map-dim" onchange="loadSectorMap()" style="font-size:12px;padding:3px 8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);border-radius:4px;">
+                <option value="pca_regime">PCA Regime</option>
+                <option value="stage">Weinstein Stage</option>
+                <option value="eps_momentum">EPS Momentum</option>
+                <option value="eps_growth">EPS Growth</option>
+                <option value="rs_bucket">RS Rank Bucket</option>
+                <option value="rs_momentum" selected>RS Momentum (1M)</option>
+                <option value="pe_vs_sector">PE vs Sector</option>
+            </select>
+            <span id="map-total" style="font-size:11px;color:var(--text-faint);margin-left:8px;"></span>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <div id="map-treemap" style="flex:2;min-height:500px;"></div>
+            <div id="map-summary" style="flex:1;max-height:500px;overflow-y:auto;"></div>
+        </div>
+    </div>
+
 <script>
 function switchView(view) {
-    var sectorWrap = document.querySelector('.table-wrap:not(#flat-table-wrap)');
+    var sectorWrap = document.querySelector('.table-wrap:not(#flat-table-wrap):not(#map-view-wrap)');
     var flatWrap = document.getElementById('flat-table-wrap');
+    var mapWrap = document.getElementById('map-view-wrap');
     var sBtn = document.getElementById('view-sectors-btn');
     var fBtn = document.getElementById('view-flat-btn');
+    var mBtn = document.getElementById('view-map-btn');
+    var off = 'var(--bg-card)';
+    sBtn.style.background = off; sBtn.style.color = 'var(--text-dim)';
+    fBtn.style.background = off; fBtn.style.color = 'var(--text-dim)';
+    mBtn.style.background = off; mBtn.style.color = 'var(--text-dim)';
+    sectorWrap.style.display = 'none';
+    flatWrap.style.display = 'none';
+    mapWrap.style.display = 'none';
     if (view === 'flat') {
-        sectorWrap.style.display = 'none';
         flatWrap.style.display = 'block';
-        sBtn.style.background = 'var(--bg-card)'; sBtn.style.color = 'var(--text-dim)';
         fBtn.style.background = 'var(--primary)'; fBtn.style.color = 'white';
+    } else if (view === 'map') {
+        mapWrap.style.display = 'block';
+        mBtn.style.background = 'var(--primary)'; mBtn.style.color = 'white';
+        loadSectorMap();
     } else {
         sectorWrap.style.display = 'block';
-        flatWrap.style.display = 'none';
-        fBtn.style.background = 'var(--bg-card)'; fBtn.style.color = 'var(--text-dim)';
         sBtn.style.background = 'var(--primary)'; sBtn.style.color = 'white';
     }
 }
+
+var _mapCache = {};
+function loadSectorMap() {
+    var dim = document.getElementById('map-dim').value;
+    if (_mapCache[dim]) { renderMap(_mapCache[dim]); return; }
+    document.getElementById('map-treemap').innerHTML = '<span style="color:#666;padding:20px;">Loading...</span>';
+    fetch('/api/sector_map?dim=' + dim)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { document.getElementById('map-treemap').innerHTML = '<span style="color:#f33;">'+data.error+'</span>'; return; }
+            _mapCache[dim] = data;
+            renderMap(data);
+        })
+        .catch(function(e) { document.getElementById('map-treemap').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
+}
+
+function renderMap(data) {
+    var treemap = data.treemap;
+    document.getElementById('map-total').textContent = data.total_stocks + ' stocks';
+
+    // Build treemap: parents=sectors, children=dimension values within sectors
+    var labels = [], parents = [], values = [], colors = [], texts = [];
+    var dimColors = {};
+    var palette = ['#4f8cf7','#10b981','#f59e0b','#ef4444','#a78bfa','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48'];
+    var dims = Object.keys(data.overall);
+    dims.forEach(function(d, i) { dimColors[d] = palette[i % palette.length]; });
+
+    // Add root
+    labels.push('All'); parents.push(''); values.push(0); colors.push('#1a1a2a'); texts.push('');
+
+    // Add sectors
+    var sectors = {};
+    treemap.forEach(function(r) { sectors[r.sector] = (sectors[r.sector] || 0) + r.count; });
+    Object.keys(sectors).forEach(function(s) {
+        labels.push(s); parents.push('All'); values.push(0); colors.push('#1a1a2a'); texts.push(sectors[s] + ' stocks');
+    });
+
+    // Add dimension groups within sectors
+    treemap.forEach(function(r) {
+        var lbl = r.sector + ' / ' + r.dimension;
+        labels.push(lbl);
+        parents.push(r.sector);
+        values.push(r.count);
+        colors.push(dimColors[r.dimension] || '#666');
+        texts.push(r.dimension + ': ' + r.count);
+    });
+
+    Plotly.newPlot('map-treemap', [{
+        type: 'treemap',
+        labels: labels, parents: parents, values: values,
+        marker: { colors: colors },
+        text: texts, textinfo: 'label+text',
+        hovertemplate: '<b>%{label}</b><br>%{text}<extra></extra>',
+        branchvalues: 'total',
+        pathbar: { visible: true },
+    }], {
+        paper_bgcolor: '#0a0a0e', plot_bgcolor: '#0a0a0e',
+        font: { color: '#888', family: 'JetBrains Mono, monospace', size: 11 },
+        margin: { l: 4, r: 4, t: 30, b: 4 },
+    }, { displayModeBar: false, responsive: true });
+
+    // Summary table
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    h += '<tr style="border-bottom:1px solid #333;"><th style="text-align:left;padding:4px;">Sector</th>';
+    dims.forEach(function(d) {
+        h += '<th style="padding:4px;color:'+dimColors[d]+'">'+d+'</th>';
+    });
+    h += '</tr>';
+
+    // Build summary matrix
+    var matrix = {};
+    data.summary.forEach(function(r) {
+        if (!matrix[r.sector]) matrix[r.sector] = {};
+        matrix[r.sector][r.dimension] = r.count;
+    });
+
+    Object.keys(sectors).sort(function(a,b) { return sectors[b] - sectors[a]; }).forEach(function(sec) {
+        h += '<tr style="border-bottom:1px solid #1a1a2a;">';
+        h += '<td style="padding:3px 4px;font-weight:600;">'+sec+'</td>';
+        dims.forEach(function(d) {
+            var v = (matrix[sec] || {})[d] || 0;
+            h += '<td style="padding:3px 4px;text-align:center;color:'+(v > 0 ? dimColors[d] : '#333')+'">'+( v || '')+'</td>';
+        });
+        h += '</tr>';
+    });
+
+    // Totals row
+    h += '<tr style="border-top:2px solid #333;font-weight:700;"><td style="padding:4px;">Total</td>';
+    dims.forEach(function(d) { h += '<td style="padding:4px;text-align:center;color:'+dimColors[d]+'">'+data.overall[d]+'</td>'; });
+    h += '</tr></table>';
+
+    // Legend
+    h += '<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;">';
+    dims.forEach(function(d) {
+        h += '<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:'+dimColors[d]+';color:white;">'+d+': '+data.overall[d]+'</span>';
+    });
+    h += '</div>';
+
+    document.getElementById('map-summary').innerHTML = h;
+}
+</script>
 
 var flatSortDir = {};
 function sortFlatTable(th, col, type) {
