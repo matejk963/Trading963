@@ -1017,10 +1017,15 @@ def screener_page():
                             vals = pd.to_numeric(ind_group.get(col_name, pd.Series()), errors='coerce').dropna()
                             return float(vals.mean()) if len(vals) > 0 else None
 
+                        _ind_pe = _ind_median('PE', pos_only=True)
+                        _sec_pe = stats['median_pe']
+                        _ind_pe_vs_sec = round(_ind_pe / _sec_pe, 2) if _ind_pe and _sec_pe and _sec_pe > 0 else None
+
                         industries.append({
                             'industry': ind_name,
                             'count': len(ind_group),
-                            'median_pe': _ind_median('PE', pos_only=True),
+                            'median_pe': _ind_pe,
+                            'pe_vs_sector': _ind_pe_vs_sec,
                             'median_fwd_pe': _ind_median('FwdPE', pos_only=True),
                             'median_eps': _ind_median('EPS_Act'),
                             'median_fy1': _ind_median('EPS_FY1'),
