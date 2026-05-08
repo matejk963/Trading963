@@ -14,6 +14,7 @@
     <button onclick="clearWatchlist()" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--border);color:var(--text-faint);border-radius:4px;cursor:pointer;margin-left:auto;">Clear All</button>
 </div>
 
+<div id="wl-summary" style="margin-bottom:8px;"></div>
 <div id="wl-table-wrap" style="overflow-x:auto;">
     <div style="color:var(--text-faint);font-size:13px;padding:20px;">Loading watchlist...</div>
 </div>
@@ -40,6 +41,51 @@ function loadWatchlist() {
 
 function renderWatchlist(data) {
     document.getElementById('wl-status').textContent = data.stocks.length + ' stocks | ' + data.as_of;
+
+    // Build sector/industry summary
+    var sectors = {};
+    data.stocks.forEach(function(st) {
+        if (st.error || !st.sector) return;
+        if (!sectors[st.sector]) sectors[st.sector] = {};
+        var ind = st.industry || 'Other';
+        if (!sectors[st.sector][ind]) sectors[st.sector][ind] = [];
+        sectors[st.sector][ind].push(st.symbol);
+    });
+
+    var sh = '<div style="border:1px solid var(--border);border-radius:8px;background:var(--bg-light);margin-bottom:2px;">';
+    sh += '<div onclick="this.parentElement.classList.toggle(\'open\')" style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px;cursor:pointer;">';
+    sh += '<span style="font-size:12px;font-weight:600;color:var(--text-dim);">Summary ▾</span>';
+    sh += '<span style="font-size:11px;color:var(--text-faint);">' + Object.keys(sectors).length + ' sectors</span>';
+    sh += '</div>';
+    sh += '<div class="wl-summary-body" style="display:none;padding:6px 14px 10px;border-top:1px solid var(--border);">';
+
+    var sortedSec = Object.keys(sectors).sort(function(a, b) {
+        var ca = 0, cb = 0;
+        for (var i in sectors[a]) ca += sectors[a][i].length;
+        for (var i in sectors[b]) cb += sectors[b][i].length;
+        return cb - ca;
+    });
+
+    sortedSec.forEach(function(sec) {
+        var inds = sectors[sec];
+        var secCount = 0;
+        for (var i in inds) secCount += inds[i].length;
+        sh += '<div style="margin-bottom:6px;">';
+        sh += '<div style="font-size:12px;font-weight:600;color:var(--text);">' + sec + ' <span style="color:var(--text-faint);font-weight:400;">(' + secCount + ')</span></div>';
+        var sortedInd = Object.keys(inds).sort(function(a, b) { return inds[b].length - inds[a].length; });
+        sortedInd.forEach(function(ind) {
+            var syms = inds[ind];
+            sh += '<div style="padding-left:12px;font-size:11px;color:var(--text-dim);">';
+            sh += ind + ' <span style="color:var(--text-faint);">(' + syms.length + ')</span> ';
+            sh += '<span style="color:var(--primary);font-size:10px;">' + syms.join(', ') + '</span>';
+            sh += '</div>';
+        });
+        sh += '</div>';
+    });
+
+    sh += '</div></div>';
+    sh += '<style>.wl-summary-body{display:none}.open .wl-summary-body{display:block!important}</style>';
+    document.getElementById('wl-summary').innerHTML = sh;
 
     var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
     h += '<thead><tr style="border-bottom:2px solid #333;">';
