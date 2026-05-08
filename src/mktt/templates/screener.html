@@ -736,19 +736,19 @@ function renderMap(data) {
     }
 
     var mode = _mapMode;
-    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    var h = '<table id="map-table" style="width:100%;border-collapse:collapse;font-size:12px;">';
 
     // Header
-    h += '<tr style="border-bottom:2px solid #333;">';
-    h += '<th style="text-align:left;padding:6px 8px;min-width:140px;">Sector</th>';
-    h += '<th style="padding:6px 4px;color:var(--text-faint);font-size:11px;">#</th>';
-    dims.forEach(function(d) {
-        h += '<th style="padding:6px 4px;color:'+dimColors[d]+';font-size:11px;min-width:60px;">'+d+'</th>';
+    h += '<thead><tr style="border-bottom:2px solid #333;">';
+    h += '<th style="text-align:left;padding:6px 8px;min-width:140px;cursor:pointer" onclick="sortMapTable(0,\'str\')">Sector</th>';
+    h += '<th style="padding:6px 4px;color:var(--text-faint);font-size:11px;cursor:pointer" onclick="sortMapTable(1,\'num\')">#</th>';
+    dims.forEach(function(d, i) {
+        h += '<th style="padding:6px 4px;color:'+dimColors[d]+';font-size:11px;min-width:60px;cursor:pointer" onclick="sortMapTable('+(i+2)+',\'num\')">'+d+'</th>';
     });
-    h += '</tr>';
+    h += '</tr></thead>';
 
-    // Overall row
-    h += '<tr style="border-bottom:2px solid #444;background:#111;">';
+    // Overall row (pinned, not sorted)
+    h += '<tbody><tr id="map-overall-row" style="border-bottom:2px solid #444;background:#111;">';
     h += '<td style="padding:4px 8px;font-weight:700;color:var(--text-dim);">All Stocks</td>';
     h += '<td style="padding:4px;text-align:center;color:var(--text-faint);">'+data.total_stocks+'</td>';
     dims.forEach(function(d) {
@@ -813,7 +813,7 @@ function renderMap(data) {
         });
         h += '</tr>';
     });
-    h += '</table>';
+    h += '</tbody></table>';
 
     // Legend
     h += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
@@ -830,6 +830,35 @@ function renderMap(data) {
     h += '</div>';
 
     document.getElementById('map-summary').innerHTML = h;
+}
+
+var _mapSortDir = {};
+function sortMapTable(col, type) {
+    var table = document.getElementById('map-table');
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    // Keep overall row pinned at top
+    var pinned = document.getElementById('map-overall-row');
+    var sortable = rows.filter(function(r) { return r.id !== 'map-overall-row'; });
+
+    _mapSortDir[col] = !(_mapSortDir[col] || false);
+    var asc = _mapSortDir[col];
+
+    sortable.sort(function(a, b) {
+        var aVal = a.cells[col] ? a.cells[col].textContent.trim() : '';
+        var bVal = b.cells[col] ? b.cells[col].textContent.trim() : '';
+        if (type === 'num') {
+            aVal = parseFloat(aVal.replace(/[%x]/g, '')) || -Infinity;
+            bVal = parseFloat(bVal.replace(/[%x]/g, '')) || -Infinity;
+            return asc ? aVal - bVal : bVal - aVal;
+        }
+        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    // Re-append: pinned first, then sorted
+    if (pinned) tbody.appendChild(pinned);
+    sortable.forEach(function(r) { tbody.appendChild(r); });
 }
 </script>
 
