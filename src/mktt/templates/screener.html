@@ -1239,7 +1239,7 @@ function toggleStockChart(symbol, clickedRow) {
         existing.remove();
         _panelSymbol = null;
         Object.keys(activeCharts).forEach(function(k) { delete activeCharts[k]; });
-        document.querySelector('.container').style.paddingBottom = '';
+        var _sp=document.getElementById('panel-spacer');if(_sp)_sp.style.height='0';
         return;
     }
 
@@ -1256,8 +1256,10 @@ function toggleStockChart(symbol, clickedRow) {
     var panel = document.createElement('div');
     panel.id = panelId;
     panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:45vh;z-index:500;background:#08080c;border-top:2px solid var(--primary,#4f8cf7);padding:0;box-shadow:0 -4px 20px rgba(0,0,0,0.8);display:flex;flex-direction:column;';
-    // Add bottom padding to page so content is scrollable above the panel
-    document.querySelector('.container').style.paddingBottom = '46vh';
+    // Add spacer at end of body so content is scrollable above the panel
+    var spacer = document.getElementById('panel-spacer');
+    if (!spacer) { spacer = document.createElement('div'); spacer.id = 'panel-spacer'; document.body.appendChild(spacer); }
+    spacer.style.height = '45vh';
 
     // Header: tabs + close
     var header = document.createElement('div');
