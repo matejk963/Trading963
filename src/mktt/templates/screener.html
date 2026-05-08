@@ -1239,6 +1239,7 @@ function toggleStockChart(symbol, clickedRow) {
         existing.remove();
         _panelSymbol = null;
         Object.keys(activeCharts).forEach(function(k) { delete activeCharts[k]; });
+        document.querySelector('.container').style.paddingBottom = '';
         return;
     }
 
@@ -1255,6 +1256,8 @@ function toggleStockChart(symbol, clickedRow) {
     var panel = document.createElement('div');
     panel.id = panelId;
     panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:45vh;z-index:500;background:#08080c;border-top:2px solid var(--primary,#4f8cf7);padding:0;box-shadow:0 -4px 20px rgba(0,0,0,0.8);display:flex;flex-direction:column;';
+    // Add bottom padding to page so content is scrollable above the panel
+    document.querySelector('.container').style.paddingBottom = '46vh';
 
     // Header: tabs + close
     var header = document.createElement('div');
@@ -1279,7 +1282,7 @@ function toggleStockChart(symbol, clickedRow) {
     var closeBtn = document.createElement('span');
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = 'padding:6px 10px;cursor:pointer;color:#ff3333;font-size:16px;font-weight:700;';
-    closeBtn.onclick = function(e) { e.stopPropagation(); panel.remove(); _panelSymbol=null; if(activeRow){activeRow.style.background='';activeRow=null;} };
+    closeBtn.onclick = function(e) { e.stopPropagation(); panel.remove(); _panelSymbol=null; if(activeRow){activeRow.style.background='';activeRow=null;} document.querySelector('.container').style.paddingBottom=''; };
     header.appendChild(closeBtn);
     panel.appendChild(header);
 
