@@ -199,12 +199,37 @@ def check_universe():
     }
 
 
+def check_classifications():
+    """Check classification JSONs freshness."""
+    meta_path = DATA_DIR.parent.parent / 'sandbox' / 'analysis' / 'stage_pca' / 'output' / 'data' / 'classification_meta.json'
+    if not meta_path.exists():
+        return {'status': 'MISSING', 'source': 'Classifications', 'detail': 'No classification_meta.json — run update_classifications.py'}
+    import json
+    with open(meta_path) as f:
+        meta = json.load(f)
+    as_of = meta.get('as_of_date', '?')
+    updated = meta.get('updated_at', '?')
+    days_old = (pd.Timestamp.now() - pd.Timestamp(as_of)).days if as_of != '?' else 999
+    return {
+        'source': 'Classifications',
+        'as_of_date': as_of,
+        'updated_at': updated[:16] if len(updated) > 16 else updated,
+        'pca_stocks': meta.get('pca_stocks', 0),
+        'staged_stocks': meta.get('staged_stocks', 0),
+        'screener_stocks': meta.get('screener_stocks', 0),
+        'eps_stocks': meta.get('eps_stocks', 0),
+        'days_old': days_old,
+        'status': 'OK' if days_old <= 1 else 'STALE' if days_old <= 5 else 'OLD',
+    }
+
+
 def full_report():
     """Run all checks, return structured report."""
     report = {
         'checked_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
         'prices': check_prices(),
         'universe': check_universe(),
+        'classifications': check_classifications(),
         'refinitiv': check_refinitiv(),
     }
 
@@ -212,6 +237,7 @@ def full_report():
     all_statuses = []
     all_statuses.append(report['prices'].get('status', 'MISSING'))
     all_statuses.append(report['universe'].get('status', 'MISSING'))
+    all_statuses.append(report['classifications'].get('status', 'MISSING'))
     for r in report['refinitiv']:
         all_statuses.append(r.get('status', 'MISSING'))
 
@@ -256,6 +282,16 @@ def print_report(report):
     print(f"  UNIVERSE  {color(u['status'])}")
     print(f"    Stocks: {u.get('stocks', '?')}")
     print(f"    Modified: {u.get('file_modified', '?')}")
+    print()
+
+    # Classifications
+    cl = report.get('classifications', {})
+    print(f"  CLASSIFICATIONS  {color(cl.get('status', 'MISSING'))}")
+    if cl.get('as_of_date'):
+        print(f"    As of: {cl['as_of_date']} ({cl.get('days_old', '?')}d ago), updated: {cl.get('updated_at', '?')}")
+        print(f"    PCA: {cl.get('pca_stocks', 0)} | Stages: {cl.get('staged_stocks', 0)} | MA: {cl.get('screener_stocks', 0)} | EPS: {cl.get('eps_stocks', 0)}")
+    else:
+        print(f"    {cl.get('detail', 'No data')}")
     print()
 
     # Refinitiv

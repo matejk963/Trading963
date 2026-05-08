@@ -296,6 +296,19 @@ print(f"  EPS: {n_acc} accelerating, {n_dec} decelerating")
 # Summary
 # =========================================================================
 print(f"\n{'='*60}")
+# Save metadata
+import datetime
+meta = {
+    'as_of_date': str(close.index[-1].date()),
+    'updated_at': datetime.datetime.now().isoformat(),
+    'pca_stocks': sum(len(v['stocks']) for v in pca_meta.values()),
+    'staged_stocks': total_staged,
+    'screener_stocks': sum(len(v['stocks']) for v in screener_meta.values()),
+    'eps_stocks': n_acc + n_dec,
+}
+with open(OUTPUT_DIR / 'classification_meta.json', 'w') as f:
+    json.dump(meta, f, indent=2)
+
 print(f"Classification update complete — {close.index[-1].date()}")
 print(f"  Output: {OUTPUT_DIR}")
 print(f"  PCA regimes: {sum(len(v['stocks']) for v in pca_meta.values())} stocks")

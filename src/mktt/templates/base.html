@@ -48,6 +48,17 @@
                 h += '<strong>Universe</strong> <span style="color:'+(sc[u.status]||'#888')+'">'+u.status+'</span><br>';
                 h += u.stocks+' stocks, modified '+u.file_modified;
                 h += '</div>';
+                // Classifications
+                var cl = d.classifications;
+                h += '<div style="border-top:1px solid #222;padding:6px 0;">';
+                h += '<strong>Classifications</strong> <span style="color:'+(sc[cl.status]||'#888')+'">'+cl.status+'</span><br>';
+                if (cl.as_of_date) {
+                    h += 'As of: '+cl.as_of_date+' ('+cl.days_old+'d ago), updated: '+(cl.updated_at||'?')+'<br>';
+                    h += 'PCA: '+cl.pca_stocks+' | Stages: '+cl.staged_stocks+' | MA: '+cl.screener_stocks+' | EPS: '+cl.eps_stocks;
+                } else {
+                    h += cl.detail || 'No data';
+                }
+                h += '</div>';
                 // Refinitiv
                 h += '<div style="border-top:1px solid #222;padding:6px 0;"><strong>Refinitiv</strong></div>';
                 h += '<table style="width:100%;font-size:11px;border-collapse:collapse;">';
