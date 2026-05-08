@@ -99,7 +99,14 @@
     .section-apply { font-size:12px; padding:5px 18px; background:var(--accent); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; }
     .section-apply:hover { opacity:0.85; }
     .section-clear { font-size:11px; padding:4px 8px; background:none; color:var(--text-faint); border:1px solid var(--border); border-radius:4px; cursor:pointer; margin-left:6px; }
-    .filter-row select[multiple] { font-size:11px; padding:2px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; }
+    .cb-dropdown { position:relative; display:inline-block; }
+    .cb-dropdown .cb-toggle { font-size:11px; padding:3px 8px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; min-width:100px; display:flex; justify-content:space-between; align-items:center; gap:4px; }
+    .cb-dropdown .cb-toggle::after { content:'▾'; font-size:9px; color:var(--text-faint); }
+    .cb-dropdown .cb-menu { display:none; position:absolute; top:100%; left:0; z-index:100; background:var(--bg-card,#1a1a2a); border:1px solid var(--border,#333); border-radius:4px; padding:4px 0; min-width:140px; box-shadow:0 4px 12px rgba(0,0,0,0.5); max-height:200px; overflow-y:auto; }
+    .cb-dropdown.open .cb-menu { display:block; }
+    .cb-dropdown .cb-item { display:flex; align-items:center; gap:6px; padding:3px 10px; font-size:11px; cursor:pointer; color:var(--text); }
+    .cb-dropdown .cb-item:hover { background:var(--bg,#111); }
+    .cb-dropdown .cb-item input { accent-color:var(--primary); cursor:pointer; }
     </style>
 
     {% set has_any_filter = filters.has_class_filters or filters.has_tech_filters or filters.has_fund_filters %}
@@ -129,35 +136,49 @@
             </div>
         </div>
         <div class="filter-section-body">
-            {# Classification row #}
+            <script>
+    function cbUpdate(name) {
+        var checks = document.querySelectorAll('input[name="'+name+'"]:checked');
+        var lbl = document.querySelector('.cb-label[data-name="'+name+'"]');
+        if (lbl) lbl.textContent = checks.length > 0 ? checks.length + ' sel' : 'Any';
+    }
+    // Close dropdowns on outside click
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.cb-dropdown')) {
+            document.querySelectorAll('.cb-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
+        }
+    });
+    </script>
+    {# Classification row #}
             <div class="filter-row">
                 <div class="filter-row-label">Classification</div>
-                <div class="filter-group"><label>PCA Regime</label>
-                    <select name="pca_regime" multiple size="3" style="min-width:110px">
-                        <option value="Strong Leader" {% if 'Strong Leader' in filters.pca_regime %}selected{% endif %}>Strong Leader</option>
-                        <option value="Quiet Uptrend" {% if 'Quiet Uptrend' in filters.pca_regime %}selected{% endif %}>Quiet Uptrend</option>
-                        <option value="Erupting" {% if 'Erupting' in filters.pca_regime %}selected{% endif %}>Erupting</option>
-                        <option value="Distributing" {% if 'Distributing' in filters.pca_regime %}selected{% endif %}>Distributing</option>
-                        <option value="Declining" {% if 'Declining' in filters.pca_regime %}selected{% endif %}>Declining</option>
-                    </select></div>
-                <div class="filter-group"><label>Stage</label>
-                    <select name="stage_class" multiple size="3" style="min-width:100px">
-                        <option value="Stage 2 Uptrend" {% if 'Stage 2 Uptrend' in filters.stage_class %}selected{% endif %}>S2 Uptrend</option>
-                        <option value="Stage 1 Basing" {% if 'Stage 1 Basing' in filters.stage_class %}selected{% endif %}>S1 Basing</option>
-                        <option value="Stage 3 Topping" {% if 'Stage 3 Topping' in filters.stage_class %}selected{% endif %}>S3 Topping</option>
-                        <option value="Stage 4 Declining" {% if 'Stage 4 Declining' in filters.stage_class %}selected{% endif %}>S4 Declining</option>
-                    </select></div>
-                <div class="filter-group"><label>EPS Momentum</label>
-                    <select name="eps_accel" multiple size="2" style="min-width:100px">
-                        <option value="Accelerating" {% if 'Accelerating' in filters.eps_accel %}selected{% endif %}>Accelerating</option>
-                        <option value="Decelerating" {% if 'Decelerating' in filters.eps_accel %}selected{% endif %}>Decelerating</option>
-                    </select></div>
-                <div class="filter-group"><label>MA Position</label>
-                    <select name="ma_screen" multiple size="3" style="min-width:120px">
-                        <option value="Above Both" {% if 'Above Both' in filters.ma_screen %}selected{% endif %}>Above Both</option>
-                        <option value="Above 200 Below 50" {% if 'Above 200 Below 50' in filters.ma_screen %}selected{% endif %}>Above 200 Below 50</option>
-                        <option value="Below 200 Above 50" {% if 'Below 200 Above 50' in filters.ma_screen %}selected{% endif %}>Below 200 Above 50</option>
-                        <option value="Below Both" {% if 'Below Both' in filters.ma_screen %}selected{% endif %}>Below Both</option>
+                {% macro cb_dropdown(name, label, options, selected) %}
+                <div class="filter-group"><label>{{ label }}</label>
+                    <div class="cb-dropdown" onclick="this.classList.toggle('open')">
+                        <div class="cb-toggle"><span class="cb-label" data-name="{{ name }}">{% if selected %}{{ selected|length }} sel{% else %}Any{% endif %}</span></div>
+                        <div class="cb-menu" onclick="event.stopPropagation()">
+                            {% for val, lbl in options %}
+                            <label class="cb-item"><input type="checkbox" name="{{ name }}" value="{{ val }}" {% if val in selected %}checked{% endif %} onchange="cbUpdate('{{ name }}')">{{ lbl }}</label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endmacro %}
+                {{ cb_dropdown('pca_regime', 'PCA Regime', [
+                    ('Strong Leader', 'Strong Leader'), ('Quiet Uptrend', 'Quiet Uptrend'),
+                    ('Erupting', 'Erupting'), ('Distributing', 'Distributing'), ('Declining', 'Declining')
+                ], filters.pca_regime) }}
+                {{ cb_dropdown('stage_class', 'Stage', [
+                    ('Stage 2 Uptrend', 'S2 Uptrend'), ('Stage 1 Basing', 'S1 Basing'),
+                    ('Stage 3 Topping', 'S3 Topping'), ('Stage 4 Declining', 'S4 Declining')
+                ], filters.stage_class) }}
+                {{ cb_dropdown('eps_accel', 'EPS Momentum', [
+                    ('Accelerating', 'Accelerating'), ('Decelerating', 'Decelerating')
+                ], filters.eps_accel) }}
+                {{ cb_dropdown('ma_screen', 'MA Position', [
+                    ('Above Both', 'Above Both'), ('Above 200 Below 50', 'Above 200 Below 50'),
+                    ('Below 200 Above 50', 'Below 200 Above 50'), ('Below Both', 'Below Both')
+                ], filters.ma_screen) }}
                     </select></div>
             </div>
             {# Technical row #}
