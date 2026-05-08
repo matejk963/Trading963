@@ -788,6 +788,9 @@ def screener_page():
         if cls.get('ma_screen'):
             results_df['MA_Screen'] = results_df['Symbol'].map(cls['ma_screen'])
 
+        # Save full enriched df for sector/industry medians (before any filtering)
+        _full_df = results_df.copy()
+
         # Apply classification filters
         if has_class_filters:
             if pca_regime and 'PCA_Regime' in results_df.columns:
@@ -927,12 +930,17 @@ def screener_page():
         fwdpe_col = 'FwdPE' if 'FwdPE' in results_df.columns else None
 
         if 'Sector' in results_df.columns:
+            # Use full (unfiltered) df for medians, filtered df for stock lists
+            _full_grouped = _full_df.groupby('Sector') if '_full_df' in dir() else None
             grouped = results_df.groupby('Sector')
             for sector_name, group in grouped:
                 if not sector_name or pd.isna(sector_name):
                     continue
 
-                total_in_sector = sector_totals.get(sector_name, len(group))
+                # Full sector group for medians (all stocks regardless of filter)
+                full_group = _full_grouped.get_group(sector_name) if _full_grouped and sector_name in _full_grouped.groups else group
+
+                total_in_sector = sector_totals.get(sector_name, len(full_group))
                 stats = {
                     'sector': sector_name,
                     'count': len(group),
@@ -941,9 +949,9 @@ def screener_page():
                     'pct_of_results': len(group) / len(results_df) * 100,
                 }
                 def _median_of(col_name, positive_only=False):
-                    if col_name not in group.columns:
+                    if col_name not in full_group.columns:
                         return None
-                    vals = pd.to_numeric(group[col_name], errors='coerce').dropna()
+                    vals = pd.to_numeric(full_group[col_name], errors='coerce').dropna()
                     if positive_only:
                         vals = vals[vals > 0]
                     return float(vals.median()) if len(vals) > 0 else None
@@ -1024,19 +1032,25 @@ def screener_page():
                 # Industry breakdown
                 industries = []
                 if 'Industry' in group.columns:
+                    # Full industry groups for medians
+                    _full_ind_grouped = full_group.groupby('Industry') if 'Industry' in full_group.columns else None
+
                     for ind_name, ind_group in group.groupby('Industry'):
                         if not ind_name or pd.isna(ind_name):
                             continue
                         ind_stocks = [make_stock(row) for _, row in ind_group.iterrows()]
                         ind_stocks.sort(key=lambda x: x.get('rs_rank') or 0, reverse=True)
 
+                        # Full industry for medians (all stocks regardless of filter)
+                        full_ind = _full_ind_grouped.get_group(ind_name) if _full_ind_grouped and ind_name in _full_ind_grouped.groups else ind_group
+
                         def _ind_median(col_name, pos_only=False):
-                            vals = pd.to_numeric(ind_group.get(col_name, pd.Series()), errors='coerce').dropna()
+                            vals = pd.to_numeric(full_ind.get(col_name, pd.Series()), errors='coerce').dropna()
                             if pos_only: vals = vals[vals > 0]
                             return float(vals.median()) if len(vals) > 0 else None
 
                         def _ind_mean(col_name):
-                            vals = pd.to_numeric(ind_group.get(col_name, pd.Series()), errors='coerce').dropna()
+                            vals = pd.to_numeric(full_ind.get(col_name, pd.Series()), errors='coerce').dropna()
                             return float(vals.mean()) if len(vals) > 0 else None
 
                         _ind_pe = _ind_median('PE', pos_only=True)
