@@ -829,6 +829,66 @@ function renderMap(data) {
     });
     h += '</div>';
 
+    // Cutoff definitions for selected dimension
+    var cutoffs = {
+        rs_momentum: [
+            ['Improving', 'RS rank change 1M > +5 percentile points'],
+            ['Stable', 'RS rank change 1M between -5 and +5'],
+            ['Deteriorating', 'RS rank change 1M < -5 percentile points'],
+        ],
+        rs_bucket: [
+            ['RS 80+', '6-month return in top 20% of universe'],
+            ['RS 60-80', '6-month return in 60th-80th percentile'],
+            ['RS 40-60', '6-month return in 40th-60th percentile'],
+            ['RS 20-40', '6-month return in 20th-40th percentile'],
+            ['RS 0-20', '6-month return in bottom 20%'],
+        ],
+        pe_vs_sector: [
+            ['Deep Discount', 'PE < 0.7x sector median (30%+ cheaper)'],
+            ['Discount', 'PE 0.7x-0.9x sector median'],
+            ['Fair', 'PE 0.9x-1.1x sector median'],
+            ['Premium', 'PE 1.1x-1.3x sector median'],
+            ['High Premium', 'PE > 1.3x sector median (30%+ expensive)'],
+            ['No PE', 'Negative or missing earnings'],
+        ],
+        eps_growth: [
+            ['Growing', 'FY1 EPS estimate > trailing EPS'],
+            ['Declining', 'FY1 EPS estimate < trailing EPS'],
+            ['Flat', 'FY1 EPS estimate = trailing EPS'],
+            ['Unknown', 'Missing EPS data'],
+        ],
+        eps_momentum: [
+            ['Accelerating', '(FY2-FY1) growth > (FY1-TTM) growth — farther year accelerating'],
+            ['Decelerating', '(FY2-FY1) growth < (FY1-TTM) growth'],
+            ['Unknown', 'Missing estimate data'],
+        ],
+        pca_regime: [
+            ['Strong Leader', 'High RS, strong price trend, above MAs'],
+            ['Quiet Uptrend', 'Above MAs, moderate momentum'],
+            ['Erupting', 'High volatility breakout, sharp RS gain'],
+            ['Distributing', 'Rolling over, weakening internals'],
+            ['Declining', 'Below MAs, negative RS trend'],
+        ],
+        stage: [
+            ['Stage 1 Basing', 'Price consolidating around flat 200MA'],
+            ['Stage 2 Uptrend', 'Price above rising MAs, confirmed uptrend'],
+            ['Stage 3 Topping', 'MAs flattening, price volatile around 200MA'],
+            ['Stage 4 Declining', 'Price below falling MAs, downtrend'],
+        ],
+    };
+
+    var defs = cutoffs[data.dimension];
+    if (defs) {
+        h += '<div style="margin-top:10px;padding:8px 10px;background:var(--bg-card,#1a1a2a);border-radius:6px;border:1px solid var(--border,#333);">';
+        h += '<div style="font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Category Definitions</div>';
+        defs.forEach(function(def) {
+            var c = dimColors[def[0]] || '#666';
+            h += '<div style="font-size:11px;padding:1px 0;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+c+';margin-right:6px;"></span>';
+            h += '<strong style="color:#ccc;">'+def[0]+'</strong> <span style="color:var(--text-faint);">— '+def[1]+'</span></div>';
+        });
+        h += '</div>';
+    }
+
     document.getElementById('map-summary').innerHTML = h;
 }
 
