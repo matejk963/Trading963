@@ -1148,6 +1148,11 @@ def _watchlist_api_impl():
         ret_6m = (_close_slice.iloc[-1] / _close_slice.iloc[-126] - 1)
         rs_ranks = (ret_6m.rank(pct=True) * 100).to_dict()
 
+    # Historical prices for returns
+    _p1w = _close_slice.iloc[-6] if len(_close_slice) > 6 else last_prices
+    _p1m = _close_slice.iloc[-22] if len(_close_slice) > 22 else last_prices
+    _p3m = _close_slice.iloc[-64] if len(_close_slice) > 64 else last_prices
+
     stocks = []
     for sym in symbols:
         price = last_prices.get(sym)
@@ -1175,6 +1180,9 @@ def _watchlist_api_impl():
             'roic': r.get('roic'),
             'rs': round(rs_ranks.get(sym, 0)) if sym in rs_ranks else None,
             'target': r.get('target'),
+            'ret_1w': round(((price / _p1w.get(sym)) - 1) * 100, 1) if pd.notna(_p1w.get(sym)) and _p1w.get(sym) > 0 else None,
+            'ret_1m': round(((price / _p1m.get(sym)) - 1) * 100, 1) if pd.notna(_p1m.get(sym)) and _p1m.get(sym) > 0 else None,
+            'ret_3m': round(((price / _p3m.get(sym)) - 1) * 100, 1) if pd.notna(_p3m.get(sym)) and _p3m.get(sym) > 0 else None,
         })
 
     return jsonify({'stocks': stocks, 'as_of': str(_close_slice.index[_idx])[:10]})

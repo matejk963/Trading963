@@ -42,48 +42,83 @@ function loadWatchlist() {
 function renderWatchlist(data) {
     document.getElementById('wl-status').textContent = data.stocks.length + ' stocks | ' + data.as_of;
 
-    // Build sector/industry summary
-    var sectors = {};
+    // Build sector/industry summary with avg returns
+    var secData = {};
     data.stocks.forEach(function(st) {
         if (st.error || !st.sector) return;
-        if (!sectors[st.sector]) sectors[st.sector] = {};
+        var sec = st.sector;
         var ind = st.industry || 'Other';
-        if (!sectors[st.sector][ind]) sectors[st.sector][ind] = [];
-        sectors[st.sector][ind].push(st.symbol);
+        if (!secData[sec]) secData[sec] = { stocks: [], inds: {} };
+        secData[sec].stocks.push(st);
+        if (!secData[sec].inds[ind]) secData[sec].inds[ind] = [];
+        secData[sec].inds[ind].push(st);
     });
 
-    var sh = '<div style="border:1px solid var(--border);border-radius:8px;background:var(--bg-light);margin-bottom:2px;">';
+    function avgField(arr, key) {
+        var vals = arr.map(function(s) { return s[key]; }).filter(function(v) { return v != null; });
+        if (vals.length === 0) return null;
+        return vals.reduce(function(a, b) { return a + b; }, 0) / vals.length;
+    }
+    function fmtPct(v) {
+        if (v == null) return '—';
+        var cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+        return '<span class="'+cls+'">' + (v > 0 ? '+' : '') + v.toFixed(1) + '%</span>';
+    }
+
+    var sh = '<div style="border:1px solid var(--border);border-radius:8px;background:var(--bg-light);">';
     sh += '<div onclick="this.parentElement.classList.toggle(\'open\')" style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px;cursor:pointer;">';
     sh += '<span style="font-size:12px;font-weight:600;color:var(--text-dim);">Summary ▾</span>';
-    sh += '<span style="font-size:11px;color:var(--text-faint);">' + Object.keys(sectors).length + ' sectors</span>';
+    sh += '<span style="font-size:11px;color:var(--text-faint);">' + Object.keys(secData).length + ' sectors</span>';
     sh += '</div>';
-    sh += '<div class="wl-summary-body" style="display:none;padding:6px 14px 10px;border-top:1px solid var(--border);">';
+    sh += '<div class="wl-summary-body" style="display:none;padding:6px 10px 10px;border-top:1px solid var(--border);overflow-x:auto;">';
 
-    var sortedSec = Object.keys(sectors).sort(function(a, b) {
-        var ca = 0, cb = 0;
-        for (var i in sectors[a]) ca += sectors[a][i].length;
-        for (var i in sectors[b]) cb += sectors[b][i].length;
-        return cb - ca;
-    });
+    sh += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    sh += '<thead><tr style="border-bottom:2px solid #333;">';
+    sh += '<th style="text-align:left;padding:4px 8px;">Sector / Industry</th>';
+    sh += '<th style="padding:4px 6px;">#</th>';
+    sh += '<th style="padding:4px 6px;">Avg 1W</th>';
+    sh += '<th style="padding:4px 6px;">Avg 1M</th>';
+    sh += '<th style="padding:4px 6px;">Avg 3M</th>';
+    sh += '<th style="text-align:left;padding:4px 8px;">Stocks</th>';
+    sh += '</tr></thead><tbody>';
 
+    // Total row
+    var allStocks = data.stocks.filter(function(s) { return !s.error; });
+    sh += '<tr style="border-bottom:2px solid #444;background:#111;">';
+    sh += '<td style="padding:4px 8px;font-weight:700;color:var(--text-dim);">Total</td>';
+    sh += '<td style="padding:4px 6px;text-align:center;">' + allStocks.length + '</td>';
+    sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(allStocks, 'ret_1w')) + '</td>';
+    sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(allStocks, 'ret_1m')) + '</td>';
+    sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(allStocks, 'ret_3m')) + '</td>';
+    sh += '<td></td></tr>';
+
+    var sortedSec = Object.keys(secData).sort(function(a, b) { return secData[b].stocks.length - secData[a].stocks.length; });
     sortedSec.forEach(function(sec) {
-        var inds = sectors[sec];
-        var secCount = 0;
-        for (var i in inds) secCount += inds[i].length;
-        sh += '<div style="margin-bottom:6px;">';
-        sh += '<div style="font-size:12px;font-weight:600;color:var(--text);">' + sec + ' <span style="color:var(--text-faint);font-weight:400;">(' + secCount + ')</span></div>';
-        var sortedInd = Object.keys(inds).sort(function(a, b) { return inds[b].length - inds[a].length; });
+        var sd = secData[sec];
+        sh += '<tr style="border-bottom:1px solid var(--border);background:var(--bg-card);">';
+        sh += '<td style="padding:4px 8px;font-weight:600;">' + sec + '</td>';
+        sh += '<td style="padding:4px 6px;text-align:center;">' + sd.stocks.length + '</td>';
+        sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(sd.stocks, 'ret_1w')) + '</td>';
+        sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(sd.stocks, 'ret_1m')) + '</td>';
+        sh += '<td style="padding:4px 6px;text-align:center;">' + fmtPct(avgField(sd.stocks, 'ret_3m')) + '</td>';
+        sh += '<td style="padding:4px 8px;color:var(--text-faint);font-size:10px;">' + sd.stocks.map(function(s){return s.symbol;}).join(', ') + '</td>';
+        sh += '</tr>';
+
+        var sortedInd = Object.keys(sd.inds).sort(function(a, b) { return sd.inds[b].length - sd.inds[a].length; });
         sortedInd.forEach(function(ind) {
-            var syms = inds[ind];
-            sh += '<div style="padding-left:12px;font-size:11px;color:var(--text-dim);">';
-            sh += ind + ' <span style="color:var(--text-faint);">(' + syms.length + ')</span> ';
-            sh += '<span style="color:var(--primary);font-size:10px;">' + syms.join(', ') + '</span>';
-            sh += '</div>';
+            var stocks = sd.inds[ind];
+            sh += '<tr style="border-bottom:1px solid #1a1a2a;">';
+            sh += '<td style="padding:3px 8px 3px 24px;color:var(--text-dim);">' + ind + '</td>';
+            sh += '<td style="padding:3px 6px;text-align:center;color:var(--text-faint);">' + stocks.length + '</td>';
+            sh += '<td style="padding:3px 6px;text-align:center;">' + fmtPct(avgField(stocks, 'ret_1w')) + '</td>';
+            sh += '<td style="padding:3px 6px;text-align:center;">' + fmtPct(avgField(stocks, 'ret_1m')) + '</td>';
+            sh += '<td style="padding:3px 6px;text-align:center;">' + fmtPct(avgField(stocks, 'ret_3m')) + '</td>';
+            sh += '<td style="padding:3px 8px;color:var(--primary);font-size:10px;">' + stocks.map(function(s){return s.symbol;}).join(', ') + '</td>';
+            sh += '</tr>';
         });
-        sh += '</div>';
     });
 
-    sh += '</div></div>';
+    sh += '</tbody></table></div></div>';
     sh += '<style>.wl-summary-body{display:none}.open .wl-summary-body{display:block!important}</style>';
     document.getElementById('wl-summary').innerHTML = sh;
 
@@ -95,7 +130,7 @@ function renderWatchlist(data) {
         {k:'pe',l:'PE',t:'num'}, {k:'fwd_pe',l:'Fwd PE',t:'num'},
         {k:'eps_act',l:'EPS',t:'num'}, {k:'eps_fy1',l:'FY1',t:'num'}, {k:'eps_fy2',l:'FY2',t:'num'},
         {k:'op_margin',l:'OpMgn%',t:'num'}, {k:'roic',l:'ROIC%',t:'num'},
-        {k:'rs',l:'RS',t:'num'}, {k:'target',l:'Target',t:'num'},
+        {k:'rs',l:'RS',t:'num'}, {k:'ret_1w',l:'1W%',t:'num'}, {k:'ret_1m',l:'1M%',t:'num'}, {k:'ret_3m',l:'3M%',t:'num'}, {k:'target',l:'Target',t:'num'},
         {k:'_remove',l:'',t:'str'},
     ];
     cols.forEach(function(c, i) {
@@ -124,6 +159,14 @@ function renderWatchlist(data) {
         h += '<td style="padding:4px 8px;">'+(st.op_margin != null ? st.op_margin.toFixed(1) : '—')+'</td>';
         h += '<td style="padding:4px 8px;">'+(st.roic != null ? st.roic.toFixed(1) : '—')+'</td>';
         h += '<td style="padding:4px 8px;">'+(st.rs != null ? st.rs : '—')+'</td>';
+        function retCell(v) {
+            if (v == null) return '<td style="padding:4px 8px;">—</td>';
+            var cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+            return '<td style="padding:4px 8px;" class="'+cls+'">'+(v>0?'+':'')+v.toFixed(1)+'%</td>';
+        }
+        h += retCell(st.ret_1w);
+        h += retCell(st.ret_1m);
+        h += retCell(st.ret_3m);
         h += '<td style="padding:4px 8px;">'+(st.target != null ? st.target.toFixed(0) : '—')+'</td>';
         h += '<td style="padding:4px 8px;"><span onclick="event.stopPropagation();removeFromWatchlist(\''+st.symbol+'\');loadWatchlist();" style="cursor:pointer;color:var(--red,#ef4444);font-size:14px;" title="Remove">✕</span></td>';
         h += '</tr>';
