@@ -155,13 +155,12 @@ def classify_all_stages(d):
 
     adr_contracting = d['adr_20'] < d['adr_20'].rolling(40).mean()
     stage1 = (
-        (d['ma_150_slope_pct'].abs() < 0.05) &
-        (close >= 0.90 * d['ma_150']) &
-        (close <= 1.10 * d['ma_150']) &
-        (d['dist_52w_low'] >= 1.30) &
-        (d['dist_52w_high'] <= 0.70) &
-        adr_contracting &
-        (d['rs_rank'] >= 40) & (d['rs_rank'] <= 70)
+        (d['ma_150_slope_pct'].abs() < 0.10) &
+        (close >= 0.85 * d['ma_150']) &
+        (close <= 1.15 * d['ma_150']) &
+        (d['dist_52w_low'] >= 1.20) &
+        (d['dist_52w_high'] <= 0.80) &
+        adr_contracting
     )
 
     # Priority: S2 > S4 > S3 > S1 > 0
