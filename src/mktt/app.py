@@ -1385,13 +1385,13 @@ def _sales_ttm_forward_impl(symbol):
             rev_ttm = []
             for i in range(n_fwd):
                 window = rev_all[i+1: i+5]
-                    if len(window) == 4 and all(v is not None for v in window):
-                        rev_ttm.append(round(sum(window) / 1e6, 1))
-                    else:
-                        rev_ttm.append(None)
+                if len(window) == 4 and all(v is not None for v in window):
+                    rev_ttm.append(round(sum(window) / 1e6, 1))
+                else:
+                    rev_ttm.append(None)
 
-                label = 'Current (' + snap_date.strftime('%m/%d') + ')' if si == 0 else snap_date.strftime('%Y-%m-%d')
-                curves_list.append({'label': label, 'values': rev_ttm})
+            label = 'Current (' + snap_date.strftime('%m/%d') + ')' if si == 0 else snap_date.strftime('%Y-%m-%d')
+            curves_list.append({'label': label, 'values': rev_ttm})
 
     result = {
         'quarter_labels': [f"{d.year}-Q{(d.month - 1)//3 + 1}" for d in quarter_dates],
