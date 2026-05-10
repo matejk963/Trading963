@@ -243,6 +243,7 @@ def screener_page():
     analysts_min = _flt('analysts_min')
     eps_growth = request.args.get('eps_growth', '')
     rev_growth = request.args.get('rev_growth', '')
+    eps_accel_filt = request.args.get('eps_accel_filter', '')
     pe_sect_min = _flt('pe_sect_min')
     pe_sect_max = _flt('pe_sect_max')
     pe_ind_min = _flt('pe_ind_min')
@@ -273,7 +274,7 @@ def screener_page():
     has_fund_filters = any(x is not None for x in [
         pe_min, pe_max, fwdpe_min, fwdpe_max, opmgn_min, opmgn_max,
         roic_min, roic_max, evebitda_min, evebitda_max, ndebitda_min, ndebitda_max,
-        rs_min, analysts_min, pe_sect_min, pe_sect_max, pe_ind_min, pe_ind_max]) or eps_growth != '' or rev_growth != ''
+        rs_min, analysts_min, pe_sect_min, pe_sect_max, pe_ind_min, pe_ind_max]) or eps_growth != '' or rev_growth != '' or eps_accel_filt != ''
 
     has_tech_filters = any(x is not None for x in [
         pct50_min, pct50_max, pct200_min, pct200_max,
@@ -301,6 +302,7 @@ def screener_page():
         'rs_min': rs_min, 'analysts_min': analysts_min,
         'eps_growth': eps_growth,
         'rev_growth': rev_growth,
+        'eps_accel_filter': eps_accel_filt,
         'has_fund_filters': has_fund_filters,
         'pct50_min': pct50_min, 'pct50_max': pct50_max,
         'pct200_min': pct200_min, 'pct200_max': pct200_max,
@@ -865,17 +867,6 @@ def screener_page():
                 results_df = results_df[_gc('G_FQ_YOY') > 0]
             elif eps_growth == 'fq_yoy_neg':
                 results_df = results_df[_gc('G_FQ_YOY') < 0]
-            elif eps_growth == 'accel':
-                # True acceleration: NTM/TTM growth > TTM/priorTTM growth
-                results_df = results_df[_gc('G_NTM_TTM') > _gc('G_TTM_YOY')]
-            elif eps_growth == 'decel':
-                results_df = results_df[_gc('G_NTM_TTM') < _gc('G_TTM_YOY')]
-            elif eps_growth == 'accel_pos':
-                # Accelerating AND both growth rates positive
-                results_df = results_df[(_gc('G_NTM_TTM') > _gc('G_TTM_YOY')) & (_gc('G_NTM_TTM') > 0) & (_gc('G_TTM_YOY') > 0)]
-            elif eps_growth == 'decel_neg':
-                # Decelerating AND forward growth negative
-                results_df = results_df[(_gc('G_NTM_TTM') < _gc('G_TTM_YOY')) & (_gc('G_NTM_TTM') < 0)]
             elif eps_growth == 'all_pos':
                 results_df = results_df[(_gc('G_NTM_TTM') > 0) & (_gc('G_FY2_FY1') > 0)]
 
@@ -898,6 +889,16 @@ def screener_page():
                 results_df = results_df[_gc('RG_FQ_YOY') < 0]
             elif rev_growth == 'all_pos':
                 results_df = results_df[(_gc('RG_NTM_TTM') > 0) & (_gc('RG_FY2_FY1') > 0)]
+
+            # EPS Acceleration filter
+            if eps_accel_filt == 'accel':
+                results_df = results_df[_gc('G_NTM_TTM') > _gc('G_TTM_YOY')]
+            elif eps_accel_filt == 'decel':
+                results_df = results_df[_gc('G_NTM_TTM') < _gc('G_TTM_YOY')]
+            elif eps_accel_filt == 'accel_pos':
+                results_df = results_df[(_gc('G_NTM_TTM') > _gc('G_TTM_YOY')) & (_gc('G_NTM_TTM') > 0) & (_gc('G_TTM_YOY') > 0)]
+            elif eps_accel_filt == 'decel_neg':
+                results_df = results_df[(_gc('G_NTM_TTM') < _gc('G_TTM_YOY')) & (_gc('G_NTM_TTM') < 0)]
 
             # Rebuild data list after filtering
             data = results_df.to_dict('records')

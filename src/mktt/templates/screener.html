@@ -129,6 +129,7 @@
                 {% if filters.opmgn_min %}<span class="tag">OpMgn≥{{ filters.opmgn_min }}</span>{% endif %}
                 {% if filters.roic_min %}<span class="tag">ROIC≥{{ filters.roic_min }}</span>{% endif %}
                 {% if filters.eps_growth %}<span class="tag">EPS: {{ filters.eps_growth }}</span>{% endif %}
+                {% if filters.eps_accel_filter %}<span class="tag">Accel: {{ filters.eps_accel_filter }}</span>{% endif %}
                 {% if filters.rev_growth %}<span class="tag">Rev: {{ filters.rev_growth }}</span>{% endif %}
                 {% if filters.evebitda_max %}<span class="tag">EV/EB≤{{ filters.evebitda_max }}</span>{% endif %}
                 {% if filters.pe_sect_min or filters.pe_sect_max %}<span class="tag">PE/S: {{ filters.pe_sect_min or '' }}-{{ filters.pe_sect_max or '' }}</span>{% endif %}
@@ -244,15 +245,16 @@
                             <option value="fq_yoy_pos" {% if filters.eps_growth == 'fq_yoy_pos' %}selected{% endif %}>FQ > Same FQ LY</option>
                             <option value="fq_yoy_neg" {% if filters.eps_growth == 'fq_yoy_neg' %}selected{% endif %}>FQ < Same FQ LY</option>
                         </optgroup>
-                        <optgroup label="Acceleration (NTM vs TTM vs Prior TTM)">
-                            <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
-                            <option value="decel" {% if filters.eps_growth == 'decel' %}selected{% endif %}>Decelerating</option>
-                            <option value="accel_pos" {% if filters.eps_growth == 'accel_pos' %}selected{% endif %}>Accel + Both Growing</option>
-                            <option value="decel_neg" {% if filters.eps_growth == 'decel_neg' %}selected{% endif %}>Decel + Fwd Negative</option>
-                        </optgroup>
                         <optgroup label="Combo">
                             <option value="all_pos" {% if filters.eps_growth == 'all_pos' %}selected{% endif %}>NTM + FY2 both growing</option>
                         </optgroup>
+                    </select></div>
+                <div class="filter-group"><label>EPS Accel</label>
+                    <select name="eps_accel_filter" style="font-size:11px"><option value="">Any</option>
+                        <option value="accel" {% if filters.eps_accel_filter == 'accel' %}selected{% endif %}>Accelerating</option>
+                        <option value="decel" {% if filters.eps_accel_filter == 'decel' %}selected{% endif %}>Decelerating</option>
+                        <option value="accel_pos" {% if filters.eps_accel_filter == 'accel_pos' %}selected{% endif %}>Accel + Both Growing</option>
+                        <option value="decel_neg" {% if filters.eps_accel_filter == 'decel_neg' %}selected{% endif %}>Decel + Fwd Negative</option>
                     </select></div>
                 <div class="filter-group"><label>Rev Growth</label>
                     <select name="rev_growth" style="font-size:11px"><option value="">Any</option>
