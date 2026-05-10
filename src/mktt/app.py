@@ -1280,6 +1280,137 @@ def _rolling_12m_impl(symbol):
     return jsonify(result)
 
 
+@app.route('/api/sales_ttm_forward/<symbol>')
+def sales_ttm_forward_api(symbol):
+    """Return forward TTM Revenue curves with revisions."""
+    try:
+        return _sales_ttm_forward_impl(symbol)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def _sales_ttm_forward_impl(symbol):
+    import pickle, math
+    from pathlib import Path
+
+    pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
+    if not pkl_path.exists():
+        return jsonify({'error': 'No data'}), 404
+    with open(pkl_path, 'rb') as f:
+        data = pickle.load(f)
+
+    quarterly = data.get('quarterly')
+    fwd_q = data.get('forward_quarterly')
+    trend_rev_fy1 = data.get('trend_rev_fy1')
+    if quarterly is None or fwd_q is None:
+        return jsonify({'error': 'Missing data'}), 404
+
+    # Quarterly actuals
+    q = quarterly[quarterly['Symbol'] == symbol].copy()
+    if q.empty:
+        return jsonify({'error': f'No quarterly data for {symbol}'}), 404
+    q['Date'] = pd.to_datetime(q['Date'])
+    q = q.sort_values('Date')
+    q['Rev'] = pd.to_numeric(q['Revenue - Actual'], errors='coerce')
+    q = q.dropna(subset=['Rev'])
+    if len(q) < 4:
+        return jsonify({'error': f'Not enough quarterly revenue data for {symbol}'}), 404
+
+    # Forward quarterly revenue
+    fq = fwd_q[fwd_q['Symbol'] == symbol]
+    fq_rev = pd.to_numeric(fq.get('Revenue - Mean', pd.Series()), errors='coerce').values
+    fq_rev = [v if not (math.isnan(v) if isinstance(v, float) else False) else None for v in fq_rev]
+
+    n_fwd = min(8, len(fq_rev))
+    if n_fwd < 4:
+        return jsonify({'error': f'Not enough forward quarterly revenue estimates for {symbol}'}), 404
+
+    # Trailing actuals (last 4)
+    trailing = q['Rev'].tail(4).tolist()
+
+    # Build forward TTM from per-quarter estimates
+    all_rev = trailing + fq_rev[:n_fwd]
+    quarter_dates = []
+    last_dt = q['Date'].iloc[-1]
+    for i in range(n_fwd):
+        last_dt = last_dt + pd.DateOffset(months=3)
+        quarter_dates.append(last_dt)
+
+    forward_mean = []
+    for i in range(n_fwd):
+        window = all_rev[i+1: i+5]
+        if all(v is not None for v in window):
+            forward_mean.append(round(sum(window) / 1e6, 1))
+        else:
+            forward_mean.append(None)
+
+    # Revision curves from revenue trend data
+    curves_list = []
+    n_available = 0
+    if trend_rev_fy1 is not None:
+        trend_rev_fy2 = data.get('trend_rev_fy2')
+        rv1 = trend_rev_fy1[trend_rev_fy1['Symbol'] == symbol].copy()
+        rv2 = trend_rev_fy2[trend_rev_fy2['Symbol'] == symbol].copy() if trend_rev_fy2 is not None else pd.DataFrame()
+
+        if not rv1.empty:
+            rv1['Date'] = pd.to_datetime(rv1['Date'])
+            rv1['Mean'] = pd.to_numeric(rv1.get('Revenue - Mean', pd.Series()), errors='coerce')
+            rv1 = rv1.sort_values('Date')
+            if not rv2.empty:
+                rv2['Date'] = pd.to_datetime(rv2['Date'])
+                rv2['Mean'] = pd.to_numeric(rv2.get('Revenue - Mean', pd.Series()), errors='coerce')
+                rv2 = rv2.sort_values('Date')
+
+            # Seasonal weights
+            annual_sum = q['Rev'].tail(4).sum()
+            weights = (q['Rev'].tail(4).values / annual_sum).tolist() if annual_sum != 0 else [0.25]*4
+
+            all_trend_dates = sorted(set(
+                rv1[rv1['Mean'].notna()]['Date'].tolist() +
+                (rv2[rv2['Mean'].notna()]['Date'].tolist() if not rv2.empty else [])
+            ), reverse=True)
+            n_available = len(all_trend_dates)
+
+            from flask import request as _req
+            n_rev = int(_req.args.get('n', 3))
+            n_rev = max(1, min(n_rev, n_available))
+            snap_dates = all_trend_dates[:n_rev]
+
+            for si, snap_date in enumerate(snap_dates):
+                f1 = rv1[rv1['Date'] <= snap_date]
+                f2 = rv2[rv2['Date'] <= snap_date] if not rv2.empty else pd.DataFrame()
+                fy1_val = float(f1['Mean'].iloc[-1]) if not f1.empty else None
+                fy2_val = float(f2['Mean'].iloc[-1]) if not f2.empty else None
+                if fy1_val is None:
+                    continue
+
+                fy1_q = [fy1_val * w for w in weights]
+                fy2_q = [fy2_val * w for w in weights] if fy2_val else [0]*4
+                fwd_est = fy1_q + fy2_q
+                rev_all = trailing + fwd_est[:n_fwd]
+                rev_ttm = []
+                for i in range(n_fwd):
+                    window = rev_all[i+1: i+5]
+                    if len(window) == 4 and all(v is not None for v in window):
+                        rev_ttm.append(round(sum(window) / 1e6, 1))
+                    else:
+                        rev_ttm.append(None)
+
+                label = 'Current (' + snap_date.strftime('%m/%d') + ')' if si == 0 else snap_date.strftime('%Y-%m-%d')
+                curves_list.append({'label': label, 'values': rev_ttm})
+
+    result = {
+        'quarter_labels': [f"{d.year}-Q{(d.month - 1)//3 + 1}" for d in quarter_dates],
+        'quarter_dates': [d.strftime('%Y-%m-%d') for d in quarter_dates],
+        'curves': curves_list,
+        'current_ttm': round(float(q['Rev'].tail(4).sum() / 1e6), 1),
+        'forward_mean': forward_mean,
+        'n_available': n_available,
+    }
+    return jsonify(result)
+
+
 @app.route('/watchlist')
 def watchlist_page():
     """Watchlist page — stocks stored client-side, data fetched server-side."""

@@ -41,6 +41,7 @@ function toggleStockChart(symbol, clickedRow) {
     var tabs = [
         {id:'chart', label:'Chart'},
         {id:'eps', label:'EPS'},
+        {id:'sales', label:'Sales'},
         {id:'fundamentals', label:'Fundamentals'},
         {id:'revisions', label:'Revisions'},
         {id:'rolling12m', label:'Rolling 12M'}
@@ -77,7 +78,7 @@ function toggleStockChart(symbol, clickedRow) {
 
 function switchPanelTab(tabId, symbol) {
     // Update tab styles
-    ['chart','eps','fundamentals','revisions','rolling12m'].forEach(function(t) {
+    ['chart','eps','sales','fundamentals','revisions','rolling12m'].forEach(function(t) {
         var el = document.getElementById('panel-tab-' + t);
         if (el) {
             el.style.color = t === tabId ? 'white' : '#666';
@@ -91,6 +92,7 @@ function switchPanelTab(tabId, symbol) {
     console.log('switchPanelTab:', tabId, symbol);
     if (tabId === 'chart') loadPanelChart(symbol, content);
     else if (tabId === 'eps') loadPanelEPS(symbol, content);
+    else if (tabId === 'sales') loadPanelSales(symbol, content);
     else if (tabId === 'fundamentals') loadPanelFundamentals(symbol, content);
     else if (tabId === 'revisions') loadPanelRevisions(symbol, content);
     else if (tabId === 'rolling12m') loadPanelRolling12M(symbol, content);
@@ -261,6 +263,102 @@ function loadPanelEPS(symbol, container) {
                 height: h,
                 title: { text: 'EPS: Trailing TTM + Forward + Revisions', font: { size: 13, color: '#aaa' } },
                 yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'EPS ($)' }),
+            }), { displayModeBar: false, responsive: true });
+        }, 30);
+    }).catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
+}
+
+var _salesRevCount = 3;
+var _salesLastSymbol = null;
+
+function loadPanelSales(symbol, container) {
+    _salesLastSymbol = symbol;
+    Promise.all([
+        fetch('/api/rolling_12m/' + encodeURIComponent(symbol)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); }),
+        fetch('/api/sales_ttm_forward/' + encodeURIComponent(symbol) + '?n=' + (_salesRevCount || 3)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); })
+    ]).then(function(results) {
+        var r12m = results[0];
+        var salesFwd = results[1];
+        container.innerHTML = '';
+        container.style.overflow = 'hidden';
+
+        var ctrl = document.createElement('div');
+        ctrl.style.cssText = 'position:absolute;top:4px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;';
+        ctrl.innerHTML = '<label style="font-size:10px;color:#666;">Revisions:</label>' +
+            '<input id="sales-rev-input" type="number" value="' + _salesRevCount + '" min="1" max="' + ((salesFwd && salesFwd.n_available) || 12) + '" style="width:40px;font-size:11px;padding:2px 4px;background:#1a1a2a;border:1px solid #333;color:#ccc;border-radius:3px;">';
+
+        var chartDiv = document.createElement('div');
+        chartDiv.id = 'sales-main-chart';
+        chartDiv.style.cssText = 'width:100%;height:100%;position:relative;';
+        chartDiv.appendChild(ctrl);
+        container.appendChild(chartDiv);
+
+        document.getElementById('sales-rev-input').onchange = function() {
+            _salesRevCount = parseInt(this.value) || 3;
+            loadPanelSales(_salesLastSymbol, document.getElementById('panel-content'));
+        };
+
+        setTimeout(function() {
+            var h = container.getBoundingClientRect().height - 8;
+            var traces = [];
+            var palette = ['#f59e0b', '#10b981', '#4f8cf7', '#ef4444', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16'];
+
+            // 1. Trailing TTM actual revenue
+            if (r12m.dates && r12m.rev_ttm) {
+                traces.push({
+                    x: r12m.dates, y: r12m.rev_ttm, name: 'Revenue TTM ($M)',
+                    mode: 'lines', line: { color: '#f59e0b', width: 2.5 },
+                });
+            }
+
+            // 2. Forward cone (high/low)
+            if (r12m.fwd_dates && r12m.fwd_rev_mean) {
+                var connDates = [r12m.dates[r12m.dates.length - 1]].concat(r12m.fwd_dates);
+                var lastRev = r12m.rev_ttm[r12m.rev_ttm.length - 1];
+
+                if (r12m.fwd_rev_high) {
+                    traces.push({
+                        x: connDates, y: [lastRev].concat(r12m.fwd_rev_high),
+                        name: 'Est High', mode: 'lines', line: { width: 0 }, showlegend: false,
+                    });
+                    traces.push({
+                        x: connDates, y: [lastRev].concat(r12m.fwd_rev_low || r12m.fwd_rev_mean),
+                        name: 'Est Range', mode: 'lines', line: { width: 0 },
+                        fill: 'tonexty', fillcolor: 'rgba(16,185,129,0.12)', showlegend: false,
+                    });
+                }
+
+                // Forward mean
+                traces.push({
+                    x: connDates, y: [lastRev].concat(r12m.fwd_rev_mean), name: 'Forward (Mean)',
+                    mode: 'lines+markers', line: { color: '#10b981', width: 2.5 },
+                    marker: { size: 5 },
+                });
+            }
+
+            // 3. Revision lines
+            if (salesFwd && !salesFwd.error && salesFwd.curves && salesFwd.curves.length > 0) {
+                var qDates = salesFwd.quarter_dates;
+                salesFwd.curves.forEach(function(curve, i) {
+                    traces.push({
+                        x: qDates, y: curve.values, name: curve.label,
+                        mode: 'lines', line: { color: palette[(i + 2) % palette.length], width: 1, dash: 'dash' },
+                    });
+                });
+
+                if (salesFwd.current_ttm) {
+                    traces.push({
+                        x: qDates, y: Array(qDates.length).fill(salesFwd.current_ttm),
+                        name: 'Actual TTM (' + salesFwd.current_ttm + ')',
+                        mode: 'lines', line: { color: '#666', dash: 'dot', width: 1 },
+                    });
+                }
+            }
+
+            Plotly.newPlot('sales-main-chart', traces, Object.assign({}, PLOTLY_DARK, {
+                height: h,
+                title: { text: 'Revenue: Trailing TTM + Forward + Revisions ($M)', font: { size: 13, color: '#aaa' } },
+                yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'Revenue ($M)' }),
             }), { displayModeBar: false, responsive: true });
         }, 30);
     }).catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
