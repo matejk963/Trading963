@@ -41,7 +41,8 @@ function toggleStockChart(symbol, clickedRow) {
     var tabs = [
         {id:'chart', label:'Chart'},
         {id:'fundamentals', label:'Fundamentals'},
-        {id:'revisions', label:'Revisions'}
+        {id:'revisions', label:'Revisions'},
+        {id:'rolling12m', label:'Rolling 12M'}
     ];
     tabs.forEach(function(tab, i) {
         var btn = document.createElement('span');
@@ -75,7 +76,7 @@ function toggleStockChart(symbol, clickedRow) {
 
 function switchPanelTab(tabId, symbol) {
     // Update tab styles
-    ['chart','fundamentals','revisions'].forEach(function(t) {
+    ['chart','fundamentals','revisions','rolling12m'].forEach(function(t) {
         var el = document.getElementById('panel-tab-' + t);
         if (el) {
             el.style.color = t === tabId ? 'white' : '#666';
@@ -90,6 +91,7 @@ function switchPanelTab(tabId, symbol) {
     if (tabId === 'chart') loadPanelChart(symbol, content);
     else if (tabId === 'fundamentals') loadPanelFundamentals(symbol, content);
     else if (tabId === 'revisions') loadPanelRevisions(symbol, content);
+    else if (tabId === 'rolling12m') loadPanelRolling12M(symbol, content);
 }
 
 function loadPanelChart(symbol, container) {
@@ -306,4 +308,87 @@ function loadPanelRevisions(symbol, container) {
             }
         }, 30);
     }).catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
+}
+
+function loadPanelRolling12M(symbol, container) {
+    fetch('/api/rolling_12m/' + encodeURIComponent(symbol))
+        .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); })
+        .then(function(data) {
+            container.innerHTML = '';
+            container.style.overflow = 'auto';
+
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:4px;height:100%;';
+
+            var div1 = document.createElement('div');
+            div1.style.cssText = 'flex:1;min-width:0;';
+            div1.id = 'r12m-eps';
+            row.appendChild(div1);
+
+            var div2 = document.createElement('div');
+            div2.style.cssText = 'flex:1;min-width:0;';
+            div2.id = 'r12m-rev';
+            row.appendChild(div2);
+
+            container.appendChild(row);
+
+            setTimeout(function() {
+                var h = container.getBoundingClientRect().height - 8;
+
+                // EPS Rolling 12M
+                var epsTraces = [];
+                // Actual TTM
+                epsTraces.push({
+                    x: data.dates, y: data.eps_ttm, name: 'EPS TTM (Actual)',
+                    mode: 'lines', line: { color: '#4f8cf7', width: 2 },
+                });
+                // Estimate TTM (what consensus expected at each quarter)
+                if (data.eps_est_ttm) {
+                    epsTraces.push({
+                        x: data.dates, y: data.eps_est_ttm, name: 'EPS TTM (Estimate)',
+                        mode: 'lines', line: { color: '#4f8cf7', width: 1, dash: 'dot' },
+                    });
+                }
+                // Forward NTM
+                if (data.fwd_dates && data.fwd_eps_mean) {
+                    // Connect last actual to first forward
+                    var connDates = [data.dates[data.dates.length-1]].concat(data.fwd_dates);
+                    var connEps = [data.eps_ttm[data.eps_ttm.length-1]].concat(data.fwd_eps_mean);
+                    epsTraces.push({
+                        x: connDates, y: connEps, name: 'Forward (Est)',
+                        mode: 'lines+markers', line: { color: '#10b981', width: 2, dash: 'dash' },
+                        marker: { size: 5 },
+                    });
+                }
+
+                Plotly.newPlot('r12m-eps', epsTraces, Object.assign({}, PLOTLY_DARK, {
+                    height: h,
+                    title: { text: 'Rolling 12M EPS', font: { size: 12, color: '#aaa' } },
+                    yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'EPS ($)' }),
+                }), { displayModeBar: false, responsive: true });
+
+                // Revenue Rolling 12M
+                var revTraces = [];
+                revTraces.push({
+                    x: data.dates, y: data.rev_ttm, name: 'Revenue TTM ($M)',
+                    mode: 'lines', line: { color: '#f59e0b', width: 2 },
+                });
+                if (data.fwd_dates && data.fwd_rev_mean) {
+                    var connDatesR = [data.dates[data.dates.length-1]].concat(data.fwd_dates);
+                    var connRev = [data.rev_ttm[data.rev_ttm.length-1]].concat(data.fwd_rev_mean);
+                    revTraces.push({
+                        x: connDatesR, y: connRev, name: 'Forward (Est)',
+                        mode: 'lines+markers', line: { color: '#10b981', width: 2, dash: 'dash' },
+                        marker: { size: 5 },
+                    });
+                }
+
+                Plotly.newPlot('r12m-rev', revTraces, Object.assign({}, PLOTLY_DARK, {
+                    height: h,
+                    title: { text: 'Rolling 12M Revenue ($M)', font: { size: 12, color: '#aaa' } },
+                    yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'Revenue ($M)' }),
+                }), { displayModeBar: false, responsive: true });
+            }, 30);
+        })
+        .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
 }

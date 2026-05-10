@@ -1133,6 +1133,142 @@ def screener_page():
                            as_of_date=_as_of_used)
 
 
+@app.route('/api/rolling_12m/<symbol>')
+def rolling_12m_api(symbol):
+    """Return rolling 12-month EPS and Revenue with estimate bounds."""
+    try:
+        return _rolling_12m_impl(symbol)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def _rolling_12m_impl(symbol):
+    import pickle
+    from pathlib import Path
+
+    pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
+    if not pkl_path.exists():
+        return jsonify({'error': 'No data'}), 404
+    with open(pkl_path, 'rb') as f:
+        data = pickle.load(f)
+
+    quarterly = data.get('quarterly')
+    if quarterly is None:
+        return jsonify({'error': 'No quarterly data'}), 404
+
+    q = quarterly[quarterly['Symbol'] == symbol].copy()
+    if q.empty:
+        return jsonify({'error': f'No data for {symbol}'}), 404
+
+    q['Date'] = pd.to_datetime(q['Date'], errors='coerce')
+    q = q.sort_values('Date').dropna(subset=['Date'])
+
+    def _n(v):
+        if v is None or v == '' or (isinstance(v, float) and pd.isna(v)):
+            return None
+        try:
+            return float(v)
+        except:
+            return None
+
+    q['eps'] = q['Earnings Per Share - Actual'].map(_n)
+    q['eps_est'] = q['Earnings Per Share - Mean Estimate'].map(_n)
+    q['rev'] = q['Revenue - Actual'].map(_n)
+
+    # Rolling 12M (4 quarter sum) for actuals
+    dates = []
+    eps_ttm = []
+    rev_ttm = []
+    eps_est_ttm = []
+
+    for i in range(3, len(q)):
+        window = q.iloc[i-3:i+1]
+        dt = q.iloc[i]['Date']
+
+        eps_vals = [window.iloc[j]['eps'] for j in range(4)]
+        rev_vals = [window.iloc[j]['rev'] for j in range(4)]
+        est_vals = [window.iloc[j]['eps_est'] for j in range(4)]
+
+        if all(v is not None for v in eps_vals):
+            eps_ttm.append(round(sum(eps_vals), 2))
+        else:
+            eps_ttm.append(None)
+
+        if all(v is not None for v in rev_vals):
+            rev_ttm.append(round(sum(rev_vals) / 1e6, 1))
+        else:
+            rev_ttm.append(None)
+
+        if all(v is not None for v in est_vals):
+            eps_est_ttm.append(round(sum(est_vals), 2))
+        else:
+            eps_est_ttm.append(None)
+
+        dates.append(str(dt)[:10])
+
+    # Forward: add NTM from forward quarterly estimates
+    fwd_q = data.get('forward_quarterly')
+    fwd_dates = []
+    fwd_eps_mean = []
+    fwd_eps_high = []
+    fwd_eps_low = []
+    fwd_rev_mean = []
+
+    if fwd_q is not None:
+        fq = fwd_q[fwd_q['Symbol'] == symbol]
+        if len(fq) >= 4:
+            eps_fwd = pd.to_numeric(fq['Earnings Per Share - Mean'], errors='coerce').values
+            rev_fwd = pd.to_numeric(fq['Revenue - Mean'], errors='coerce').values
+
+            # Get last 4 actual EPS for blending
+            last_actuals = [q.iloc[-(4-j)]['eps'] for j in range(4) if len(q) > (4-j-1)]
+
+            # Build rolling 12M forward: for each of the next 4 quarters,
+            # TTM = (remaining actuals) + (forward estimates filled in)
+            for step in range(1, 5):
+                if step > len(eps_fwd):
+                    break
+                # Blend: take last (4-step) actuals + first (step) forward estimates
+                n_actual = 4 - step
+                actual_part = last_actuals[step:] if step < len(last_actuals) else []
+                fwd_part = eps_fwd[:step].tolist()
+
+                actual_vals = [v for v in actual_part if v is not None]
+                fwd_vals = [v for v in fwd_part if not pd.isna(v)]
+
+                if len(actual_vals) + len(fwd_vals) == 4:
+                    total = sum(actual_vals) + sum(fwd_vals)
+                    fwd_eps_mean.append(round(total, 2))
+                else:
+                    fwd_eps_mean.append(None)
+
+                # Revenue forward
+                rev_actual_part = [q.iloc[-(4-j)]['rev'] for j in range(step, 4) if len(q) > (4-j-1)]
+                rev_fwd_part = rev_fwd[:step].tolist()
+                ra = [v for v in rev_actual_part if v is not None]
+                rf = [v for v in rev_fwd_part if not pd.isna(v)]
+                if len(ra) + len(rf) == 4:
+                    fwd_rev_mean.append(round((sum(ra) + sum(rf)) / 1e6, 1))
+                else:
+                    fwd_rev_mean.append(None)
+
+                # Estimate forward quarter date (~3 months after last)
+                last_dt = pd.to_datetime(dates[-1]) if dates else q['Date'].iloc[-1]
+                fwd_dates.append(str(last_dt + pd.DateOffset(months=3 * step))[:10])
+
+    result = {
+        'dates': dates,
+        'eps_ttm': eps_ttm,
+        'eps_est_ttm': eps_est_ttm,
+        'rev_ttm': rev_ttm,
+        'fwd_dates': fwd_dates,
+        'fwd_eps_mean': fwd_eps_mean,
+        'fwd_rev_mean': fwd_rev_mean,
+    }
+    return jsonify(result)
+
+
 @app.route('/watchlist')
 def watchlist_page():
     """Watchlist page — stocks stored client-side, data fetched server-side."""
