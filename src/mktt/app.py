@@ -642,10 +642,12 @@ def screener_page():
             from pathlib import Path
             _pkl = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
             _qdata = None
+            _pkl_data = {}
             if _pkl.exists():
                 try:
                     with open(_pkl, 'rb') as f:
-                        _qdata = pickle.load(f).get('quarterly')
+                        _pkl_data = pickle.load(f)
+                    _qdata = _pkl_data.get('quarterly')
                 except:
                     pass
 
@@ -672,10 +674,10 @@ def screener_page():
 
                 # Compute growth columns
                 def _g_ntm_ttm(row):
-                    fy1 = row.get('EPS_FY1')
-                    act = row.get('EPS_Act')
-                    if pd.notna(fy1) and pd.notna(act) and act != 0:
-                        return round((float(fy1) / float(act) - 1) * 100, 1)
+                    ntm = row.get('EPS_NTM')
+                    ttm = row.get('EPS_TTM')
+                    if pd.notna(ntm) and pd.notna(ttm) and ttm and ttm != 0:
+                        return round((float(ntm) / float(ttm) - 1) * 100, 1)
                     return None
 
                 def _g_fy2_fy1(row):
@@ -705,7 +707,21 @@ def screener_page():
                 # TTM / NTM absolute values
                 results_df['EPS_TTM'] = results_df['Symbol'].map(
                     lambda s: round(_eps_metrics[s]['ttm'], 2) if s in _eps_metrics else None)
-                results_df['EPS_NTM'] = results_df['EPS_FY1']  # FY1 = best NTM proxy
+
+                # True NTM: sum of next 4 quarterly estimates from forward_quarterly
+                _fwd_q = _pkl_data.get('forward_quarterly')
+                _ntm_eps = {}
+                _ntm_rev = {}
+                if _fwd_q is not None:
+                    for sym, grp in _fwd_q.groupby('Symbol'):
+                        eps_vals = pd.to_numeric(grp['Earnings Per Share - Mean'], errors='coerce').dropna()
+                        rev_vals = pd.to_numeric(grp['Revenue - Mean'], errors='coerce').dropna()
+                        if len(eps_vals) >= 4:
+                            _ntm_eps[sym] = round(float(eps_vals.iloc[:4].sum()), 2)
+                        if len(rev_vals) >= 4:
+                            _ntm_rev[sym] = round(float(rev_vals.iloc[:4].sum() / 1e6), 1)
+
+                results_df['EPS_NTM'] = results_df['Symbol'].map(lambda s: _ntm_eps.get(s))
 
                 # Revenue growth metrics (same logic, different columns)
                 _rev_metrics = {}
@@ -727,10 +743,10 @@ def screener_page():
                         }
 
                 def _rg_ntm_ttm(row):
-                    fy1 = row.get('Rev_FY1')
-                    act = row.get('Rev_Act')
-                    if pd.notna(fy1) and pd.notna(act) and act and act != 0:
-                        return round((float(fy1) / float(act) - 1) * 100, 1)
+                    ntm = row.get('Rev_NTM')
+                    ttm = row.get('Rev_TTM')
+                    if pd.notna(ntm) and pd.notna(ttm) and ttm and ttm != 0:
+                        return round((float(ntm) / float(ttm) - 1) * 100, 1)
                     return None
 
                 def _rg_fy2_fy1(row):
@@ -760,8 +776,7 @@ def screener_page():
                 # Revenue TTM / NTM absolute values
                 results_df['Rev_TTM'] = results_df['Symbol'].map(
                     lambda s: round(_rev_metrics[s]['ttm'] / 1e6, 1) if s in _rev_metrics else None)
-                results_df['Rev_NTM'] = results_df['Rev_FY1'].map(
-                    lambda v: round(float(v) / 1e6, 1) if pd.notna(v) and v else None)
+                results_df['Rev_NTM'] = results_df['Symbol'].map(lambda s: _ntm_rev.get(s))
 
         # Write enriched data back
         enrich_cols = ['Sector', 'Industry', 'PE', 'FwdPE',
