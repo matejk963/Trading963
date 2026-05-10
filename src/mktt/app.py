@@ -1231,15 +1231,22 @@ def _rolling_12m_impl(symbol):
             last_actuals_rev = [q.iloc[-(4-j)]['rev'] for j in range(4) if len(q) > (4-j-1)]
 
             def _blend(actuals, fwd_vals, step, div=1):
-                actual_part = actuals[step:] if step < len(actuals) else []
-                fwd_part = fwd_vals[:step].tolist()
+                """Rolling 12M at step N: take last (4-step) actuals + first (step) forward estimates.
+                For step > 4, all 4 come from forward: fwd[step-4:step]."""
+                if step <= len(actuals):
+                    actual_part = actuals[step:]
+                    fwd_part = fwd_vals[:step].tolist()
+                else:
+                    actual_part = []
+                    fwd_part = fwd_vals[step-4:step].tolist() if step <= len(fwd_vals) else []
                 a = [v for v in actual_part if v is not None]
                 f = [v for v in fwd_part if not pd.isna(v)]
                 if len(a) + len(f) == 4:
                     return round((sum(a) + sum(f)) / div, 2 if div == 1 else 1)
                 return None
 
-            for step in range(1, 5):
+            n_fwd_steps = min(8, len(eps_fwd_mean))
+            for step in range(1, n_fwd_steps + 1):
                 if step > len(eps_fwd_mean):
                     break
                 fwd_eps_mean.append(_blend(last_actuals_eps, eps_fwd_mean, step))
