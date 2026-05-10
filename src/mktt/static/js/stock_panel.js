@@ -40,6 +40,7 @@ function toggleStockChart(symbol, clickedRow) {
     header.style.cssText = 'display:flex;align-items:center;padding:0 8px;border-bottom:1px solid #1a1a2a;flex-shrink:0;';
     var tabs = [
         {id:'chart', label:'Chart'},
+        {id:'eps', label:'EPS'},
         {id:'fundamentals', label:'Fundamentals'},
         {id:'revisions', label:'Revisions'},
         {id:'rolling12m', label:'Rolling 12M'}
@@ -76,7 +77,7 @@ function toggleStockChart(symbol, clickedRow) {
 
 function switchPanelTab(tabId, symbol) {
     // Update tab styles
-    ['chart','fundamentals','revisions','rolling12m'].forEach(function(t) {
+    ['chart','eps','fundamentals','revisions','rolling12m'].forEach(function(t) {
         var el = document.getElementById('panel-tab-' + t);
         if (el) {
             el.style.color = t === tabId ? 'white' : '#666';
@@ -89,6 +90,7 @@ function switchPanelTab(tabId, symbol) {
 
     console.log('switchPanelTab:', tabId, symbol);
     if (tabId === 'chart') loadPanelChart(symbol, content);
+    else if (tabId === 'eps') loadPanelEPS(symbol, content);
     else if (tabId === 'fundamentals') loadPanelFundamentals(symbol, content);
     else if (tabId === 'revisions') loadPanelRevisions(symbol, content);
     else if (tabId === 'rolling12m') loadPanelRolling12M(symbol, content);
@@ -138,6 +140,117 @@ function loadPanelChart(symbol, container) {
             })
             .catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
     }, 30);
+}
+
+var _epsRevCount = 3;
+var _epsLastSymbol = null;
+
+function loadPanelEPS(symbol, container) {
+    _epsLastSymbol = symbol;
+    Promise.all([
+        fetch('/api/rolling_12m/' + encodeURIComponent(symbol)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); }),
+        fetch('/api/eps_ttm_forward/' + encodeURIComponent(symbol) + '?n=' + (_epsRevCount || 3)).then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status); return d; }); })
+    ]).then(function(results) {
+        var r12m = results[0];
+        var ttmFwd = results[1];
+        container.innerHTML = '';
+        container.style.overflow = 'hidden';
+
+        // Revision count control
+        var ctrl = document.createElement('div');
+        ctrl.style.cssText = 'position:absolute;top:4px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;';
+        ctrl.innerHTML = '<label style="font-size:10px;color:#666;">Revisions:</label>' +
+            '<input id="eps-rev-input" type="number" value="' + _epsRevCount + '" min="1" max="' + ((ttmFwd && ttmFwd.n_available) || 12) + '" style="width:40px;font-size:11px;padding:2px 4px;background:#1a1a2a;border:1px solid #333;color:#ccc;border-radius:3px;">';
+
+        var chartDiv = document.createElement('div');
+        chartDiv.id = 'eps-main-chart';
+        chartDiv.style.cssText = 'width:100%;height:100%;position:relative;';
+        chartDiv.appendChild(ctrl);
+        container.appendChild(chartDiv);
+
+        document.getElementById('eps-rev-input').onchange = function() {
+            _epsRevCount = parseInt(this.value) || 3;
+            loadPanelEPS(_epsLastSymbol, document.getElementById('panel-content'));
+        };
+
+        setTimeout(function() {
+            var h = container.getBoundingClientRect().height - 8;
+            var traces = [];
+            var palette = ['#4f8cf7', '#10b981', '#f59e0b', '#ef4444', '#a78bfa', '#ec4899', '#06b6d4', '#84cc16'];
+
+            // 1. Trailing TTM actual
+            if (r12m.dates && r12m.eps_ttm) {
+                traces.push({
+                    x: r12m.dates, y: r12m.eps_ttm, name: 'TTM Actual',
+                    mode: 'lines', line: { color: '#4f8cf7', width: 2.5 },
+                });
+            }
+
+            // 2. Trailing TTM estimate (consensus at time of report)
+            if (r12m.eps_est_ttm) {
+                var hasEst = r12m.eps_est_ttm.some(function(v) { return v !== null; });
+                if (hasEst) {
+                    traces.push({
+                        x: r12m.dates, y: r12m.eps_est_ttm, name: 'TTM Estimate',
+                        mode: 'lines', line: { color: '#4f8cf7', width: 1, dash: 'dot' },
+                    });
+                }
+            }
+
+            // 3. Forward cone (high/low)
+            if (r12m.fwd_dates && r12m.fwd_eps_mean) {
+                var connDates = [r12m.dates[r12m.dates.length - 1]].concat(r12m.fwd_dates);
+                var lastTTM = r12m.eps_ttm[r12m.eps_ttm.length - 1];
+
+                if (r12m.fwd_eps_high) {
+                    traces.push({
+                        x: connDates, y: [lastTTM].concat(r12m.fwd_eps_high),
+                        name: 'Est High', mode: 'lines', line: { width: 0 }, showlegend: false,
+                    });
+                    traces.push({
+                        x: connDates, y: [lastTTM].concat(r12m.fwd_eps_low || r12m.fwd_eps_mean),
+                        name: 'Est Range', mode: 'lines', line: { width: 0 },
+                        fill: 'tonexty', fillcolor: 'rgba(16,185,129,0.12)', showlegend: false,
+                    });
+                }
+
+                // Forward mean
+                traces.push({
+                    x: connDates, y: [lastTTM].concat(r12m.fwd_eps_mean), name: 'Forward (Mean)',
+                    mode: 'lines+markers', line: { color: '#10b981', width: 2, dash: 'dash' },
+                    marker: { size: 4 },
+                });
+            }
+
+            // 4. Revision lines from TTM forward
+            if (ttmFwd && !ttmFwd.error && ttmFwd.curves && ttmFwd.curves.length > 0) {
+                ttmFwd.curves.forEach(function(curve, i) {
+                    // Map quarter labels to approximate dates
+                    var curveDates = ttmFwd.quarter_dates || ttmFwd.quarter_labels;
+                    traces.push({
+                        x: curveDates, y: curve.values, name: curve.label,
+                        mode: 'lines', line: { color: palette[(i + 2) % palette.length], width: i === 0 ? 2 : 1, dash: i === 0 ? 'solid' : 'dash' },
+                    });
+                });
+
+                // Actual TTM reference line
+                if (ttmFwd.current_ttm) {
+                    var qDates = ttmFwd.quarter_dates || ttmFwd.quarter_labels;
+                    traces.push({
+                        x: qDates, y: Array(qDates.length).fill(ttmFwd.current_ttm),
+                        name: 'Current TTM (' + ttmFwd.current_ttm + ')',
+                        mode: 'lines', line: { color: '#666', dash: 'dot', width: 1 },
+                    });
+                }
+            }
+
+            Plotly.newPlot('eps-main-chart', traces, Object.assign({}, PLOTLY_DARK, {
+                height: h,
+                title: { text: 'EPS: Trailing TTM + Forward + Revisions', font: { size: 13, color: '#aaa' } },
+                yaxis: Object.assign({}, PLOTLY_DARK.yaxis, { title: 'EPS ($)' }),
+            }), { displayModeBar: false, responsive: true });
+        }, 30);
+    }).catch(function(e) { container.innerHTML = '<span style="color:#f33;">Error: ' + e.message + '</span>'; });
 }
 
 var PLOTLY_DARK = {
