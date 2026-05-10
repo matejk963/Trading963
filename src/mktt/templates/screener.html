@@ -228,7 +228,7 @@
                     <div style="display:flex;gap:4px"><input type="number" name="ndebitda_min" value="{{ filters.ndebitda_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="ndebitda_max" value="{{ filters.ndebitda_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
                 <div class="filter-group"><label>EPS Growth</label>
                     <select name="eps_growth" style="font-size:11px"><option value="">Any</option>
-                        <optgroup label="NTM vs TTM (FY1/Act)">
+                        <optgroup label="NTM vs TTM (next 4Q vs last 4Q)">
                             <option value="ntm_pos" {% if filters.eps_growth == 'ntm_pos' %}selected{% endif %}>NTM > TTM</option>
                             <option value="ntm_neg" {% if filters.eps_growth == 'ntm_neg' %}selected{% endif %}>NTM < TTM</option>
                         </optgroup>
@@ -244,9 +244,11 @@
                             <option value="fq_yoy_pos" {% if filters.eps_growth == 'fq_yoy_pos' %}selected{% endif %}>FQ > Same FQ LY</option>
                             <option value="fq_yoy_neg" {% if filters.eps_growth == 'fq_yoy_neg' %}selected{% endif %}>FQ < Same FQ LY</option>
                         </optgroup>
-                        <optgroup label="Acceleration">
+                        <optgroup label="Acceleration (NTM vs TTM vs Prior TTM)">
                             <option value="accel" {% if filters.eps_growth == 'accel' %}selected{% endif %}>Accelerating</option>
                             <option value="decel" {% if filters.eps_growth == 'decel' %}selected{% endif %}>Decelerating</option>
+                            <option value="accel_pos" {% if filters.eps_growth == 'accel_pos' %}selected{% endif %}>Accel + Both Growing</option>
+                            <option value="decel_neg" {% if filters.eps_growth == 'decel_neg' %}selected{% endif %}>Decel + Fwd Negative</option>
                         </optgroup>
                         <optgroup label="Combo">
                             <option value="all_pos" {% if filters.eps_growth == 'all_pos' %}selected{% endif %}>NTM + FY2 both growing</option>

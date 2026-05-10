@@ -699,15 +699,6 @@ def screener_page():
                         return round((m['fq_latest'] / m['fq_yoy'] - 1) * 100, 1)
                     return None
 
-                results_df['G_NTM_TTM'] = results_df.apply(_g_ntm_ttm, axis=1)
-                results_df['G_FY2_FY1'] = results_df.apply(_g_fy2_fy1, axis=1)
-                results_df['G_TTM_YOY'] = results_df['Symbol'].map(_g_ttm_yoy)
-                results_df['G_FQ_YOY'] = results_df['Symbol'].map(_g_fq_yoy)
-
-                # TTM / NTM absolute values
-                results_df['EPS_TTM'] = results_df['Symbol'].map(
-                    lambda s: round(_eps_metrics[s]['ttm'], 2) if s in _eps_metrics else None)
-
                 # True NTM: sum of next 4 quarterly estimates from forward_quarterly
                 _fwd_q = _pkl_data.get('forward_quarterly')
                 _ntm_eps = {}
@@ -721,7 +712,23 @@ def screener_page():
                         if len(rev_vals) >= 4:
                             _ntm_rev[sym] = round(float(rev_vals.iloc[:4].sum() / 1e6), 1)
 
+                # TTM / NTM absolute values
+                results_df['EPS_TTM'] = results_df['Symbol'].map(
+                    lambda s: round(_eps_metrics[s]['ttm'], 2) if s in _eps_metrics else None)
                 results_df['EPS_NTM'] = results_df['Symbol'].map(lambda s: _ntm_eps.get(s))
+
+                # Growth: NTM vs TTM (using true NTM from forward quarterly)
+                def _g_ntm_ttm(sym):
+                    ntm = _ntm_eps.get(sym)
+                    m = _eps_metrics.get(sym)
+                    if ntm and m and m['ttm'] and m['ttm'] != 0:
+                        return round((ntm / m['ttm'] - 1) * 100, 1)
+                    return None
+
+                results_df['G_NTM_TTM'] = results_df['Symbol'].map(_g_ntm_ttm)
+                results_df['G_FY2_FY1'] = results_df.apply(_g_fy2_fy1, axis=1)
+                results_df['G_TTM_YOY'] = results_df['Symbol'].map(_g_ttm_yoy)
+                results_df['G_FQ_YOY'] = results_df['Symbol'].map(_g_fq_yoy)
 
                 # Revenue growth metrics (same logic, different columns)
                 _rev_metrics = {}
@@ -859,11 +866,16 @@ def screener_page():
             elif eps_growth == 'fq_yoy_neg':
                 results_df = results_df[_gc('G_FQ_YOY') < 0]
             elif eps_growth == 'accel':
-                fy1 = _gc('EPS_FY1'); fy2 = _gc('EPS_FY2'); ttm = _gc('EPS_Act')
-                results_df = results_df[(fy2 - fy1) > (fy1 - ttm)]
+                # True acceleration: NTM/TTM growth > TTM/priorTTM growth
+                results_df = results_df[_gc('G_NTM_TTM') > _gc('G_TTM_YOY')]
             elif eps_growth == 'decel':
-                fy1 = _gc('EPS_FY1'); fy2 = _gc('EPS_FY2'); ttm = _gc('EPS_Act')
-                results_df = results_df[(fy2 - fy1) < (fy1 - ttm)]
+                results_df = results_df[_gc('G_NTM_TTM') < _gc('G_TTM_YOY')]
+            elif eps_growth == 'accel_pos':
+                # Accelerating AND both growth rates positive
+                results_df = results_df[(_gc('G_NTM_TTM') > _gc('G_TTM_YOY')) & (_gc('G_NTM_TTM') > 0) & (_gc('G_TTM_YOY') > 0)]
+            elif eps_growth == 'decel_neg':
+                # Decelerating AND forward growth negative
+                results_df = results_df[(_gc('G_NTM_TTM') < _gc('G_TTM_YOY')) & (_gc('G_NTM_TTM') < 0)]
             elif eps_growth == 'all_pos':
                 results_df = results_df[(_gc('G_NTM_TTM') > 0) & (_gc('G_FY2_FY1') > 0)]
 
