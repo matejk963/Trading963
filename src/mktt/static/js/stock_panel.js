@@ -349,13 +349,27 @@ function loadPanelRolling12M(symbol, container) {
                         mode: 'lines', line: { color: '#4f8cf7', width: 1, dash: 'dot' },
                     });
                 }
-                // Forward NTM
+                // Forward NTM with cone
                 if (data.fwd_dates && data.fwd_eps_mean) {
-                    // Connect last actual to first forward
                     var connDates = [data.dates[data.dates.length-1]].concat(data.fwd_dates);
-                    var connEps = [data.eps_ttm[data.eps_ttm.length-1]].concat(data.fwd_eps_mean);
+                    var lastTTM = data.eps_ttm[data.eps_ttm.length-1];
+                    // Cone: high bound
+                    if (data.fwd_eps_high) {
+                        epsTraces.push({
+                            x: connDates, y: [lastTTM].concat(data.fwd_eps_high),
+                            name: 'Est High', mode: 'lines', line: { width: 0 },
+                            showlegend: false,
+                        });
+                        epsTraces.push({
+                            x: connDates, y: [lastTTM].concat(data.fwd_eps_low || data.fwd_eps_mean),
+                            name: 'Est Range', mode: 'lines', line: { width: 0 },
+                            fill: 'tonexty', fillcolor: 'rgba(16,185,129,0.15)',
+                            showlegend: false,
+                        });
+                    }
+                    // Mean line
                     epsTraces.push({
-                        x: connDates, y: connEps, name: 'Forward (Est)',
+                        x: connDates, y: [lastTTM].concat(data.fwd_eps_mean), name: 'Forward (Mean)',
                         mode: 'lines+markers', line: { color: '#10b981', width: 2, dash: 'dash' },
                         marker: { size: 5 },
                     });
@@ -375,9 +389,23 @@ function loadPanelRolling12M(symbol, container) {
                 });
                 if (data.fwd_dates && data.fwd_rev_mean) {
                     var connDatesR = [data.dates[data.dates.length-1]].concat(data.fwd_dates);
-                    var connRev = [data.rev_ttm[data.rev_ttm.length-1]].concat(data.fwd_rev_mean);
+                    var lastRev = data.rev_ttm[data.rev_ttm.length-1];
+                    // Cone
+                    if (data.fwd_rev_high) {
+                        revTraces.push({
+                            x: connDatesR, y: [lastRev].concat(data.fwd_rev_high),
+                            name: 'Est High', mode: 'lines', line: { width: 0 },
+                            showlegend: false,
+                        });
+                        revTraces.push({
+                            x: connDatesR, y: [lastRev].concat(data.fwd_rev_low || data.fwd_rev_mean),
+                            name: 'Est Range', mode: 'lines', line: { width: 0 },
+                            fill: 'tonexty', fillcolor: 'rgba(16,185,129,0.15)',
+                            showlegend: false,
+                        });
+                    }
                     revTraces.push({
-                        x: connDatesR, y: connRev, name: 'Forward (Est)',
+                        x: connDatesR, y: [lastRev].concat(data.fwd_rev_mean), name: 'Forward (Mean)',
                         mode: 'lines+markers', line: { color: '#10b981', width: 2, dash: 'dash' },
                         marker: { size: 5 },
                     });

@@ -1214,46 +1214,41 @@ def _rolling_12m_impl(symbol):
     fwd_eps_high = []
     fwd_eps_low = []
     fwd_rev_mean = []
+    fwd_rev_high = []
+    fwd_rev_low = []
 
     if fwd_q is not None:
         fq = fwd_q[fwd_q['Symbol'] == symbol]
         if len(fq) >= 4:
-            eps_fwd = pd.to_numeric(fq['Earnings Per Share - Mean'], errors='coerce').values
-            rev_fwd = pd.to_numeric(fq['Revenue - Mean'], errors='coerce').values
+            eps_fwd_mean = pd.to_numeric(fq.get('Earnings Per Share - Mean', pd.Series()), errors='coerce').values
+            eps_fwd_high = pd.to_numeric(fq.get('Earnings Per Share - High', pd.Series()), errors='coerce').values
+            eps_fwd_low = pd.to_numeric(fq.get('Earnings Per Share - Low', pd.Series()), errors='coerce').values
+            rev_fwd_mean_v = pd.to_numeric(fq.get('Revenue - Mean', pd.Series()), errors='coerce').values
+            rev_fwd_high_v = pd.to_numeric(fq.get('Revenue - High', pd.Series()), errors='coerce').values
+            rev_fwd_low_v = pd.to_numeric(fq.get('Revenue - Low', pd.Series()), errors='coerce').values
 
-            # Get last 4 actual EPS for blending
-            last_actuals = [q.iloc[-(4-j)]['eps'] for j in range(4) if len(q) > (4-j-1)]
+            last_actuals_eps = [q.iloc[-(4-j)]['eps'] for j in range(4) if len(q) > (4-j-1)]
+            last_actuals_rev = [q.iloc[-(4-j)]['rev'] for j in range(4) if len(q) > (4-j-1)]
 
-            # Build rolling 12M forward: for each of the next 4 quarters,
-            # TTM = (remaining actuals) + (forward estimates filled in)
+            def _blend(actuals, fwd_vals, step, div=1):
+                actual_part = actuals[step:] if step < len(actuals) else []
+                fwd_part = fwd_vals[:step].tolist()
+                a = [v for v in actual_part if v is not None]
+                f = [v for v in fwd_part if not pd.isna(v)]
+                if len(a) + len(f) == 4:
+                    return round((sum(a) + sum(f)) / div, 2 if div == 1 else 1)
+                return None
+
             for step in range(1, 5):
-                if step > len(eps_fwd):
+                if step > len(eps_fwd_mean):
                     break
-                # Blend: take last (4-step) actuals + first (step) forward estimates
-                n_actual = 4 - step
-                actual_part = last_actuals[step:] if step < len(last_actuals) else []
-                fwd_part = eps_fwd[:step].tolist()
+                fwd_eps_mean.append(_blend(last_actuals_eps, eps_fwd_mean, step))
+                fwd_eps_high.append(_blend(last_actuals_eps, eps_fwd_high, step))
+                fwd_eps_low.append(_blend(last_actuals_eps, eps_fwd_low, step))
+                fwd_rev_mean.append(_blend(last_actuals_rev, rev_fwd_mean_v, step, 1e6))
+                fwd_rev_high.append(_blend(last_actuals_rev, rev_fwd_high_v, step, 1e6))
+                fwd_rev_low.append(_blend(last_actuals_rev, rev_fwd_low_v, step, 1e6))
 
-                actual_vals = [v for v in actual_part if v is not None]
-                fwd_vals = [v for v in fwd_part if not pd.isna(v)]
-
-                if len(actual_vals) + len(fwd_vals) == 4:
-                    total = sum(actual_vals) + sum(fwd_vals)
-                    fwd_eps_mean.append(round(total, 2))
-                else:
-                    fwd_eps_mean.append(None)
-
-                # Revenue forward
-                rev_actual_part = [q.iloc[-(4-j)]['rev'] for j in range(step, 4) if len(q) > (4-j-1)]
-                rev_fwd_part = rev_fwd[:step].tolist()
-                ra = [v for v in rev_actual_part if v is not None]
-                rf = [v for v in rev_fwd_part if not pd.isna(v)]
-                if len(ra) + len(rf) == 4:
-                    fwd_rev_mean.append(round((sum(ra) + sum(rf)) / 1e6, 1))
-                else:
-                    fwd_rev_mean.append(None)
-
-                # Estimate forward quarter date (~3 months after last)
                 last_dt = pd.to_datetime(dates[-1]) if dates else q['Date'].iloc[-1]
                 fwd_dates.append(str(last_dt + pd.DateOffset(months=3 * step))[:10])
 
@@ -1264,7 +1259,11 @@ def _rolling_12m_impl(symbol):
         'rev_ttm': rev_ttm,
         'fwd_dates': fwd_dates,
         'fwd_eps_mean': fwd_eps_mean,
+        'fwd_eps_high': fwd_eps_high,
+        'fwd_eps_low': fwd_eps_low,
         'fwd_rev_mean': fwd_rev_mean,
+        'fwd_rev_high': fwd_rev_high,
+        'fwd_rev_low': fwd_rev_low,
     }
     return jsonify(result)
 
