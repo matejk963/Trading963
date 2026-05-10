@@ -1345,53 +1345,46 @@ def _sales_ttm_forward_impl(symbol):
         else:
             forward_mean.append(None)
 
-    # Revision curves from revenue trend data
+    # Revision curves: use per-quarter revenue estimate trends (FQ1-FQ4)
     curves_list = []
     n_available = 0
-    if trend_rev_fy1 is not None:
-        trend_rev_fy2 = data.get('trend_rev_fy2')
-        rv1 = trend_rev_fy1[trend_rev_fy1['Symbol'] == symbol].copy()
-        rv2 = trend_rev_fy2[trend_rev_fy2['Symbol'] == symbol].copy() if trend_rev_fy2 is not None else pd.DataFrame()
+    fq_rev_trends = {}
+    for fq_key in ['trend_rev_fq1', 'trend_rev_fq2', 'trend_rev_fq3', 'trend_rev_fq4']:
+        t = data.get(fq_key)
+        if t is not None:
+            ts = t[t['Symbol'] == symbol].copy()
+            if not ts.empty:
+                ts['Date'] = pd.to_datetime(ts['Date'])
+                ts['Mean'] = pd.to_numeric(ts.get('Revenue - Mean', pd.Series()), errors='coerce')
+                ts = ts.dropna(subset=['Mean']).sort_values('Date')
+                fq_rev_trends[fq_key] = ts
 
-        if not rv1.empty:
-            rv1['Date'] = pd.to_datetime(rv1['Date'])
-            rv1['Mean'] = pd.to_numeric(rv1.get('Revenue - Mean', pd.Series()), errors='coerce')
-            rv1 = rv1.sort_values('Date')
-            if not rv2.empty:
-                rv2['Date'] = pd.to_datetime(rv2['Date'])
-                rv2['Mean'] = pd.to_numeric(rv2.get('Revenue - Mean', pd.Series()), errors='coerce')
-                rv2 = rv2.sort_values('Date')
+    if fq_rev_trends:
+        all_trend_dates = sorted(set(
+            d for t in fq_rev_trends.values() for d in t['Date'].tolist()
+        ), reverse=True)
+        n_available = len(all_trend_dates)
 
-            # Seasonal weights
-            annual_sum = q['Rev'].tail(4).sum()
-            weights = (q['Rev'].tail(4).values / annual_sum).tolist() if annual_sum != 0 else [0.25]*4
+        from flask import request as _req
+        n_rev = int(_req.args.get('n', 3))
+        n_rev = max(1, min(n_rev, n_available))
+        snap_dates = all_trend_dates[:n_rev]
 
-            all_trend_dates = sorted(set(
-                rv1[rv1['Mean'].notna()]['Date'].tolist() +
-                (rv2[rv2['Mean'].notna()]['Date'].tolist() if not rv2.empty else [])
-            ), reverse=True)
-            n_available = len(all_trend_dates)
+        for si, snap_date in enumerate(snap_dates):
+            fwd_est = []
+            for fq_key in ['trend_rev_fq1', 'trend_rev_fq2', 'trend_rev_fq3', 'trend_rev_fq4']:
+                ts = fq_rev_trends.get(fq_key)
+                if ts is not None:
+                    at = ts[ts['Date'] <= snap_date]
+                    fwd_est.append(float(at['Mean'].iloc[-1]) if not at.empty else None)
+                else:
+                    fwd_est.append(None)
 
-            from flask import request as _req
-            n_rev = int(_req.args.get('n', 3))
-            n_rev = max(1, min(n_rev, n_available))
-            snap_dates = all_trend_dates[:n_rev]
-
-            for si, snap_date in enumerate(snap_dates):
-                f1 = rv1[rv1['Date'] <= snap_date]
-                f2 = rv2[rv2['Date'] <= snap_date] if not rv2.empty else pd.DataFrame()
-                fy1_val = float(f1['Mean'].iloc[-1]) if not f1.empty else None
-                fy2_val = float(f2['Mean'].iloc[-1]) if not f2.empty else None
-                if fy1_val is None:
-                    continue
-
-                fy1_q = [fy1_val * w for w in weights]
-                fy2_q = [fy2_val * w for w in weights] if fy2_val else [0]*4
-                fwd_est = fy1_q + fy2_q
-                rev_all = trailing + fwd_est[:n_fwd]
-                rev_ttm = []
-                for i in range(n_fwd):
-                    window = rev_all[i+1: i+5]
+            fwd_est = fwd_est + fwd_est  # extend to 8Q
+            rev_all = trailing + fwd_est[:n_fwd]
+            rev_ttm = []
+            for i in range(n_fwd):
+                window = rev_all[i+1: i+5]
                     if len(window) == 4 and all(v is not None for v in window):
                         rev_ttm.append(round(sum(window) / 1e6, 1))
                     else:
@@ -1903,59 +1896,63 @@ def _eps_ttm_forward_impl(symbol):
         else:
             ttm_values.append(None)
 
-    # Revision curves: use trend data to show how estimates evolved
-    # Each trend data point has the FY1/FY2 annual estimate at that date
-    # We approximate per-quarter from annual using seasonal weights
+    # Revision curves: use per-quarter estimate trends (FQ1-FQ4)
+    # Each has monthly snapshots of per-quarter estimates
     curves_list = []
-    if trend_fy1 is not None:
-        trend_fy2 = data.get('trend_eps_fy2')
-        fy1 = trend_fy1[trend_fy1['Symbol'] == symbol].copy()
-        fy2 = trend_fy2[trend_fy2['Symbol'] == symbol].copy() if trend_fy2 is not None else pd.DataFrame()
-        if not fy1.empty:
-            fy1['Date'] = pd.to_datetime(fy1['Date'])
-            fy1['Mean'] = pd.to_numeric(fy1['Earnings Per Share - Mean'], errors='coerce')
-            fy1 = fy1.sort_values('Date')
-            if not fy2.empty:
-                fy2['Date'] = pd.to_datetime(fy2['Date'])
-                fy2['Mean'] = pd.to_numeric(fy2['Earnings Per Share - Mean'], errors='coerce')
-                fy2 = fy2.sort_values('Date')
+    fq_trends = {}
+    for fq_key in ['trend_eps_fq1', 'trend_eps_fq2', 'trend_eps_fq3', 'trend_eps_fq4']:
+        t = data.get(fq_key)
+        if t is not None:
+            ts = t[t['Symbol'] == symbol].copy()
+            if not ts.empty:
+                ts['Date'] = pd.to_datetime(ts['Date'])
+                ts['Mean'] = pd.to_numeric(ts['Earnings Per Share - Mean'], errors='coerce')
+                ts = ts.dropna(subset=['Mean']).sort_values('Date')
+                fq_trends[fq_key] = ts
 
-            # Seasonal weights from actuals
-            annual_sum = q['EPS'].tail(4).sum()
-            weights = (q['EPS'].tail(4).values / annual_sum).tolist() if annual_sum != 0 else [0.25]*4
+    n_available = 0
+    if fq_trends:
+        # Collect all unique trend dates across quarters
+        all_trend_dates = sorted(set(
+            d for t in fq_trends.values() for d in t['Date'].tolist()
+        ), reverse=True)
+        n_available = len(all_trend_dates)
 
-            all_trend_dates = sorted(set(
-                fy1[fy1['Mean'].notna()]['Date'].tolist() +
-                (fy2[fy2['Mean'].notna()]['Date'].tolist() if not fy2.empty else [])
-            ), reverse=True)
+        from flask import request as _req
+        n_rev = int(_req.args.get('n', 3))
+        n_rev = max(1, min(n_rev, n_available))
+        snap_dates = all_trend_dates[:n_rev]
 
+        for si, snap_date in enumerate(snap_dates):
+            # Get per-quarter estimate at this snapshot date
+            fwd_est = []
+            for fq_key in ['trend_eps_fq1', 'trend_eps_fq2', 'trend_eps_fq3', 'trend_eps_fq4']:
+                ts = fq_trends.get(fq_key)
+                if ts is not None:
+                    at = ts[ts['Date'] <= snap_date]
+                    fwd_est.append(float(at['Mean'].iloc[-1]) if not at.empty else None)
+                else:
+                    fwd_est.append(None)
+
+            # Extend to 8Q by repeating the pattern (FQ1-FQ4 twice)
+            fwd_est = fwd_est + fwd_est
+            rev_all = trailing + fwd_est[:n_fwd]
+            rev_ttm = []
+            for i in range(n_fwd):
+                window = rev_all[i+1: i+5]
+                if len(window) == 4 and all(v is not None for v in window):
+                    rev_ttm.append(round(sum(window), 2))
+                else:
+                    rev_ttm.append(None)
+
+            label = 'Current (' + snap_date.strftime('%m/%d') + ')' if si == 0 else snap_date.strftime('%Y-%m-%d')
+            curves_list.append({'label': label, 'values': rev_ttm})
+    else:
+        # Fallback to FY1/FY2 if no per-quarter trends available
+        trend_fy1 = data.get('trend_eps_fy1')
+        if trend_fy1 is not None:
             from flask import request as _req
-            n_rev = int(_req.args.get('n', 3))
-            n_rev = max(1, min(n_rev, len(all_trend_dates)))
-            snap_dates = all_trend_dates[:n_rev]
-
-            for si, snap_date in enumerate(snap_dates):
-                f1 = fy1[fy1['Date'] <= snap_date]
-                f2 = fy2[fy2['Date'] <= snap_date] if not fy2.empty else pd.DataFrame()
-                fy1_val = float(f1['Mean'].iloc[-1]) if not f1.empty else None
-                fy2_val = float(f2['Mean'].iloc[-1]) if not f2.empty else None
-                if fy1_val is None:
-                    continue
-
-                fy1_q = [fy1_val * w for w in weights]
-                fy2_q = [fy2_val * w for w in weights] if fy2_val else [0]*4
-                fwd_est = fy1_q + fy2_q
-                rev_all = trailing + fwd_est[:n_fwd]
-                rev_ttm = []
-                for i in range(n_fwd):
-                    window = rev_all[i+1: i+5]
-                    if len(window) == 4 and all(v is not None for v in window):
-                        rev_ttm.append(round(sum(window), 2))
-                    else:
-                        rev_ttm.append(None)
-
-                label = 'Current (' + snap_date.strftime('%m/%d') + ')' if si == 0 else snap_date.strftime('%Y-%m-%d')
-                curves_list.append({'label': label, 'values': rev_ttm})
+            n_available = 0
 
     result = {
         'quarter_labels': [f"{d.year}-Q{(d.month - 1)//3 + 1}" for d in quarter_dates],
