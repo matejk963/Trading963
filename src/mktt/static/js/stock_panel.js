@@ -222,23 +222,36 @@ function loadPanelEPS(symbol, container) {
                 });
             }
 
-            // 4. Revision lines from TTM forward
-            if (ttmFwd && !ttmFwd.error && ttmFwd.curves && ttmFwd.curves.length > 0) {
-                ttmFwd.curves.forEach(function(curve, i) {
-                    // Map quarter labels to approximate dates
-                    var curveDates = ttmFwd.quarter_dates || ttmFwd.quarter_labels;
-                    traces.push({
-                        x: curveDates, y: curve.values, name: curve.label,
-                        mode: 'lines', line: { color: palette[(i + 2) % palette.length], width: i === 0 ? 2 : 1, dash: i === 0 ? 'solid' : 'dash' },
-                    });
-                });
+            // 4. Forward from per-quarter estimates (should match cone)
+            if (ttmFwd && !ttmFwd.error && ttmFwd.quarter_dates) {
+                var qDates = ttmFwd.quarter_dates;
 
-                // Actual TTM reference line
+                // Forward mean from per-quarter estimates
+                if (ttmFwd.forward_mean) {
+                    var fwdConnDates = [r12m.dates[r12m.dates.length-1]].concat(qDates);
+                    var fwdConnVals = [r12m.eps_ttm[r12m.eps_ttm.length-1]].concat(ttmFwd.forward_mean);
+                    traces.push({
+                        x: fwdConnDates, y: fwdConnVals, name: 'Forward (Q Est)',
+                        mode: 'lines+markers', line: { color: '#10b981', width: 2.5 },
+                        marker: { size: 5 },
+                    });
+                }
+
+                // Revision lines (from FY1/FY2 trend snapshots)
+                if (ttmFwd.curves && ttmFwd.curves.length > 0) {
+                    ttmFwd.curves.forEach(function(curve, i) {
+                        traces.push({
+                            x: qDates, y: curve.values, name: curve.label,
+                            mode: 'lines', line: { color: palette[(i + 3) % palette.length], width: 1, dash: 'dash' },
+                        });
+                    });
+                }
+
+                // Current TTM reference
                 if (ttmFwd.current_ttm) {
-                    var qDates = ttmFwd.quarter_dates || ttmFwd.quarter_labels;
                     traces.push({
                         x: qDates, y: Array(qDates.length).fill(ttmFwd.current_ttm),
-                        name: 'Current TTM (' + ttmFwd.current_ttm + ')',
+                        name: 'Actual TTM (' + ttmFwd.current_ttm + ')',
                         mode: 'lines', line: { color: '#666', dash: 'dot', width: 1 },
                     });
                 }

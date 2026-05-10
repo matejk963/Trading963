@@ -1706,10 +1706,13 @@ def eps_ttm_forward_api(symbol):
         return jsonify({'error': str(e)}), 500
 
 def _eps_ttm_forward_impl(symbol):
-    import pickle
+    """
+    Build forward TTM EPS curves using per-quarter forward estimates.
+    Shows how rolling 12M EPS evolves as each future quarter replaces a trailing one.
+    Multiple revision snapshots show how estimates changed over time.
+    """
+    import pickle, math
     from pathlib import Path
-    from datetime import timedelta
-    import numpy as np
 
     pkl_path = Path(__file__).parent.parent.parent / 'data' / 'mktt' / 'refinitiv_fundamentals.pkl'
     if not pkl_path.exists():
@@ -1718,9 +1721,9 @@ def _eps_ttm_forward_impl(symbol):
         data = pickle.load(f)
 
     quarterly = data.get('quarterly')
+    fwd_q = data.get('forward_quarterly')
     trend_fy1 = data.get('trend_eps_fy1')
-    trend_fy2 = data.get('trend_eps_fy2')
-    if quarterly is None or trend_fy1 is None or trend_fy2 is None:
+    if quarterly is None or fwd_q is None:
         return jsonify({'error': 'Missing data'}), 404
 
     # Get quarterly actuals
@@ -1734,108 +1737,96 @@ def _eps_ttm_forward_impl(symbol):
     if len(q) < 4:
         return jsonify({'error': f'Not enough quarterly EPS data for {symbol}'}), 404
 
-    # Get FY1/FY2 trend data
-    fy1 = trend_fy1[trend_fy1['Symbol'] == symbol].copy()
-    fy2 = trend_fy2[trend_fy2['Symbol'] == symbol].copy()
-    if fy1.empty or fy2.empty:
-        return jsonify({'error': f'No estimate trend data for {symbol}'}), 404
-    fy1['Date'] = pd.to_datetime(fy1['Date'])
-    fy2['Date'] = pd.to_datetime(fy2['Date'])
-    fy1['Mean'] = pd.to_numeric(fy1['Earnings Per Share - Mean'], errors='coerce')
-    fy2['Mean'] = pd.to_numeric(fy2['Earnings Per Share - Mean'], errors='coerce')
-    fy1 = fy1.sort_values('Date')
-    fy2 = fy2.sort_values('Date')
+    # Get forward quarterly estimates
+    fq = fwd_q[fwd_q['Symbol'] == symbol]
+    fq_eps = pd.to_numeric(fq.get('Earnings Per Share - Mean', pd.Series()), errors='coerce').values
+    fq_eps = [v if not (math.isnan(v) if isinstance(v, float) else False) else None for v in fq_eps]
 
-    # Compute seasonal weights from last 8 quarterly actuals
-    last_q = q.tail(8)
-    if len(last_q) >= 4:
-        annual_sum = last_q['EPS'].tail(4).sum()
-        if annual_sum != 0:
-            weights = (last_q['EPS'].tail(4).values / annual_sum).tolist()
-        else:
-            weights = [0.25, 0.25, 0.25, 0.25]
-    else:
-        weights = [0.25, 0.25, 0.25, 0.25]
+    n_fwd = min(8, len(fq_eps))
+    if n_fwd < 4:
+        return jsonify({'error': f'Not enough forward quarterly estimates for {symbol}'}), 404
 
-    # Determine quarter dates for next 8 quarters from last actual
-    last_actual_date = q['Date'].iloc[-1]
+    # Trailing actuals (last 4)
+    trailing = q['EPS'].tail(4).tolist()
+
+    # Build forward TTM: progressively replace actuals with estimates
+    all_eps = trailing + fq_eps[:n_fwd]
     quarter_dates = []
-    d = last_actual_date
-    for i in range(8):
-        d = d + pd.DateOffset(months=3)
-        quarter_dates.append(d)
+    last_dt = q['Date'].iloc[-1]
+    for i in range(n_fwd):
+        last_dt = last_dt + pd.DateOffset(months=3)
+        quarter_dates.append(last_dt)
 
-    # Function to get estimate at a given snapshot date
-    def get_estimates_at(snapshot_date):
-        """Get FY1 and FY2 estimate closest to (but not after) snapshot_date."""
-        f1 = fy1[fy1['Date'] <= snapshot_date]
-        f2 = fy2[fy2['Date'] <= snapshot_date]
-        fy1_val = float(f1['Mean'].iloc[-1]) if not f1.empty else None
-        fy2_val = float(f2['Mean'].iloc[-1]) if not f2.empty else None
-        return fy1_val, fy2_val
-
-    # Build forward TTM EPS for a snapshot
-    def build_ttm_curve(snapshot_date):
-        fy1_val, fy2_val = get_estimates_at(snapshot_date)
-        if fy1_val is None or fy2_val is None:
-            return None
-
-        # Distribute annual estimates into quarterly using seasonal weights
-        fy1_quarters = [fy1_val * w for w in weights]
-        fy2_quarters = [fy2_val * w for w in weights]
-
-        # Build 8 forward quarters: first 4 from FY1, next 4 from FY2
-        forward_q = fy1_quarters + fy2_quarters
-
-        # Actual trailing quarters (last 4)
-        trailing = q['EPS'].tail(4).tolist()
-
-        # TTM at each future quarter = sum of appropriate 4-quarter window
-        # Window slides: at Q+1, TTM = trailing[1:4] + forward[0]
-        # at Q+2, TTM = trailing[2:4] + forward[0:2], etc.
-        all_eps = trailing + forward_q  # indices 0-3 = trailing, 4-11 = forward
-        ttm_values = []
-        for i in range(8):
-            window = all_eps[i+1: i+5]  # 4 quarters ending at forward quarter i+1
+    ttm_values = []
+    for i in range(n_fwd):
+        window = all_eps[i+1: i+5]
+        if all(v is not None for v in window):
             ttm_values.append(round(sum(window), 2))
+        else:
+            ttm_values.append(None)
 
-        return ttm_values
+    # Revision curves: use trend data to show how estimates evolved
+    # Each trend data point has the FY1/FY2 annual estimate at that date
+    # We approximate per-quarter from annual using seasonal weights
+    curves_list = []
+    if trend_fy1 is not None:
+        trend_fy2 = data.get('trend_eps_fy2')
+        fy1 = trend_fy1[trend_fy1['Symbol'] == symbol].copy()
+        fy2 = trend_fy2[trend_fy2['Symbol'] == symbol].copy() if trend_fy2 is not None else pd.DataFrame()
+        if not fy1.empty:
+            fy1['Date'] = pd.to_datetime(fy1['Date'])
+            fy1['Mean'] = pd.to_numeric(fy1['Earnings Per Share - Mean'], errors='coerce')
+            fy1 = fy1.sort_values('Date')
+            if not fy2.empty:
+                fy2['Date'] = pd.to_datetime(fy2['Date'])
+                fy2['Mean'] = pd.to_numeric(fy2['Earnings Per Share - Mean'], errors='coerce')
+                fy2 = fy2.sort_values('Date')
 
-    # Build curves based on actual revision dates (not fixed day offsets)
-    # Collect all unique dates where FY1 or FY2 estimate was updated
-    all_dates = sorted(set(
-        fy1[fy1['Mean'].notna()]['Date'].tolist() +
-        fy2[fy2['Mean'].notna()]['Date'].tolist()
-    ), reverse=True)  # most recent first
+            # Seasonal weights from actuals
+            annual_sum = q['EPS'].tail(4).sum()
+            weights = (q['EPS'].tail(4).values / annual_sum).tolist() if annual_sum != 0 else [0.25]*4
 
-    # Number of revisions to show (default 3, configurable via query param)
-    from flask import request as _req
-    n_revisions = int(_req.args.get('n', 3))
-    n_revisions = max(1, min(n_revisions, len(all_dates)))
+            all_trend_dates = sorted(set(
+                fy1[fy1['Mean'].notna()]['Date'].tolist() +
+                (fy2[fy2['Mean'].notna()]['Date'].tolist() if not fy2.empty else [])
+            ), reverse=True)
 
-    # Take the last n unique revision dates
-    snapshot_dates = all_dates[:n_revisions]
+            from flask import request as _req
+            n_rev = int(_req.args.get('n', 3))
+            n_rev = max(1, min(n_rev, len(all_trend_dates)))
+            snap_dates = all_trend_dates[:n_rev]
+
+            for si, snap_date in enumerate(snap_dates):
+                f1 = fy1[fy1['Date'] <= snap_date]
+                f2 = fy2[fy2['Date'] <= snap_date] if not fy2.empty else pd.DataFrame()
+                fy1_val = float(f1['Mean'].iloc[-1]) if not f1.empty else None
+                fy2_val = float(f2['Mean'].iloc[-1]) if not f2.empty else None
+                if fy1_val is None:
+                    continue
+
+                fy1_q = [fy1_val * w for w in weights]
+                fy2_q = [fy2_val * w for w in weights] if fy2_val else [0]*4
+                fwd_est = fy1_q + fy2_q
+                rev_all = trailing + fwd_est[:n_fwd]
+                rev_ttm = []
+                for i in range(n_fwd):
+                    window = rev_all[i+1: i+5]
+                    if len(window) == 4 and all(v is not None for v in window):
+                        rev_ttm.append(round(sum(window), 2))
+                    else:
+                        rev_ttm.append(None)
+
+                label = 'Current (' + snap_date.strftime('%m/%d') + ')' if si == 0 else snap_date.strftime('%Y-%m-%d')
+                curves_list.append({'label': label, 'values': rev_ttm})
 
     result = {
         'quarter_labels': [f"{d.year}-Q{(d.month - 1)//3 + 1}" for d in quarter_dates],
         'quarter_dates': [d.strftime('%Y-%m-%d') for d in quarter_dates],
-        'curves': {},
+        'curves': curves_list,
+        'current_ttm': round(float(q['EPS'].tail(4).sum()), 2),
+        'forward_mean': ttm_values,
+        'n_available': len(all_trend_dates) if trend_fy1 is not None and not fy1.empty else 0,
     }
-
-    curves_list = []
-    for i, snap_date in enumerate(snapshot_dates):
-        curve = build_ttm_curve(snap_date)
-        if curve:
-            label = 'Current (' + snap_date.strftime('%m/%d') + ')' if i == 0 else snap_date.strftime('%Y-%m-%d')
-            curves_list.append({'label': label, 'values': curve})
-
-    result['curves'] = curves_list
-
-    # Also add current TTM (actual trailing 4Q)
-    if len(q) >= 4:
-        result['current_ttm'] = round(float(q['EPS'].tail(4).sum()), 2)
-
-    result['n_available'] = len(all_dates)
     return jsonify(result)
 
 
