@@ -25,11 +25,15 @@ function loadWatchlist() {
     if (wl.length === 0) {
         document.getElementById('wl-table-wrap').innerHTML = '<div style="color:var(--text-faint);font-size:13px;padding:20px;">No stocks in watchlist. Right-click a stock in the Screener to add it.</div>';
         document.getElementById('wl-status').textContent = '0 stocks';
+        document.getElementById('wl-summary').innerHTML = '';
         return;
     }
-    document.getElementById('wl-status').textContent = wl.length + ' stocks — loading...';
+    var syms = wl.map(function(w) { return w.sym; });
+    var nLong = wl.filter(function(w) { return w.side === 'long'; }).length;
+    var nShort = wl.filter(function(w) { return w.side === 'short'; }).length;
+    document.getElementById('wl-status').textContent = wl.length + ' stocks (' + nLong + ' long, ' + nShort + ' short) — loading...';
 
-    var url = '/api/watchlist?' + wl.map(function(s) { return 'sym=' + encodeURIComponent(s); }).join('&');
+    var url = '/api/watchlist?' + syms.map(function(s) { return 'sym=' + encodeURIComponent(s); }).join('&');
     fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -40,7 +44,15 @@ function loadWatchlist() {
 }
 
 function renderWatchlist(data) {
-    document.getElementById('wl-status').textContent = data.stocks.length + ' stocks | ' + data.as_of;
+    // Attach side info from localStorage to each stock
+    var wl = getWatchlist();
+    var sideMap = {};
+    wl.forEach(function(w) { sideMap[w.sym] = w.side; });
+    data.stocks.forEach(function(st) { st._side = sideMap[st.symbol] || 'long'; });
+
+    var nLong = data.stocks.filter(function(s) { return s._side === 'long'; }).length;
+    var nShort = data.stocks.filter(function(s) { return s._side === 'short'; }).length;
+    document.getElementById('wl-status').textContent = data.stocks.length + ' stocks (' + nLong + ' long, ' + nShort + ' short) | ' + data.as_of;
 
     // Build sector/industry summary with avg returns
     var secData = {};
@@ -135,30 +147,18 @@ function renderWatchlist(data) {
     sh += '<style>.wl-summary-body{display:none}.open .wl-summary-body{display:block!important}</style>';
     document.getElementById('wl-summary').innerHTML = sh;
 
-    var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-    h += '<thead><tr style="border-bottom:2px solid #333;">';
-    var cols = [
-        {k:'symbol',l:'Symbol',t:'str'}, {k:'sector',l:'Sector',t:'str'}, {k:'industry',l:'Industry',t:'str'},
-        {k:'price',l:'Price',t:'num'}, {k:'change',l:'Chg%',t:'num'},
-        {k:'pe',l:'PE',t:'num'}, {k:'fwd_pe',l:'Fwd PE',t:'num'},
-        {k:'eps_act',l:'EPS',t:'num'}, {k:'eps_fy1',l:'FY1',t:'num'}, {k:'eps_fy2',l:'FY2',t:'num'},
-        {k:'op_margin',l:'OpMgn%',t:'num'}, {k:'roic',l:'ROIC%',t:'num'},
-        {k:'rs',l:'RS',t:'num'}, {k:'ret_1w',l:'1W%',t:'num'}, {k:'ret_1m',l:'1M%',t:'num'}, {k:'ret_3m',l:'3M%',t:'num'}, {k:'target',l:'Target',t:'num'},
-        {k:'_remove',l:'',t:'str'},
-    ];
-    cols.forEach(function(c, i) {
-        var st = c.k === 'symbol' ? 'text-align:left;' : '';
-        h += '<th style="padding:5px 8px;cursor:pointer;'+st+'" onclick="sortWlTable('+i+',\''+c.t+'\')">' + c.l + '</th>';
-    });
-    h += '</tr></thead><tbody id="wl-tbody">';
+    function retCell(v) {
+        if (v == null) return '<td style="padding:4px 8px;">—</td>';
+        var cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+        return '<td style="padding:4px 8px;" class="'+cls+'">'+(v>0?'+':'')+v.toFixed(1)+'%</td>';
+    }
 
-    data.stocks.forEach(function(st) {
+    function buildStockRow(st) {
         if (st.error) {
-            h += '<tr><td style="padding:4px 8px;font-weight:600;">'+st.symbol+'</td><td colspan="14" style="color:var(--text-faint);padding:4px;">'+st.error+'</td></tr>';
-            return;
+            return '<tr><td style="padding:4px 8px;font-weight:600;">'+st.symbol+'</td><td colspan="17" style="color:var(--text-faint);padding:4px;">'+st.error+'</td></tr>';
         }
         var chgClass = st.change > 0 ? 'positive' : st.change < 0 ? 'negative' : '';
-        h += '<tr onclick="toggleStockChart(\''+st.symbol+'\', this)" style="cursor:pointer;border-bottom:1px solid var(--border);">';
+        var h = '<tr onclick="toggleStockChart(\''+st.symbol+'\', this)" style="cursor:pointer;border-bottom:1px solid var(--border);">';
         h += '<td style="padding:4px 8px;font-weight:600;text-align:left;">'+st.symbol+'</td>';
         h += '<td style="padding:4px 8px;color:var(--text-dim);">'+( st.sector || '')+'</td>';
         h += '<td style="padding:4px 8px;color:var(--text-dim);">'+( st.industry || '')+'</td>';
@@ -172,28 +172,80 @@ function renderWatchlist(data) {
         h += '<td style="padding:4px 8px;">'+(st.op_margin != null ? st.op_margin.toFixed(1) : '—')+'</td>';
         h += '<td style="padding:4px 8px;">'+(st.roic != null ? st.roic.toFixed(1) : '—')+'</td>';
         h += '<td style="padding:4px 8px;">'+(st.rs != null ? st.rs : '—')+'</td>';
-        function retCell(v) {
-            if (v == null) return '<td style="padding:4px 8px;">—</td>';
-            var cls = v > 0 ? 'positive' : v < 0 ? 'negative' : '';
-            return '<td style="padding:4px 8px;" class="'+cls+'">'+(v>0?'+':'')+v.toFixed(1)+'%</td>';
-        }
         h += retCell(st.ret_1w);
         h += retCell(st.ret_1m);
         h += retCell(st.ret_3m);
         h += '<td style="padding:4px 8px;">'+(st.target != null ? st.target.toFixed(0) : '—')+'</td>';
         h += '<td style="padding:4px 8px;"><span onclick="event.stopPropagation();removeFromWatchlist(\''+st.symbol+'\');loadWatchlist();" style="cursor:pointer;color:var(--red,#ef4444);font-size:14px;" title="Remove">✕</span></td>';
         h += '</tr>';
-    });
-    h += '</tbody></table>';
+        return h;
+    }
+
+    var cols = [
+        {k:'symbol',l:'Symbol',t:'str'}, {k:'sector',l:'Sector',t:'str'}, {k:'industry',l:'Industry',t:'str'},
+        {k:'price',l:'Price',t:'num'}, {k:'change',l:'Chg%',t:'num'},
+        {k:'pe',l:'PE',t:'num'}, {k:'fwd_pe',l:'Fwd PE',t:'num'},
+        {k:'eps_act',l:'EPS',t:'num'}, {k:'eps_fy1',l:'FY1',t:'num'}, {k:'eps_fy2',l:'FY2',t:'num'},
+        {k:'op_margin',l:'OpMgn%',t:'num'}, {k:'roic',l:'ROIC%',t:'num'},
+        {k:'rs',l:'RS',t:'num'}, {k:'ret_1w',l:'1W%',t:'num'}, {k:'ret_1m',l:'1M%',t:'num'}, {k:'ret_3m',l:'3M%',t:'num'}, {k:'target',l:'Target',t:'num'},
+        {k:'_remove',l:'',t:'str'},
+    ];
+
+    function buildTableHeader(tableId) {
+        var h = '<thead><tr style="border-bottom:2px solid #333;">';
+        cols.forEach(function(c, i) {
+            var st = c.k === 'symbol' ? 'text-align:left;' : '';
+            h += '<th style="padding:5px 8px;cursor:pointer;'+st+'" onclick="sortWlTable(\''+tableId+'\','+i+',\''+c.t+'\')">' + c.l + '</th>';
+        });
+        h += '</tr></thead>';
+        return h;
+    }
+
+    var longs = data.stocks.filter(function(s) { return s._side === 'long'; });
+    var shorts = data.stocks.filter(function(s) { return s._side === 'short'; });
+
+    var h = '';
+
+    // LONG section
+    h += '<div style="margin-bottom:16px;">';
+    h += '<h3 style="color:var(--accent,#10b981);font-size:14px;margin:0 0 4px;">▲ LONG (' + longs.length + ')</h3>';
+    if (longs.length > 0) {
+        h += '<table id="wl-long" style="width:100%;border-collapse:collapse;font-size:12px;">';
+        h += buildTableHeader('wl-long');
+        h += '<tbody>';
+        longs.forEach(function(st) { h += buildStockRow(st); });
+        h += '</tbody></table>';
+    } else {
+        h += '<div style="color:var(--text-faint);font-size:12px;padding:8px;">No long ideas. Right-click a stock → Add LONG.</div>';
+    }
+    h += '</div>';
+
+    // SHORT section
+    h += '<div>';
+    h += '<h3 style="color:var(--red,#ef4444);font-size:14px;margin:0 0 4px;">▼ SHORT (' + shorts.length + ')</h3>';
+    if (shorts.length > 0) {
+        h += '<table id="wl-short" style="width:100%;border-collapse:collapse;font-size:12px;">';
+        h += buildTableHeader('wl-short');
+        h += '<tbody>';
+        shorts.forEach(function(st) { h += buildStockRow(st); });
+        h += '</tbody></table>';
+    } else {
+        h += '<div style="color:var(--text-faint);font-size:12px;padding:8px;">No short ideas. Right-click a stock → Add SHORT.</div>';
+    }
+    h += '</div>';
+
     document.getElementById('wl-table-wrap').innerHTML = h;
 }
 
 var _wlSortDir = {};
-function sortWlTable(col, type) {
-    var tbody = document.getElementById('wl-tbody');
+function sortWlTable(tableId, col, type) {
+    var table = document.getElementById(tableId);
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
     if (!tbody) return;
-    _wlSortDir[col] = !(_wlSortDir[col] || false);
-    var asc = _wlSortDir[col];
+    var key = tableId + '_' + col;
+    _wlSortDir[key] = !(_wlSortDir[key] || false);
+    var asc = _wlSortDir[key];
     var rows = Array.from(tbody.querySelectorAll('tr'));
     rows.sort(function(a, b) {
         var aVal = a.cells[col] ? a.cells[col].textContent.trim() : '';

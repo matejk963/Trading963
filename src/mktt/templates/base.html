@@ -109,33 +109,61 @@
         }
     })();
 
-    // Watchlist — stored in localStorage
+    // Watchlist — stored in localStorage as [{sym, side}]
+    // Migrate old format (plain array of strings) if needed
     function getWatchlist() {
-        try { return JSON.parse(localStorage.getItem('mktt_watchlist') || '[]'); } catch(e) { return []; }
+        try {
+            var raw = JSON.parse(localStorage.getItem('mktt_watchlist') || '[]');
+            if (raw.length > 0 && typeof raw[0] === 'string') {
+                // Migrate: old format was ['AAPL','MSFT'], convert to [{sym,side}]
+                raw = raw.map(function(s) { return {sym: s, side: 'long'}; });
+                saveWatchlist(raw);
+            }
+            return raw;
+        } catch(e) { return []; }
     }
     function saveWatchlist(wl) {
         localStorage.setItem('mktt_watchlist', JSON.stringify(wl));
         updateWlBadge();
     }
-    function addToWatchlist(sym) {
+    function addToWatchlist(sym, side) {
         var wl = getWatchlist();
-        if (wl.indexOf(sym) === -1) { wl.push(sym); saveWatchlist(wl); }
+        var existing = wl.find(function(w) { return w.sym === sym; });
+        if (existing) {
+            existing.side = side;
+        } else {
+            wl.push({sym: sym, side: side});
+        }
+        saveWatchlist(wl);
     }
     function removeFromWatchlist(sym) {
-        var wl = getWatchlist().filter(function(s) { return s !== sym; });
+        var wl = getWatchlist().filter(function(w) { return w.sym !== sym; });
         saveWatchlist(wl);
+    }
+    function getWlSide(sym) {
+        var entry = getWatchlist().find(function(w) { return w.sym === sym; });
+        return entry ? entry.side : null;
     }
     function updateWlBadge() {
         var badge = document.getElementById('wl-badge');
-        var n = getWatchlist().length;
-        if (badge) { badge.textContent = n; badge.style.display = n > 0 ? 'inline' : 'none'; }
+        var wl = getWatchlist();
+        if (badge) { badge.textContent = wl.length; badge.style.display = wl.length > 0 ? 'inline' : 'none'; }
     }
     updateWlBadge();
 
     // Context menu for adding to watchlist
     var _ctxMenu = null;
+    function _makeCtxItem(text, color, onclick) {
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;color:' + color + ';';
+        item.textContent = text;
+        item.onmouseenter = function() { this.style.background = 'var(--bg,#111)'; };
+        item.onmouseleave = function() { this.style.background = ''; };
+        item.onclick = function() { onclick(); _ctxMenu.remove(); _ctxMenu = null; };
+        return item;
+    }
+
     document.addEventListener('contextmenu', function(e) {
-        // Find closest stock row with a symbol
         var row = e.target.closest('tr[onclick*="toggleStockChart"]');
         if (!row) return;
         e.preventDefault();
@@ -144,35 +172,27 @@
         var sym = symCell.textContent.trim();
         if (!sym) return;
 
-        // Remove old menu
         if (_ctxMenu) _ctxMenu.remove();
 
-        var wl = getWatchlist();
-        var inWl = wl.indexOf(sym) !== -1;
+        var side = getWlSide(sym);
 
         _ctxMenu = document.createElement('div');
-        _ctxMenu.style.cssText = 'position:fixed;z-index:1000;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:6px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,0.6);min-width:160px;';
+        _ctxMenu.style.cssText = 'position:fixed;z-index:1000;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:6px;padding:4px 0;box-shadow:0 4px 12px rgba(0,0,0,0.6);min-width:180px;';
         _ctxMenu.style.left = e.clientX + 'px';
         _ctxMenu.style.top = e.clientY + 'px';
 
-        var item = document.createElement('div');
-        item.style.cssText = 'padding:6px 14px;font-size:12px;cursor:pointer;color:var(--text);';
-        item.onmouseenter = function() { this.style.background = 'var(--bg,#111)'; };
-        item.onmouseleave = function() { this.style.background = ''; };
-
-        if (inWl) {
-            item.textContent = '✕ Remove ' + sym + ' from Watchlist';
-            item.style.color = 'var(--red,#ef4444)';
-            item.onclick = function() { removeFromWatchlist(sym); _ctxMenu.remove(); _ctxMenu=null; };
+        if (side) {
+            // Already in watchlist — show switch side + remove
+            var otherSide = side === 'long' ? 'short' : 'long';
+            _ctxMenu.appendChild(_makeCtxItem('↔ Switch to ' + otherSide.toUpperCase(), '#f59e0b', function() { addToWatchlist(sym, otherSide); }));
+            _ctxMenu.appendChild(_makeCtxItem('✕ Remove ' + sym, 'var(--red,#ef4444)', function() { removeFromWatchlist(sym); }));
         } else {
-            item.textContent = '★ Add ' + sym + ' to Watchlist';
-            item.style.color = 'var(--accent,#10b981)';
-            item.onclick = function() { addToWatchlist(sym); _ctxMenu.remove(); _ctxMenu=null; };
+            _ctxMenu.appendChild(_makeCtxItem('▲ Add ' + sym + ' LONG', 'var(--accent,#10b981)', function() { addToWatchlist(sym, 'long'); }));
+            _ctxMenu.appendChild(_makeCtxItem('▼ Add ' + sym + ' SHORT', 'var(--red,#ef4444)', function() { addToWatchlist(sym, 'short'); }));
         }
-        _ctxMenu.appendChild(item);
         document.body.appendChild(_ctxMenu);
     });
-    document.addEventListener('click', function() { if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu=null; } });
+    document.addEventListener('click', function() { if (_ctxMenu) { _ctxMenu.remove(); _ctxMenu = null; } });
     </script>
 </body>
 </html>
