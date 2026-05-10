@@ -1252,18 +1252,23 @@ def _rolling_12m_impl(symbol):
                 last_dt = pd.to_datetime(dates[-1]) if dates else q['Date'].iloc[-1]
                 fwd_dates.append(str(last_dt + pd.DateOffset(months=3 * step))[:10])
 
+    # Sanitize: replace NaN/inf with None for JSON
+    import math
+    def _clean(lst):
+        return [v if v is not None and not (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else None for v in lst]
+
     result = {
         'dates': dates,
-        'eps_ttm': eps_ttm,
-        'eps_est_ttm': eps_est_ttm,
-        'rev_ttm': rev_ttm,
+        'eps_ttm': _clean(eps_ttm),
+        'eps_est_ttm': _clean(eps_est_ttm),
+        'rev_ttm': _clean(rev_ttm),
         'fwd_dates': fwd_dates,
-        'fwd_eps_mean': fwd_eps_mean,
-        'fwd_eps_high': fwd_eps_high,
-        'fwd_eps_low': fwd_eps_low,
-        'fwd_rev_mean': fwd_rev_mean,
-        'fwd_rev_high': fwd_rev_high,
-        'fwd_rev_low': fwd_rev_low,
+        'fwd_eps_mean': _clean(fwd_eps_mean),
+        'fwd_eps_high': _clean(fwd_eps_high),
+        'fwd_eps_low': _clean(fwd_eps_low),
+        'fwd_rev_mean': _clean(fwd_rev_mean),
+        'fwd_rev_high': _clean(fwd_rev_high),
+        'fwd_rev_low': _clean(fwd_rev_low),
     }
     return jsonify(result)
 
