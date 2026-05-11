@@ -2022,11 +2022,14 @@ def _revisions_impl(symbol):
 
 
 if __name__ == '__main__':
-    # Auto-update prices if stale (>16 hours old)
-    from data_manager import auto_update_if_stale
-    try:
-        auto_update_if_stale(max_age_hours=16)
-    except Exception as e:
-        print(f"  Auto-update skipped: {e}")
+    # Auto-update prices in background thread (non-blocking)
+    import threading
+    def _bg_update():
+        from data_manager import auto_update_if_stale
+        try:
+            auto_update_if_stale(max_age_hours=16)
+        except Exception as e:
+            print(f"  Auto-update skipped: {e}")
+    threading.Thread(target=_bg_update, daemon=True).start()
 
     app.run(debug=True, port=5001, use_reloader=True, reloader_type='stat')
