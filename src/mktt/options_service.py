@@ -370,24 +370,24 @@ def compute_gex(symbol, expiration=None, risk_free=0.045):
         T = dte / 365
 
         for _, row in chain_data['calls'].iterrows():
-            strike = row['strike']
-            iv = row.get('impliedVolatility', 0)
-            oi = row.get('openInterest', 0) or 0
-            if iv <= 0.001 or iv > 5 or pd.isna(iv) or oi <= 0:
+            strike = _safe(row['strike'])
+            iv = _safe(row.get('impliedVolatility', 0))
+            oi = _safe(row.get('openInterest', 0))
+            if iv <= 0.001 or iv > 5 or oi <= 0:
                 continue
             gamma = bs_gamma(spot, strike, T, risk_free, iv)
-            gex = gamma * oi * 100 * spot  # positive (dealers long calls)
+            gex = gamma * oi * 100 * spot
             gex_by_strike.setdefault(strike, {'call_gex': 0, 'put_gex': 0})
             gex_by_strike[strike]['call_gex'] += gex
 
         for _, row in chain_data['puts'].iterrows():
-            strike = row['strike']
-            iv = row.get('impliedVolatility', 0)
-            oi = row.get('openInterest', 0) or 0
-            if iv <= 0.001 or iv > 5 or pd.isna(iv) or oi <= 0:
+            strike = _safe(row['strike'])
+            iv = _safe(row.get('impliedVolatility', 0))
+            oi = _safe(row.get('openInterest', 0))
+            if iv <= 0.001 or iv > 5 or oi <= 0:
                 continue
             gamma = bs_gamma(spot, strike, T, risk_free, iv)
-            gex = gamma * oi * 100 * spot  # negative (dealers short puts)
+            gex = gamma * oi * 100 * spot
             gex_by_strike.setdefault(strike, {'call_gex': 0, 'put_gex': 0})
             gex_by_strike[strike]['put_gex'] -= gex
 
