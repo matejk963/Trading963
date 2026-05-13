@@ -1404,6 +1404,76 @@ def _sales_ttm_forward_impl(symbol):
     return jsonify(result)
 
 
+@app.route('/options')
+def options_page():
+    sym = request.args.get('sym', 'AAPL')
+    return render_template('options.html', active_section='options', default_sym=sym)
+
+
+@app.route('/api/options/expirations/<symbol>')
+def options_expirations_api(symbol):
+    try:
+        from options_service import get_expirations
+        exps = get_expirations(symbol)
+        if isinstance(exps, dict) and 'error' in exps:
+            return jsonify(exps), 500
+        return jsonify({'expirations': exps})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/chain/<symbol>')
+def options_chain_api(symbol):
+    try:
+        from options_service import process_chain
+        exp = request.args.get('exp', '')
+        if not exp:
+            return jsonify({'error': 'exp parameter required'}), 400
+        result = process_chain(symbol, exp)
+        if 'error' in result:
+            return jsonify(result), 500
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/surface/<symbol>')
+def options_surface_api(symbol):
+    try:
+        from options_service import compute_iv_surface
+        result = compute_iv_surface(symbol)
+        if 'error' in result:
+            return jsonify(result), 500
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/summary/<symbol>')
+def options_summary_api(symbol):
+    try:
+        from options_service import compute_summary
+        result = compute_summary(symbol)
+        if 'error' in result:
+            return jsonify(result), 500
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/gex/<symbol>')
+def options_gex_api(symbol):
+    try:
+        from options_service import compute_gex
+        exp = request.args.get('exp', None)
+        result = compute_gex(symbol, expiration=exp)
+        if 'error' in result:
+            return jsonify(result), 500
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/watchlist')
 def watchlist_page():
     """Watchlist page — stocks stored client-side, data fetched server-side."""

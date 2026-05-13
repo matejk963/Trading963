@@ -15,6 +15,7 @@
             <a id="screener-tab" href="{{ url_for('screener_page') }}" class="tab {% if active_section|default('screener') == 'screener' %}active{% endif %}">SCREENER</a>
             <a href="{{ url_for('macro.section_page', section='liquidity') }}" class="tab {% if active_section|default('') == 'liquidity' %}active{% endif %}">LIQUIDITY</a>
             <a href="{{ url_for('macro.section_page', section='rrg') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
+            <a href="{{ url_for('options_page') }}" class="tab {% if active_section|default('') == 'options' %}active{% endif %}">OPTIONS</a>
             <a href="{{ url_for('watchlist_page') }}" class="tab {% if active_section|default('') == 'watchlist' %}active{% endif %}">WATCHLIST<span id="wl-badge" style="font-size:9px;background:var(--primary);color:white;border-radius:50%;padding:1px 5px;margin-left:4px;display:none;"></span></a>
             <span style="margin-left:auto;cursor:pointer;font-size:12px;color:var(--text-faint,#666);padding:6px 10px;" onclick="showFreshness()" title="Data freshness">&#9202; DATA</span>
         </div>
