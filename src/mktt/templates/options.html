@@ -72,7 +72,10 @@
             <option value="all">All Expirations</option>
         </select>
     </div>
-    <div id="gex-chart" style="height:500px;"></div>
+    <div style="display:flex;gap:8px;">
+        <div id="gex-chart" style="flex:2;height:500px;"></div>
+        <div id="gex-table" style="flex:1;max-height:500px;overflow-y:auto;"></div>
+    </div>
     <div id="gex-info" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
 </div>
 
@@ -339,6 +342,30 @@ function loadGEX() {
             if (d.max_negative_strike) info += ' | Max -GEX: $'+d.max_negative_strike;
             info += ' | Total GEX: '+(d.total_gex>0?'+':'')+d.total_gex.toLocaleString();
             document.getElementById('gex-info').textContent = info;
+
+            // GEX table — sorted by absolute net GEX descending
+            var sorted = d.strikes.slice().sort(function(a,b) { return Math.abs(b.net_gex) - Math.abs(a.net_gex); });
+            var th = '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+            th += '<thead><tr style="border-bottom:2px solid #333;">';
+            th += '<th style="padding:3px 6px;text-align:right;">Strike</th>';
+            th += '<th style="padding:3px 6px;text-align:right;">Call GEX</th>';
+            th += '<th style="padding:3px 6px;text-align:right;">Put GEX</th>';
+            th += '<th style="padding:3px 6px;text-align:right;">Net GEX</th>';
+            th += '</tr></thead><tbody>';
+            sorted.forEach(function(s) {
+                if (s.net_gex === 0) return;
+                var cls = s.net_gex > 0 ? 'positive' : 'negative';
+                var isSpot = Math.abs(s.strike - d.spot) < (d.spot * 0.005);
+                var bg = isSpot ? 'background:rgba(245,158,11,0.15);' : '';
+                th += '<tr style="border-bottom:1px solid #1a1a2a;'+bg+'">';
+                th += '<td style="padding:2px 6px;text-align:right;font-weight:600;">'+s.strike+'</td>';
+                th += '<td style="padding:2px 6px;text-align:right;color:var(--accent);">'+s.call_gex.toLocaleString()+'</td>';
+                th += '<td style="padding:2px 6px;text-align:right;color:var(--red);">'+s.put_gex.toLocaleString()+'</td>';
+                th += '<td style="padding:2px 6px;text-align:right;" class="'+cls+'">'+(s.net_gex>0?'+':'')+s.net_gex.toLocaleString()+'</td>';
+                th += '</tr>';
+            });
+            th += '</tbody></table>';
+            document.getElementById('gex-table').innerHTML = th;
         })
         .catch(function(e) { document.getElementById('gex-chart').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
 }
