@@ -24,9 +24,12 @@
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
     <h2 class="page-title" style="margin:0;">Options</h2>
     <div class="opt-controls">
-        <label>Ticker:</label>
-        <input type="text" id="opt-sym" value="{{ default_sym }}" style="width:70px;text-transform:uppercase" onkeydown="if(event.key==='Enter')loadOptions()">
-        <button onclick="loadOptions()" style="font-size:11px;padding:3px 10px;background:var(--primary);border:none;color:white;border-radius:4px;cursor:pointer;">Load</button>
+        <span style="display:flex;gap:0;">
+            <button onclick="selectSym('^SPX')" id="btn-spx" style="font-size:11px;padding:4px 12px;background:var(--primary);border:1px solid var(--border);color:white;border-radius:4px 0 0 4px;cursor:pointer;">SPX</button>
+            <button onclick="selectSym('SPY')" id="btn-spy" style="font-size:11px;padding:4px 12px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer;">SPY</button>
+        </span>
+        <input type="text" id="opt-sym" value="{{ default_sym }}" style="width:70px;text-transform:uppercase;margin-left:8px;" onkeydown="if(event.key==='Enter')loadOptions()">
+        <button onclick="loadOptions()" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer;">Go</button>
         <span id="opt-spot" style="font-size:13px;font-weight:600;color:var(--text);margin-left:8px;"></span>
     </div>
 </div>
@@ -79,6 +82,15 @@ var _optExps = [];
 var _optChainCache = {};
 var DARK = {paper_bgcolor:'#0a0a0e',plot_bgcolor:'#0a0a0e',font:{color:'#888',family:'JetBrains Mono,monospace',size:11},
     xaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a'},yaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a'},margin:{l:50,r:20,t:35,b:35}};
+
+function selectSym(sym) {
+    document.getElementById('opt-sym').value = sym;
+    document.getElementById('btn-spx').style.background = sym === '^SPX' ? 'var(--primary)' : 'var(--bg-card)';
+    document.getElementById('btn-spx').style.color = sym === '^SPX' ? 'white' : 'var(--text-dim)';
+    document.getElementById('btn-spy').style.background = sym === 'SPY' ? 'var(--primary)' : 'var(--bg-card)';
+    document.getElementById('btn-spy').style.color = sym === 'SPY' ? 'white' : 'var(--text-dim)';
+    loadOptions();
+}
 
 function switchOptTab(tab) {
     ['chain','surface','oi','gex'].forEach(function(t) {

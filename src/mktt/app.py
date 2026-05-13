@@ -1406,7 +1406,7 @@ def _sales_ttm_forward_impl(symbol):
 
 @app.route('/options')
 def options_page():
-    sym = request.args.get('sym', 'AAPL')
+    sym = request.args.get('sym', '^SPX')
     return render_template('options.html', active_section='options', default_sym=sym)
 
 
