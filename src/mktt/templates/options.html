@@ -344,7 +344,7 @@ function loadGEX() {
             document.getElementById('gex-info').textContent = info;
 
             // GEX table — sorted by absolute net GEX descending
-            var sorted = d.strikes.slice().sort(function(a,b) { return Math.abs(b.net_gex) - Math.abs(a.net_gex); });
+            var sorted = d.strikes.slice().sort(function(a,b) { return a.strike - b.strike; });
             var th = '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
             th += '<thead><tr style="border-bottom:2px solid #333;">';
             th += '<th style="padding:3px 6px;text-align:right;">Strike</th>';
