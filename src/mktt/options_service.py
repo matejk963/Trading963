@@ -16,6 +16,19 @@ _cache_time = {}
 CACHE_TTL = 300  # 5 minutes
 
 
+def _safe(v, default=0):
+    """Convert NaN/None/inf to default."""
+    if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+        return default
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
+
+
 def _get_cached(key):
     if key in _cache and time.time() - _cache_time.get(key, 0) < CACHE_TTL:
         return _cache[key]
@@ -164,17 +177,13 @@ def process_chain(symbol, expiration, risk_free=0.045):
     def _add_greeks(df, is_call=True):
         rows = []
         for _, row in df.iterrows():
-            iv = row.get('impliedVolatility', 0)
-            strike = row['strike']
-            oi = row.get('openInterest', 0)
-            if pd.isna(oi):
-                oi = 0
-            vol = row.get('volume', 0)
-            if pd.isna(vol):
-                vol = 0
+            iv = _safe(row.get('impliedVolatility', 0))
+            strike = _safe(row['strike'])
+            oi = int(_safe(row.get('openInterest', 0)))
+            vol = int(_safe(row.get('volume', 0)))
 
             # Skip invalid IV
-            if iv <= 0.001 or iv > 5 or pd.isna(iv):
+            if iv <= 0.001 or iv > 5:
                 gamma = delta = theta = vega = 0
             else:
                 gamma = bs_gamma(spot, strike, T, risk_free, iv)
@@ -184,9 +193,9 @@ def process_chain(symbol, expiration, risk_free=0.045):
 
             rows.append({
                 'strike': strike,
-                'bid': row.get('bid', 0) or 0,
-                'ask': row.get('ask', 0) or 0,
-                'last': row.get('lastPrice', 0) or 0,
+                'bid': round(_safe(row.get('bid', 0)), 2),
+                'ask': round(_safe(row.get('ask', 0)), 2),
+                'last': round(_safe(row.get('lastPrice', 0)), 2),
                 'volume': int(vol),
                 'oi': int(oi),
                 'iv': round(iv * 100, 1) if iv > 0.001 else None,  # as percentage
@@ -226,31 +235,31 @@ def compute_iv_surface(symbol):
         dte = max((exp_date - now).days, 1)
 
         for _, row in chain_data['calls'].iterrows():
-            iv = row.get('impliedVolatility', 0)
-            if iv > 0.001 and iv < 5 and not pd.isna(iv):
-                moneyness = round((row['strike'] / spot - 1) * 100, 1)
+            iv = _safe(row.get('impliedVolatility', 0))
+            if iv > 0.001 and iv < 5:
+                moneyness = round((_safe(row['strike']) / spot - 1) * 100, 1)
                 surface.append({
-                    'strike': row['strike'],
+                    'strike': _safe(row['strike']),
                     'moneyness': moneyness,
                     'dte': dte,
                     'expiration': exp,
                     'iv': round(iv * 100, 1),
                     'type': 'call',
-                    'oi': int(row.get('openInterest', 0) or 0),
+                    'oi': int(_safe(row.get('openInterest', 0))),
                 })
 
         for _, row in chain_data['puts'].iterrows():
-            iv = row.get('impliedVolatility', 0)
-            if iv > 0.001 and iv < 5 and not pd.isna(iv):
-                moneyness = round((row['strike'] / spot - 1) * 100, 1)
+            iv = _safe(row.get('impliedVolatility', 0))
+            if iv > 0.001 and iv < 5:
+                moneyness = round((_safe(row['strike']) / spot - 1) * 100, 1)
                 surface.append({
-                    'strike': row['strike'],
+                    'strike': _safe(row['strike']),
                     'moneyness': moneyness,
                     'dte': dte,
                     'expiration': exp,
                     'iv': round(iv * 100, 1),
                     'type': 'put',
-                    'oi': int(row.get('openInterest', 0) or 0),
+                    'oi': int(_safe(row.get('openInterest', 0))),
                 })
 
     return {
@@ -277,10 +286,10 @@ def compute_summary(symbol):
         calls = chain_data['calls']
         puts = chain_data['puts']
 
-        call_oi = calls['openInterest'].fillna(0).sum()
-        put_oi = puts['openInterest'].fillna(0).sum()
-        call_vol = calls['volume'].fillna(0).sum()
-        put_vol = puts['volume'].fillna(0).sum()
+        call_oi = _safe(calls['openInterest'].fillna(0).sum())
+        put_oi = _safe(puts['openInterest'].fillna(0).sum())
+        call_vol = _safe(calls['volume'].fillna(0).sum())
+        put_vol = _safe(puts['volume'].fillna(0).sum())
         pc_oi = put_oi / call_oi if call_oi > 0 else 0
         pc_vol = put_vol / call_vol if call_vol > 0 else 0
 
