@@ -1466,7 +1466,8 @@ def options_gex_api(symbol):
     try:
         from options_service import compute_gex
         exp = request.args.get('exp', None)
-        result = compute_gex(symbol, expiration=exp)
+        max_dte = int(request.args.get('max_dte', 45))
+        result = compute_gex(symbol, expiration=exp, max_dte=max_dte)
         if 'error' in result:
             return jsonify(result), 500
         return jsonify(result)

@@ -339,7 +339,7 @@ def compute_summary(symbol):
 # GEX (Gamma Exposure)
 # =========================================================================
 
-def compute_gex(symbol, expiration=None, risk_free=0.045):
+def compute_gex(symbol, expiration=None, risk_free=0.045, max_dte=45):
     """
     Compute Gamma Exposure (GEX) per strike.
     - Call OI: dealers assumed long → positive gamma
@@ -367,6 +367,9 @@ def compute_gex(symbol, expiration=None, risk_free=0.045):
     for exp, chain_data in chains.items():
         exp_date = pd.Timestamp(exp)
         dte = max((exp_date - now).days, 1)
+        # Filter: skip expirations beyond max_dte (unless specific exp requested)
+        if expiration is None and max_dte and dte > max_dte:
+            continue
         T = dte / 365
 
         for _, row in chain_data['calls'].iterrows():
@@ -376,7 +379,7 @@ def compute_gex(symbol, expiration=None, risk_free=0.045):
             if iv <= 0.001 or iv > 5 or oi <= 0:
                 continue
             gamma = bs_gamma(spot, strike, T, risk_free, iv)
-            gex = gamma * oi * 100 * spot
+            gex = gamma * oi * 100 * spot * spot  # S^2 = dollar GEX per 1% move
             gex_by_strike.setdefault(strike, {'call_gex': 0, 'put_gex': 0})
             gex_by_strike[strike]['call_gex'] += gex
 
@@ -387,7 +390,7 @@ def compute_gex(symbol, expiration=None, risk_free=0.045):
             if iv <= 0.001 or iv > 5 or oi <= 0:
                 continue
             gamma = bs_gamma(spot, strike, T, risk_free, iv)
-            gex = gamma * oi * 100 * spot
+            gex = gamma * oi * 100 * spot * spot
             gex_by_strike.setdefault(strike, {'call_gex': 0, 'put_gex': 0})
             gex_by_strike[strike]['put_gex'] -= gex
 
