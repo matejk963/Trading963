@@ -90,7 +90,13 @@ function render(code){
 }
 
 function handleClick(nid){
-    if(nid.indexOf('__')>-1){
+    if(nid.indexOf('__COLLAPSE')>-1){
+        // Collapse button inside expanded module
+        var mid=nid.replace('__COLLAPSE','');
+        expanded[mid]=false;
+        document.getElementById('panel').style.display='none';
+        rebuild();
+    } else if(nid.indexOf('__')>-1){
         // Function node
         var parts=nid.split('__');
         var fn=parts[parts.length-1];
@@ -120,8 +126,12 @@ function rebuild(){
         var m=MODULES[mod];
         var mid=mod.replace(/\//g,'_');
         if(expanded[mid]){
-            lines.push('    subgraph '+mid+'["📂 '+esc(mod)+' — click to collapse"]');
+            lines.push('    subgraph '+mid+'["📂 '+esc(mod)+'"]');
             lines.push('        direction TB');
+            // Collapse button node
+            var colId=mid+'__COLLAPSE';
+            lines.push('        '+colId+'["✕ collapse"]');
+            lines.push('        style '+colId+' fill:#33333366,stroke:#555,color:#aaa');
             m.functions.forEach(function(f){
                 var fid=mid+'__'+f.name;
                 var lbl=f.name+'()';
