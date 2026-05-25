@@ -90,13 +90,7 @@ function render(code){
 }
 
 function handleClick(nid){
-    if(nid.indexOf('__COLLAPSE')>-1){
-        // Collapse button inside expanded module
-        var mid=nid.replace('__COLLAPSE','');
-        expanded[mid]=false;
-        document.getElementById('panel').style.display='none';
-        rebuild();
-    } else if(nid.indexOf('__')>-1){
+    if(nid.indexOf('__')>-1){
         // Function node
         var parts=nid.split('__');
         var fn=parts[parts.length-1];
@@ -126,29 +120,33 @@ function rebuild(){
         var m=MODULES[mod];
         var mid=mod.replace(/\//g,'_');
         if(expanded[mid]){
-            lines.push('    subgraph '+mid+'["📂 '+esc(mod)+'"]');
-            lines.push('        direction TB');
-            // Collapse button node — link to first function to force it above
-            var colId=mid+'__COLLAPSE';
-            lines.push('        '+colId+'["✕ collapse"]');
-            lines.push('        style '+colId+' fill:#33333366,stroke:#555,color:#aaa');
-            m.functions.forEach(function(f,i){
+            // Module node stays, functions branch below it
+            var nf=m.functions.length;
+            var nr=m.functions.filter(function(f){return f.route;}).length;
+            var lbl='📂 '+mod+'\\n✕ click to collapse';
+            lines.push('    '+mid+'["'+esc(lbl)+'"]');
+            lines.push('    style '+mid+' fill:'+m.color+'33,stroke:'+m.color+',color:'+m.color);
+
+            // Function nodes below
+            m.functions.forEach(function(f){
                 var fid=mid+'__'+f.name;
-                var lbl=f.name+'()';
-                if(f.route) lbl=f.route+'\\n'+f.name+'()';
-                lines.push('        '+fid+'["'+esc(lbl)+'"]');
-                if(i===0) lines.push('        '+colId+' ~~~ '+fid);
-                if(f.route) lines.push('        style '+fid+' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
+                var flbl=f.name+'()';
+                if(f.route) flbl=f.route+'\\n'+f.name+'()';
+                else flbl+=' ('+f.lines+'L)';
+                lines.push('    '+fid+'["'+esc(flbl)+'"]');
+                lines.push('    '+mid+' --> '+fid);
+                if(f.route) lines.push('    style '+fid+' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
+                else lines.push('    style '+fid+' fill:'+m.color+'11,stroke:'+m.color+'88,color:'+m.color);
             });
+
+            // Internal call edges between functions
             var fnames=m.functions.map(function(f){return f.name;});
             m.functions.forEach(function(f){
                 f.calls.forEach(function(c){
                     if(fnames.indexOf(c)>-1 && c!==f.name)
-                        lines.push('        '+mid+'__'+f.name+' --> '+mid+'__'+c);
+                        lines.push('    '+mid+'__'+f.name+' --> '+mid+'__'+c);
                 });
             });
-            lines.push('    end');
-            lines.push('    style '+mid+' fill:'+m.color+'08,stroke:'+m.color+',color:'+m.color);
         } else {
             var nf=m.functions.length;
             var nr=m.functions.filter(function(f){return f.route;}).length;
