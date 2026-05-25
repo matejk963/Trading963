@@ -15,6 +15,8 @@ MOD_COLORS = {
     'app': '#10b981', 'data_manager': '#f59e0b', 'stage_classifier': '#a78bfa',
     'options_service': '#ef4444', 'screener': '#ec4899', 'data_freshness': '#888',
     'macro': '#06b6d4', 'update_classifications': '#84cc16',
+    'templates': '#f97316', 'templates/macro': '#f97316',
+    'static/js': '#22d3ee', 'static/css': '#a3a3a3',
 }
 
 def parse_module(filepath):
@@ -46,8 +48,60 @@ def parse_module(filepath):
             })
     return module
 
-# Parse into a tree structure: {files: {name: parsed}, folders: {name: {files:..., folders:...}}}
+def parse_js(filepath):
+    """Parse a JS file: extract function definitions and fetch() URLs."""
+    import re
+    try: content = open(filepath, encoding='utf-8').read()
+    except: return None
+    functions = []
+    # Find function declarations: function name(
+    for m in re.finditer(r'function\s+(\w+)\s*\(([^)]*)\)', content):
+        name = m.group(1)
+        args = [a.strip() for a in m.group(2).split(',') if a.strip()]
+        # Find line number
+        line = content[:m.start()].count('\n') + 1
+        # Find end (approximate: next function or end)
+        next_func = re.search(r'\nfunction\s+\w+\s*\(', content[m.end():])
+        end_line = line + (content[m.start():m.start()+next_func.start()].count('\n') if next_func else 20)
+        functions.append({'name': name, 'args': args[:4], 'route': None,
+            'calls': [], 'doc': '', 'lines': end_line - line, 'line': line})
+    # Find fetch() URLs
+    fetches = re.findall(r"fetch\(['\"]([^'\"]+)['\"]", content)
+    fetches += re.findall(r"fetch\(['\"]([^'\"]+?)['\"]", content)
+    # Deduplicate
+    fetches = sorted(set(f.split('?')[0] for f in fetches))
+    return {'functions': functions, 'fetches': fetches, 'imports': [],
+            'nlines': content.count('\n') + 1}
+
+def parse_html(filepath):
+    """Parse an HTML template: extract extends, blocks, fetch URLs, script includes."""
+    import re
+    try: content = open(filepath, encoding='utf-8').read()
+    except: return None
+    extends = re.findall(r"\{%\s*extends\s+['\"]([^'\"]+)['\"]", content)
+    blocks = re.findall(r"\{%\s*block\s+(\w+)", content)
+    fetches = re.findall(r"fetch\(['\"]([^'\"]+)['\"]", content)
+    fetches = sorted(set(f.split('?')[0] for f in fetches))
+    scripts = re.findall(r'src=["\']([^"\']*\.js)["\']', content)
+    scripts = [s.split('/')[-1] for s in scripts if 'static' in s or 'stock_panel' in s or 'macro' in s]
+    # JS functions defined inline
+    functions = []
+    for m in re.finditer(r'function\s+(\w+)\s*\(([^)]*)\)', content):
+        functions.append({'name': m.group(1), 'args': [], 'route': None,
+            'calls': [], 'doc': '', 'lines': 5, 'line': content[:m.start()].count('\n')+1})
+    return {'extends': extends, 'blocks': blocks, 'fetches': fetches, 'scripts': scripts,
+            'functions': functions, 'imports': [], 'nlines': content.count('\n') + 1}
+
+def parse_css(filepath):
+    """Minimal CSS parse: just line count."""
+    try: content = open(filepath, encoding='utf-8').read()
+    except: return None
+    return {'nlines': content.count('\n') + 1, 'functions': [], 'imports': []}
+
+# Parse into a tree structure
 tree = {'files': {}, 'folders': {}}
+
+# Python files
 for pyfile in sorted(SRC_DIR.rglob('*.py')):
     if '__pycache__' in str(pyfile): continue
     rel = pyfile.relative_to(SRC_DIR)
@@ -63,6 +117,51 @@ for pyfile in sorted(SRC_DIR.rglob('*.py')):
         if folder not in tree['folders']:
             tree['folders'][folder] = {'files': {}}
         tree['folders'][folder]['files'][fname] = parsed
+
+# JS files
+for jsfile in sorted(SRC_DIR.rglob('*.js')):
+    rel = jsfile.relative_to(SRC_DIR)
+    parts = list(rel.parts)
+    parsed = parse_js(jsfile)
+    if not parsed: continue
+    folder = '/'.join(parts[:-1]) if len(parts) > 1 else None
+    fname = parts[-1].replace('.js', '')
+    if folder:
+        if folder not in tree['folders']:
+            tree['folders'][folder] = {'files': {}}
+        tree['folders'][folder]['files'][fname] = parsed
+    else:
+        tree['files'][fname] = parsed
+
+# HTML templates
+for htmlfile in sorted(SRC_DIR.rglob('*.html')):
+    rel = htmlfile.relative_to(SRC_DIR)
+    parts = list(rel.parts)
+    parsed = parse_html(htmlfile)
+    if not parsed: continue
+    folder = '/'.join(parts[:-1]) if len(parts) > 1 else None
+    fname = parts[-1].replace('.html', '')
+    if folder:
+        if folder not in tree['folders']:
+            tree['folders'][folder] = {'files': {}}
+        tree['folders'][folder]['files'][fname] = parsed
+    else:
+        tree['files'][fname] = parsed
+
+# CSS files
+for cssfile in sorted(SRC_DIR.rglob('*.css')):
+    rel = cssfile.relative_to(SRC_DIR)
+    parts = list(rel.parts)
+    parsed = parse_css(cssfile)
+    if not parsed: continue
+    folder = '/'.join(parts[:-1]) if len(parts) > 1 else None
+    fname = parts[-1].replace('.css', '')
+    if folder:
+        if folder not in tree['folders']:
+            tree['folders'][folder] = {'files': {}}
+        tree['folders'][folder]['files'][fname] = parsed
+    else:
+        tree['files'][fname] = parsed
 
 # Flatten for lookups
 all_modules = {}
@@ -84,24 +183,36 @@ for mod, data in all_modules.items():
             if call in func_to_mod:
                 callers.setdefault(call, []).append({'func': f['name'], 'module': mod})
 
+def file_ext(fname):
+    """Guess extension from original parsing."""
+    # We stripped extensions, so check for known names
+    return ''
+
 # Build JS data
+def build_file_js(data, folder=None):
+    funcs = data.get('functions', [])
+    return {
+        'functions': funcs,
+        'imports': data.get('imports', []),
+        'fetches': data.get('fetches', []),
+        'extends': data.get('extends', []),
+        'scripts': data.get('scripts', []),
+        'blocks': data.get('blocks', []),
+        'color': MOD_COLORS.get(folder, '#4f8cf7') if folder else '#4f8cf7',
+        'nfuncs': len(funcs),
+        'nroutes': len([f for f in funcs if f.get('route')]),
+        'nlines': data.get('nlines', 0),
+    }
+
 js_tree = {'files': {}, 'folders': {}}
 for fname, data in tree['files'].items():
-    js_tree['files'][fname] = {
-        'functions': data['functions'], 'imports': data['imports'],
-        'color': MOD_COLORS.get(fname, '#4f8cf7'),
-        'nfuncs': len(data['functions']),
-        'nroutes': len([f for f in data['functions'] if f.get('route')]),
-    }
+    d = build_file_js(data)
+    d['color'] = MOD_COLORS.get(fname, '#4f8cf7')
+    js_tree['files'][fname] = d
 for folder, fdata in tree['folders'].items():
     js_tree['folders'][folder] = {'color': MOD_COLORS.get(folder, '#4f8cf7'), 'files': {}}
     for fname, data in fdata['files'].items():
-        js_tree['folders'][folder]['files'][fname] = {
-            'functions': data['functions'], 'imports': data['imports'],
-            'color': MOD_COLORS.get(folder, '#4f8cf7'),
-            'nfuncs': len(data['functions']),
-            'nroutes': len([f for f in data['functions'] if f.get('route')]),
-        }
+        js_tree['folders'][folder]['files'][fname] = build_file_js(data, folder)
 
 nfiles = len(tree['files']) + sum(len(f['files']) for f in tree['folders'].values())
 nfuncs = sum(len(d['functions']) for d in all_modules.values())
