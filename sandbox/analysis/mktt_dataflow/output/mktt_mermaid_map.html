@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>MKTT Code Map — Mermaid</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+body { background: #0f1117; color: #ccc; font-family: 'JetBrains Mono', 'Consolas', monospace; margin: 0; padding: 0; }
+nav { background: #111; border-bottom: 1px solid #333; padding: 8px 16px; display: flex; gap: 0; position: sticky; top: 0; z-index: 100; }
+nav button { font-size: 12px; padding: 6px 16px; background: #1a1a2a; border: 1px solid #333; color: #888;
+    cursor: pointer; border-bottom: 2px solid transparent; }
+nav button:first-child { border-radius: 4px 0 0 4px; }
+nav button:last-child { border-radius: 0 4px 4px 0; }
+nav button.active { background: #4f8cf7; color: white; border-color: #4f8cf7; }
+.section { display: none; padding: 20px; }
+.section.active { display: block; }
+.section h2 { color: #4f8cf7; font-size: 16px; margin-bottom: 12px; }
+.section h3 { color: #10b981; font-size: 13px; margin: 16px 0 8px; }
+.diagram-wrap { background: #0a0a0e; border: 1px solid #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; overflow-x: auto; }
+.mod-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.mod-btn { font-size: 11px; padding: 4px 10px; background: #1a1a2a; border: 1px solid #333; color: #ccc;
+    border-radius: 4px; cursor: pointer; }
+.mod-btn:hover { background: #2a2a3a; }
+.mod-btn.active { background: #10b981; color: white; border-color: #10b981; }
+.mod-detail { display: none; }
+.mod-detail.active { display: block; }
+</style>
+</head><body>
+
+<nav>
+    <button class="active" onclick="switchSection('overview')">Module Overview</button>
+    <button onclick="switchSection('details')">Module Details</button>
+    <button onclick="switchSection('flows')">Request Flows</button>
+</nav>
+
+<div id="sec-overview" class="section active">
+    <h2>Module Overview</h2>
+    <p style="color:#666;font-size:11px;margin-bottom:12px;">How modules import each other. Arrows = import dependencies.</p>
+    <div class="diagram-wrap">
+        <pre class="mermaid">
+graph LR
+    app["app\n32 funcs | 18 routes"]
+    data_freshness["data_freshness\n7 funcs"]
+    data_manager["data_manager\n17 funcs"]
+    macro___init__["macro/__init__\n0 funcs"]
+    macro_cache["macro/cache\n2 funcs"]
+    macro_liquidity_service["macro/liquidity_service\n7 funcs"]
+    macro_routes["macro/routes\n8 funcs | 8 routes"]
+    macro_rrg_service["macro/rrg_service\n13 funcs"]
+    options_service["options_service\n16 funcs"]
+    screener["screener\n6 funcs"]
+    stage_classifier["stage_classifier\n9 funcs"]
+    update_classifications["update_classifications\n0 funcs"]
+    app --> screener
+    app --> stage_classifier
+    app --> macro___init__
+    update_classifications --> data_manager
+    update_classifications --> stage_classifier
+    style app fill:#10b98122,stroke:#10b981,color:#10b981
+    style data_freshness fill:#88822,stroke:#888,color:#888
+    style data_manager fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style macro___init__ fill:#4f8cf722,stroke:#4f8cf7,color:#4f8cf7
+    style macro_cache fill:#06b6d422,stroke:#06b6d4,color:#06b6d4
+    style macro_liquidity_service fill:#06b6d422,stroke:#06b6d4,color:#06b6d4
+    style macro_routes fill:#06b6d422,stroke:#06b6d4,color:#06b6d4
+    style macro_rrg_service fill:#06b6d422,stroke:#06b6d4,color:#06b6d4
+    style options_service fill:#ef444422,stroke:#ef4444,color:#ef4444
+    style screener fill:#ec489922,stroke:#ec4899,color:#ec4899
+    style stage_classifier fill:#a78bfa22,stroke:#a78bfa,color:#a78bfa
+    style update_classifications fill:#84cc1622,stroke:#84cc16,color:#84cc16
+        </pre>
+    </div>
+</div>
+
+<div id="sec-details" class="section">
+    <h2>Module Details</h2>
+    <p style="color:#666;font-size:11px;margin-bottom:12px;">Click a module to see its functions and internal/external calls.</p>
+    <div class="mod-grid">
+        <button class="mod-btn" onclick="showMod('app')" style="border-left:3px solid #10b981;">app (32)</button>
+        <button class="mod-btn" onclick="showMod('data_freshness')" style="border-left:3px solid #888;">data_freshness (7)</button>
+        <button class="mod-btn" onclick="showMod('data_manager')" style="border-left:3px solid #f59e0b;">data_manager (17)</button>
+        <button class="mod-btn" onclick="showMod('macro___init__')" style="border-left:3px solid #4f8cf7;">macro/__init__ (0)</button>
+        <button class="mod-btn" onclick="showMod('macro_cache')" style="border-left:3px solid #06b6d4;">macro/cache (2)</button>
+        <button class="mod-btn" onclick="showMod('macro_liquidity_service')" style="border-left:3px solid #06b6d4;">macro/liquidity_service (7)</button>
+        <button class="mod-btn" onclick="showMod('macro_routes')" style="border-left:3px solid #06b6d4;">macro/routes (8)</button>
+        <button class="mod-btn" onclick="showMod('macro_rrg_service')" style="border-left:3px solid #06b6d4;">macro/rrg_service (13)</button>
+        <button class="mod-btn" onclick="showMod('options_service')" style="border-left:3px solid #ef4444;">options_service (16)</button>
+        <button class="mod-btn" onclick="showMod('screener')" style="border-left:3px solid #ec4899;">screener (6)</button>
+        <button class="mod-btn" onclick="showMod('stage_classifier')" style="border-left:3px solid #a78bfa;">stage_classifier (9)</button>
+        <button class="mod-btn" onclick="showMod('update_classifications')" style="border-left:3px solid #84cc16;">update_classifications (0)</button>
+    </div>
+    <div id="mod-app" class="mod-detail">
+        <h3>app</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">load_classification_lookups</span><span style="color:#666;">()</span> <span style="color:#444;">L30 (68L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load pre-computed PCA, stage, and EPS accel∕decel classifications.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">load_refinitiv_snapshot</span><span style="color:#666;">()</span> <span style="color:#444;">L105 (64L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load Refinitiv snapshot as a symbol-keyed dict. Cached with mtime check.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_safe_num</span><span style="color:#666;">(v)</span> <span style="color:#444;">L171 (10L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_safe_val</span><span style="color:#666;">(v)</span> <span style="color:#444;">L183 (4L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">fmt_number</span><span style="color:#666;">(val)</span> <span style="color:#444;">L189 (15L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Format large numbers: 1.2B, 345M, 12.5K</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">inject_now</span><span style="color:#666;">()</span> <span style="color:#444;">L210 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">screener_page</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/screener</span> <span style="color:#444;">L216 (918L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">rolling_12m_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/rolling_12m/<symbol></span> <span style="color:#444;">L1137 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return rolling 12-month EPS and Revenue with estimate bounds.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_rolling_12m_impl</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L1146 (135L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">sales_ttm_forward_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/sales_ttm_forward/<symbol></span> <span style="color:#444;">L1284 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return forward TTM Revenue curves with revisions.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_sales_ttm_forward_impl</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L1293 (112L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">options_page</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/options</span> <span style="color:#444;">L1408 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">options_expirations_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/options/expirations/<symbol></span> <span style="color:#444;">L1414 (9L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">options_chain_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/options/chain/<symbol></span> <span style="color:#444;">L1426 (12L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">options_surface_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/options/surface/<symbol></span> <span style="color:#444;">L1441 (9L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">options_summary_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/options/summary/<symbol></span> <span style="color:#444;">L1453 (9L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">options_gex_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/options/gex/<symbol></span> <span style="color:#444;">L1465 (11L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">watchlist_page</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/watchlist</span> <span style="color:#444;">L1479 (3L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Watchlist page — stocks stored client-side, data fetched server-side.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">watchlist_api</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/watchlist</span> <span style="color:#444;">L1485 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return enriched data for a list of symbols (passed as ?sym=X&sym=Y).</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_watchlist_api_impl</span><span style="color:#666;">()</span> <span style="color:#444;">L1494 (82L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">sector_map_api</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/sector_map</span> <span style="color:#444;">L1579 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return sector∕industry breakdown by a given criteria dimension.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_sector_map_impl</span><span style="color:#666;">()</span> <span style="color:#444;">L1588 (155L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">chart_page</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/chart/<symbol></span> <span style="color:#444;">L1746 (45L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Render OHLC chart for a single symbol</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">chart_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/chart/<symbol></span> <span style="color:#444;">L1794 (6L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return chart data as JSON for inline rendering</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">freshness_api</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/freshness</span> <span style="color:#444;">L1802 (7L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return data freshness report as JSON.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_chart_api_impl</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L1811 (33L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">fundamentals_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/fundamentals/<symbol></span> <span style="color:#444;">L1847 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return quarterly fundamentals (margins, EPS, FCF) for a symbol.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_fundamentals_impl</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L1856 (42L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">eps_ttm_forward_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/eps_ttm_forward/<symbol></span> <span style="color:#444;">L1901 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return forward TTM EPS curve at current, -10d, -30d, -60d snapshots.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_eps_ttm_forward_impl</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L1910 (127L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build forward TTM EPS curves using per-quarter forward estimates.
+Shows how rolling 12M EPS evolves </span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">revisions_api</span><span style="color:#666;">(symbol)</span> <span style="color:#f59e0b;font-weight:700;">/api/revisions/<symbol></span> <span style="color:#444;">L2040 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return EPS∕Revenue estimate revision trends for a symbol.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_revisions_impl</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L2049 (44L)</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    app__load_classification_lookups["load_classification_lookups()\n68L"]
+    app__load_refinitiv_snapshot["load_refinitiv_snapshot()\n64L"]
+    app___safe_num["_safe_num()\n10L"]
+    app___safe_val["_safe_val()\n4L"]
+    app__fmt_number["fmt_number()\n15L"]
+    app__inject_now["inject_now()\n2L"]
+    app__screener_page["∕screener\nscreener_page()"]:::route
+    app__rolling_12m_api["∕api∕rolling_12m∕&lt;symbol&gt;\nrolling_12m_api()"]:::route
+    app___rolling_12m_impl["_rolling_12m_impl()\n135L"]
+    app__sales_ttm_forward_api["∕api∕sales_ttm_forward∕&lt;symbol&gt;\nsales_ttm_forward_api()"]:::route
+    app___sales_ttm_forward_impl["_sales_ttm_forward_impl()\n112L"]
+    app__options_page["∕options\noptions_page()"]:::route
+    app__options_expirations_api["∕api∕options∕expirations∕&lt;symbol&gt;\noptions_expirations_api()"]:::route
+    app__options_chain_api["∕api∕options∕chain∕&lt;symbol&gt;\noptions_chain_api()"]:::route
+    app__options_surface_api["∕api∕options∕surface∕&lt;symbol&gt;\noptions_surface_api()"]:::route
+    app__options_summary_api["∕api∕options∕summary∕&lt;symbol&gt;\noptions_summary_api()"]:::route
+    app__options_gex_api["∕api∕options∕gex∕&lt;symbol&gt;\noptions_gex_api()"]:::route
+    app__watchlist_page["∕watchlist\nwatchlist_page()"]:::route
+    app__watchlist_api["∕api∕watchlist\nwatchlist_api()"]:::route
+    app___watchlist_api_impl["_watchlist_api_impl()\n82L"]
+    app__sector_map_api["∕api∕sector_map\nsector_map_api()"]:::route
+    app___sector_map_impl["_sector_map_impl()\n155L"]
+    app__chart_page["∕chart∕&lt;symbol&gt;\nchart_page()"]:::route
+    app__chart_api["∕api∕chart∕&lt;symbol&gt;\nchart_api()"]:::route
+    app__freshness_api["∕api∕freshness\nfreshness_api()"]:::route
+    app___chart_api_impl["_chart_api_impl()\n33L"]
+    app__fundamentals_api["∕api∕fundamentals∕&lt;symbol&gt;\nfundamentals_api()"]:::route
+    app___fundamentals_impl["_fundamentals_impl()\n42L"]
+    app__eps_ttm_forward_api["∕api∕eps_ttm_forward∕&lt;symbol&gt;\neps_ttm_forward_api()"]:::route
+    app___eps_ttm_forward_impl["_eps_ttm_forward_impl()\n127L"]
+    app__revisions_api["∕api∕revisions∕&lt;symbol&gt;\nrevisions_api()"]:::route
+    app___revisions_impl["_revisions_impl()\n44L"]
+    app__load_refinitiv_snapshot --> app___safe_num
+    app__load_refinitiv_snapshot --> app___safe_val
+    app__screener_page --> app__load_classification_lookups
+    app__screener_page --> app__load_refinitiv_snapshot
+    app__rolling_12m_api --> app___rolling_12m_impl
+    app__sales_ttm_forward_api --> app___sales_ttm_forward_impl
+    app__watchlist_api --> app___watchlist_api_impl
+    app___watchlist_api_impl --> app__load_refinitiv_snapshot
+    app__sector_map_api --> app___sector_map_impl
+    app___sector_map_impl --> app__load_classification_lookups
+    app___sector_map_impl --> app__load_refinitiv_snapshot
+    app__chart_api --> app___chart_api_impl
+    app__fundamentals_api --> app___fundamentals_impl
+    app__eps_ttm_forward_api --> app___eps_ttm_forward_impl
+    app__revisions_api --> app___revisions_impl
+    app__screener_page -.-> data_manager__build_sector_map["(data_manager)\nbuild_sector_map()"]:::external
+    app__screener_page -.-> stage_classifier__get_stage_distribution["(stage_classifier)\nget_stage_distribution()"]:::external
+    app__screener_page -.-> data_manager__load_prices["(data_manager)\nload_prices()"]:::external
+    app__screener_page -.-> data_manager__load_sector_map["(data_manager)\nload_sector_map()"]:::external
+    app__screener_page -.-> data_manager__load_universe["(data_manager)\nload_universe()"]:::external
+    app__screener_page -.-> stage_classifier__run_stage_from_local_db["(stage_classifier)\nrun_stage_from_local_db()"]:::external
+    app__options_expirations_api -.-> options_service__get_expirations["(options_service)\nget_expirations()"]:::external
+    app__options_chain_api -.-> options_service__process_chain["(options_service)\nprocess_chain()"]:::external
+    app__options_surface_api -.-> options_service__compute_iv_surface["(options_service)\ncompute_iv_surface()"]:::external
+    app__options_summary_api -.-> options_service__compute_summary["(options_service)\ncompute_summary()"]:::external
+    app__options_gex_api -.-> options_service__compute_gex["(options_service)\ncompute_gex()"]:::external
+    app___watchlist_api_impl -.-> data_manager__load_prices["(data_manager)\nload_prices()"]:::external
+    app___watchlist_api_impl -.-> data_manager__load_universe["(data_manager)\nload_universe()"]:::external
+    app___sector_map_impl -.-> data_manager__load_prices["(data_manager)\nload_prices()"]:::external
+    app___sector_map_impl -.-> data_manager__load_universe["(data_manager)\nload_universe()"]:::external
+    app__chart_page -.-> data_manager__load_prices["(data_manager)\nload_prices()"]:::external
+    app__freshness_api -.-> data_freshness__full_report["(data_freshness)\nfull_report()"]:::external
+    app___chart_api_impl -.-> data_manager__load_prices["(data_manager)\nload_prices()"]:::external
+    app___revisions_impl -.-> options_service___safe["(options_service)\n_safe()"]:::external
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-data_freshness" class="mod-detail">
+        <h3>data_freshness</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_jsonable</span><span style="color:#666;">(obj)</span> <span style="color:#444;">L19 (15L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Recursively convert numpy∕pandas types to native Python for JSON.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">check_prices</span><span style="color:#666;">()</span> <span style="color:#444;">L38 (40L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Check price parquet freshness.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">check_refinitiv</span><span style="color:#666;">()</span> <span style="color:#444;">L80 (102L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Check Refinitiv fundamentals pickle freshness.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">check_universe</span><span style="color:#666;">()</span> <span style="color:#444;">L184 (16L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Check universe parquet.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">check_classifications</span><span style="color:#666;">()</span> <span style="color:#444;">L202 (22L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Check classification JSONs freshness.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">full_report</span><span style="color:#666;">()</span> <span style="color:#444;">L226 (28L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Run all checks, return structured report.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">print_report</span><span style="color:#666;">(report)</span> <span style="color:#444;">L256 (82L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Pretty-print the freshness report.</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    data_freshness___jsonable["_jsonable()\n15L"]
+    data_freshness__check_prices["check_prices()\n40L"]
+    data_freshness__check_refinitiv["check_refinitiv()\n102L"]
+    data_freshness__check_universe["check_universe()\n16L"]
+    data_freshness__check_classifications["check_classifications()\n22L"]
+    data_freshness__full_report["full_report()\n28L"]
+    data_freshness__print_report["print_report()\n82L"]
+    data_freshness__full_report --> data_freshness___jsonable
+    data_freshness__full_report --> data_freshness__check_classifications
+    data_freshness__full_report --> data_freshness__check_prices
+    data_freshness__full_report --> data_freshness__check_refinitiv
+    data_freshness__full_report --> data_freshness__check_universe
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-data_manager" class="mod-detail">
+        <h3>data_manager</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">fetch_liquid_universe</span><span style="color:#666;">(exchanges, min_avg_vol)</span> <span style="color:#444;">L39 (38L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Fetch all liquid tickers from given exchanges via yf.screen().
+Returns DataFrame with quote-level me</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">fetch_prices_batch</span><span style="color:#666;">(tickers, period, batch_size)</span> <span style="color:#444;">L83 (59L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Fetch daily OHLCV for tickers in batches.
+Returns dict of DataFrames: {'close': wide_df, 'high': ...</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">save_universe</span><span style="color:#666;">(df)</span> <span style="color:#444;">L148 (5L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Save universe metadata to parquet</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">save_prices</span><span style="color:#666;">(prices_dict)</span> <span style="color:#444;">L155 (9L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Save price DataFrames to parquet files</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">save_spy</span><span style="color:#666;">(period)</span> <span style="color:#444;">L166 (8L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Fetch and save SPY benchmark</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_sector_map</span><span style="color:#666;">(exchanges)</span> <span style="color:#444;">L180 (51L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build ticker→sector mapping using Yahoo screener sector filter.
+Fetches each sector separately and m</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_load_parquet_cached</span><span style="color:#666;">(path_str)</span> <span style="color:#444;">L236 (12L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load parquet with in-memory caching — only re-reads if file changed.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_industry_map</span><span style="color:#666;">()</span> <span style="color:#444;">L250 (28L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build ticker → (sector, industry) mapping from financedatabase.
+Much faster than Yahoo screener appr</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">load_sector_map</span><span style="color:#666;">()</span> <span style="color:#444;">L280 (6L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load cached sector mapping (prefers industry map which has both)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">load_universe</span><span style="color:#666;">()</span> <span style="color:#444;">L288 (3L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load universe metadata</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">load_prices</span><span style="color:#666;">(field, tickers)</span> <span style="color:#444;">L293 (12L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load price data. Optionally filter to specific tickers.
+field: 'close', 'high', 'low', 'volume'</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">load_spy</span><span style="color:#666;">()</span> <span style="color:#444;">L307 (3L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load SPY benchmark data</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_db_status</span><span style="color:#666;">()</span> <span style="color:#444;">L312 (20L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Get status of the local database</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_database</span><span style="color:#666;">(exchanges, min_turnover, period)</span> <span style="color:#444;">L338 (53L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Full database build: fetch universe, download all prices, save to parquet.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">update_prices</span><span style="color:#666;">(batch_size)</span> <span style="color:#444;">L397 (135L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Incremental update: fetch only missing days since last build.
+Much faster than full rebuild (~30s vs</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">auto_update_if_stale</span><span style="color:#666;">(max_age_hours)</span> <span style="color:#444;">L534 (15L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Check if data is stale and auto-update if needed.
+Called on app startup. Only updates if &gt;16 hours o</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">refresh_universe</span><span style="color:#666;">(min_turnover, period)</span> <span style="color:#444;">L551 (102L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Re-screen the liquid universe, add newly qualifying stocks,
+mark dropped stocks, and fetch prices fo</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    data_manager__fetch_liquid_universe["fetch_liquid_universe()\n38L"]
+    data_manager__fetch_prices_batch["fetch_prices_batch()\n59L"]
+    data_manager__save_universe["save_universe()\n5L"]
+    data_manager__save_prices["save_prices()\n9L"]
+    data_manager__save_spy["save_spy()\n8L"]
+    data_manager__build_sector_map["build_sector_map()\n51L"]
+    data_manager___load_parquet_cached["_load_parquet_cached()\n12L"]
+    data_manager__build_industry_map["build_industry_map()\n28L"]
+    data_manager__load_sector_map["load_sector_map()\n6L"]
+    data_manager__load_universe["load_universe()\n3L"]
+    data_manager__load_prices["load_prices()\n12L"]
+    data_manager__load_spy["load_spy()\n3L"]
+    data_manager__get_db_status["get_db_status()\n20L"]
+    data_manager__build_database["build_database()\n53L"]
+    data_manager__update_prices["update_prices()\n135L"]
+    data_manager__auto_update_if_stale["auto_update_if_stale()\n15L"]
+    data_manager__refresh_universe["refresh_universe()\n102L"]
+    data_manager__load_sector_map --> data_manager___load_parquet_cached
+    data_manager__load_universe --> data_manager___load_parquet_cached
+    data_manager__load_prices --> data_manager___load_parquet_cached
+    data_manager__load_spy --> data_manager___load_parquet_cached
+    data_manager__build_database --> data_manager__fetch_liquid_universe
+    data_manager__build_database --> data_manager__fetch_prices_batch
+    data_manager__build_database --> data_manager__save_prices
+    data_manager__build_database --> data_manager__save_spy
+    data_manager__build_database --> data_manager__save_universe
+    data_manager__update_prices --> data_manager__load_prices
+    data_manager__update_prices --> data_manager__load_spy
+    data_manager__auto_update_if_stale --> data_manager__update_prices
+    data_manager__refresh_universe --> data_manager__fetch_liquid_universe
+    data_manager__refresh_universe --> data_manager__fetch_prices_batch
+    data_manager__refresh_universe --> data_manager__load_prices
+    data_manager__refresh_universe --> data_manager__save_universe
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-macro_cache" class="mod-detail">
+        <h3>macro/cache</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">ttl_cache</span><span style="color:#666;">(key, fn, ttl)</span> <span style="color:#444;">L7 (10L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return cached value if fresh, otherwise call fn() and cache result.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">invalidate</span><span style="color:#666;">(key)</span> <span style="color:#444;">L19 (6L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Clear one key or entire cache.</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    macro_cache__ttl_cache["ttl_cache()\n10L"]
+    macro_cache__invalidate["invalidate()\n6L"]
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-macro_liquidity_service" class="mod-detail">
+        <h3>macro/liquidity_service</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_load_raw_data</span><span style="color:#666;">()</span> <span style="color:#444;">L50 (9L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Load raw FRED data from CSV cache.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_raw_data</span><span style="color:#666;">()</span> <span style="color:#444;">L61 (3L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Get raw data with TTL caching (1 hour).</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_dashboard_data</span><span style="color:#666;">()</span> <span style="color:#444;">L70 (31L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Compute all dashboard data: layer scores, regime, composite history.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_dashboard_response</span><span style="color:#666;">()</span> <span style="color:#444;">L103 (95L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build JSON response for the liquidity dashboard API.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_layer_detail_response</span><span style="color:#666;">(layer_id)</span> <span style="color:#444;">L204 (64L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build JSON response for layer detail view.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_overlay_response</span><span style="color:#666;">(asset)</span> <span style="color:#444;">L274 (67L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build JSON response for asset overlay view.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_transmission_response</span><span style="color:#666;">()</span> <span style="color:#444;">L347 (81L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build JSON response for transmission chain view.</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    macro_liquidity_service___load_raw_data["_load_raw_data()\n9L"]
+    macro_liquidity_service__get_raw_data["get_raw_data()\n3L"]
+    macro_liquidity_service__get_dashboard_data["get_dashboard_data()\n31L"]
+    macro_liquidity_service__build_dashboard_response["build_dashboard_response()\n95L"]
+    macro_liquidity_service__build_layer_detail_response["build_layer_detail_response()\n64L"]
+    macro_liquidity_service__build_overlay_response["build_overlay_response()\n67L"]
+    macro_liquidity_service__build_transmission_response["build_transmission_response()\n81L"]
+    macro_liquidity_service__get_dashboard_data --> macro_liquidity_service__get_raw_data
+    macro_liquidity_service__build_dashboard_response --> macro_liquidity_service__get_dashboard_data
+    macro_liquidity_service__build_layer_detail_response --> macro_liquidity_service__get_raw_data
+    macro_liquidity_service__build_overlay_response --> macro_liquidity_service__get_raw_data
+    macro_liquidity_service__build_transmission_response --> macro_liquidity_service__get_raw_data
+    macro_liquidity_service__get_raw_data -.-> macro_cache__ttl_cache["(macro/cache)\nttl_cache()"]:::external
+    macro_liquidity_service__get_dashboard_data -.-> macro_cache__ttl_cache["(macro/cache)\nttl_cache()"]:::external
+    macro_liquidity_service__build_overlay_response -.-> macro_cache__ttl_cache["(macro/cache)\nttl_cache()"]:::external
+    macro_liquidity_service__build_transmission_response -.-> macro_cache__ttl_cache["(macro/cache)\nttl_cache()"]:::external
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-macro_routes" class="mod-detail">
+        <h3>macro/routes</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">macro_page</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/</span> <span style="color:#444;">L7 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">section_page</span><span style="color:#666;">(section)</span> <span style="color:#f59e0b;font-weight:700;">/<section></span> <span style="color:#444;">L12 (8L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">api_liquidity</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/liquidity</span> <span style="color:#444;">L27 (6L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">api_layer</span><span style="color:#666;">(layer_id)</span> <span style="color:#f59e0b;font-weight:700;">/api/layer/<layer_id></span> <span style="color:#444;">L36 (6L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">api_overlay</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/overlay</span> <span style="color:#444;">L45 (7L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">api_transmission</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/transmission</span> <span style="color:#444;">L55 (6L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">api_rrg</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/rrg</span> <span style="color:#444;">L68 (10L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">api_rrg_drill</span><span style="color:#666;">()</span> <span style="color:#f59e0b;font-weight:700;">/api/rrg/drill</span> <span style="color:#444;">L81 (10L)</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    macro_routes__macro_page["∕\nmacro_page()"]:::route
+    macro_routes__section_page["∕&lt;section&gt;\nsection_page()"]:::route
+    macro_routes__api_liquidity["∕api∕liquidity\napi_liquidity()"]:::route
+    macro_routes__api_layer["∕api∕layer∕&lt;layer_id&gt;\napi_layer()"]:::route
+    macro_routes__api_overlay["∕api∕overlay\napi_overlay()"]:::route
+    macro_routes__api_transmission["∕api∕transmission\napi_transmission()"]:::route
+    macro_routes__api_rrg["∕api∕rrg\napi_rrg()"]:::route
+    macro_routes__api_rrg_drill["∕api∕rrg∕drill\napi_rrg_drill()"]:::route
+    macro_routes__macro_page --> macro_routes__section_page
+    macro_routes__api_liquidity -.-> macro_liquidity_service__build_dashboard_response["(macro/liquidity_service)\nbuild_dashboard_response()"]:::external
+    macro_routes__api_layer -.-> macro_liquidity_service__build_layer_detail_response["(macro/liquidity_service)\nbuild_layer_detail_response()"]:::external
+    macro_routes__api_overlay -.-> macro_liquidity_service__build_overlay_response["(macro/liquidity_service)\nbuild_overlay_response()"]:::external
+    macro_routes__api_transmission -.-> macro_liquidity_service__build_transmission_response["(macro/liquidity_service)\nbuild_transmission_response()"]:::external
+    macro_routes__api_rrg -.-> macro_rrg_service__build_rrg_response["(macro/rrg_service)\nbuild_rrg_response()"]:::external
+    macro_routes__api_rrg_drill -.-> macro_rrg_service__build_rrg_drill_response["(macro/rrg_service)\nbuild_rrg_drill_response()"]:::external
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-macro_rrg_service" class="mod-detail">
+        <h3>macro/rrg_service</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_fetch_etf</span><span style="color:#666;">(dataset_key, period)</span> <span style="color:#444;">L62 (5L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_fetch_futures</span><span style="color:#666;">(period)</span> <span style="color:#444;">L69 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_etf_prices</span><span style="color:#666;">(dataset_key, period)</span> <span style="color:#444;">L73 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_futures_prices</span><span style="color:#666;">(period)</span> <span style="color:#444;">L77 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_etf_name_color_map</span><span style="color:#666;">(dataset_key)</span> <span style="color:#444;">L85 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_futures_group_name_color_map</span><span style="color:#666;">()</span> <span style="color:#444;">L90 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_intra_group_name_color_map</span><span style="color:#666;">(group_name)</span> <span style="color:#444;">L94 (17L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_rrg_traces</span><span style="color:#666;">(tail_data, name_color_map, show_trails)</span> <span style="color:#444;">L117 (69L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build Plotly traces for RRG scatter plot.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_positions_table</span><span style="color:#666;">(tail_data, name_color_map)</span> <span style="color:#444;">L188 (24L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build HTML table of current positions with sortable headers.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_serialize_full_data</span><span style="color:#666;">(full_data, name_color_map)</span> <span style="color:#444;">L218 (13L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Serialize full RRG time series for client-side date replay.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_rrg_response</span><span style="color:#666;">(dataset, period, window, trail)</span> <span style="color:#444;">L233 (41L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build JSON response for RRG API.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_build_futures_group_response</span><span style="color:#666;">(period, window, tail_length)</span> <span style="color:#444;">L276 (26L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build RRG response for futures groups overview.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_rrg_drill_response</span><span style="color:#666;">(group, period, window, trail)</span> <span style="color:#444;">L304 (30L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build JSON response for intra-group RRG drill-down.</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    macro_rrg_service___fetch_etf["_fetch_etf()\n5L"]
+    macro_rrg_service___fetch_futures["_fetch_futures()\n2L"]
+    macro_rrg_service__get_etf_prices["get_etf_prices()\n2L"]
+    macro_rrg_service__get_futures_prices["get_futures_prices()\n2L"]
+    macro_rrg_service__get_etf_name_color_map["get_etf_name_color_map()\n3L"]
+    macro_rrg_service__get_futures_group_name_color_map["get_futures_group_name_color_map()\n2L"]
+    macro_rrg_service__get_intra_group_name_color_map["get_intra_group_name_color_map()\n17L"]
+    macro_rrg_service__build_rrg_traces["build_rrg_traces()\n69L"]
+    macro_rrg_service__build_positions_table["build_positions_table()\n24L"]
+    macro_rrg_service___serialize_full_data["_serialize_full_data()\n13L"]
+    macro_rrg_service__build_rrg_response["build_rrg_response()\n41L"]
+    macro_rrg_service___build_futures_group_response["_build_futures_group_response()\n26L"]
+    macro_rrg_service__build_rrg_drill_response["build_rrg_drill_response()\n30L"]
+    macro_rrg_service__get_etf_prices --> macro_rrg_service___fetch_etf
+    macro_rrg_service__get_futures_prices --> macro_rrg_service___fetch_futures
+    macro_rrg_service__build_rrg_response --> macro_rrg_service___build_futures_group_response
+    macro_rrg_service__build_rrg_response --> macro_rrg_service___serialize_full_data
+    macro_rrg_service__build_rrg_response --> macro_rrg_service__build_positions_table
+    macro_rrg_service__build_rrg_response --> macro_rrg_service__build_rrg_traces
+    macro_rrg_service__build_rrg_response --> macro_rrg_service__get_etf_name_color_map
+    macro_rrg_service__build_rrg_response --> macro_rrg_service__get_etf_prices
+    macro_rrg_service___build_futures_group_response --> macro_rrg_service___serialize_full_data
+    macro_rrg_service___build_futures_group_response --> macro_rrg_service__build_positions_table
+    macro_rrg_service___build_futures_group_response --> macro_rrg_service__build_rrg_traces
+    macro_rrg_service___build_futures_group_response --> macro_rrg_service__get_futures_group_name_color_map
+    macro_rrg_service___build_futures_group_response --> macro_rrg_service__get_futures_prices
+    macro_rrg_service__build_rrg_drill_response --> macro_rrg_service___serialize_full_data
+    macro_rrg_service__build_rrg_drill_response --> macro_rrg_service__build_positions_table
+    macro_rrg_service__build_rrg_drill_response --> macro_rrg_service__build_rrg_traces
+    macro_rrg_service__build_rrg_drill_response --> macro_rrg_service__get_futures_prices
+    macro_rrg_service__build_rrg_drill_response --> macro_rrg_service__get_intra_group_name_color_map
+    macro_rrg_service__get_etf_prices -.-> macro_cache__ttl_cache["(macro/cache)\nttl_cache()"]:::external
+    macro_rrg_service__get_futures_prices -.-> macro_cache__ttl_cache["(macro/cache)\nttl_cache()"]:::external
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-options_service" class="mod-detail">
+        <h3>options_service</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_safe</span><span style="color:#666;">(v, default)</span> <span style="color:#444;">L19 (11L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Convert NaN∕None∕inf to default.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_get_cached</span><span style="color:#666;">(key)</span> <span style="color:#444;">L32 (4L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_set_cached</span><span style="color:#666;">(key, value)</span> <span style="color:#444;">L38 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_expirations</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L47 (12L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return list of available expiration dates for a symbol.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_chain</span><span style="color:#666;">(symbol, expiration)</span> <span style="color:#444;">L61 (25L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Return calls and puts DataFrames for a specific expiration.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_all_chains</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L88 (20L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Fetch chains for all expirations (for IV surface). Cached.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">bs_d1</span><span style="color:#666;">(S, K, T, r...)</span> <span style="color:#444;">L114 (5L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Compute d1 in BSM formula.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">bs_gamma</span><span style="color:#666;">(S, K, T, r...)</span> <span style="color:#444;">L121 (6L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">BSM gamma: sensitivity of delta to price change.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">bs_delta_call</span><span style="color:#666;">(S, K, T, r...)</span> <span style="color:#444;">L129 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">bs_delta_put</span><span style="color:#666;">(S, K, T, r...)</span> <span style="color:#444;">L134 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">bs_theta_call</span><span style="color:#666;">(S, K, T, r...)</span> <span style="color:#444;">L139 (9L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">bs_vega</span><span style="color:#666;">(S, K, T, r...)</span> <span style="color:#444;">L150 (5L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">process_chain</span><span style="color:#666;">(symbol, expiration, risk_free)</span> <span style="color:#444;">L161 (56L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Process a chain: add Greeks, format for display.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">compute_iv_surface</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L223 (47L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Build IV surface data across all expirations.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">compute_summary</span><span style="color:#666;">(symbol)</span> <span style="color:#444;">L276 (60L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Compute P∕C ratios, max pain, OI summary across all expirations.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">compute_gex</span><span style="color:#666;">(symbol, expiration, risk_free, max_dte)</span> <span style="color:#444;">L342 (91L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Compute Gamma Exposure (GEX) per strike.
+- Call OI: dealers assumed long → positive gamma
+- Put OI: </span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    options_service___safe["_safe()\n11L"]
+    options_service___get_cached["_get_cached()\n4L"]
+    options_service___set_cached["_set_cached()\n3L"]
+    options_service__get_expirations["get_expirations()\n12L"]
+    options_service__get_chain["get_chain()\n25L"]
+    options_service__get_all_chains["get_all_chains()\n20L"]
+    options_service__bs_d1["bs_d1()\n5L"]
+    options_service__bs_gamma["bs_gamma()\n6L"]
+    options_service__bs_delta_call["bs_delta_call()\n3L"]
+    options_service__bs_delta_put["bs_delta_put()\n3L"]
+    options_service__bs_theta_call["bs_theta_call()\n9L"]
+    options_service__bs_vega["bs_vega()\n5L"]
+    options_service__process_chain["process_chain()\n56L"]
+    options_service__compute_iv_surface["compute_iv_surface()\n47L"]
+    options_service__compute_summary["compute_summary()\n60L"]
+    options_service__compute_gex["compute_gex()\n91L"]
+    options_service__get_expirations --> options_service___get_cached
+    options_service__get_expirations --> options_service___set_cached
+    options_service__get_chain --> options_service___get_cached
+    options_service__get_chain --> options_service___set_cached
+    options_service__get_all_chains --> options_service___get_cached
+    options_service__get_all_chains --> options_service___set_cached
+    options_service__get_all_chains --> options_service__get_chain
+    options_service__get_all_chains --> options_service__get_expirations
+    options_service__bs_gamma --> options_service__bs_d1
+    options_service__bs_delta_call --> options_service__bs_d1
+    options_service__bs_delta_put --> options_service__bs_d1
+    options_service__bs_theta_call --> options_service__bs_d1
+    options_service__bs_vega --> options_service__bs_d1
+    options_service__process_chain --> options_service___safe
+    options_service__process_chain --> options_service__bs_delta_call
+    options_service__process_chain --> options_service__bs_delta_put
+    options_service__process_chain --> options_service__bs_gamma
+    options_service__process_chain --> options_service__bs_theta_call
+    options_service__process_chain --> options_service__bs_vega
+    options_service__process_chain --> options_service__get_chain
+    options_service__compute_iv_surface --> options_service___safe
+    options_service__compute_iv_surface --> options_service__get_all_chains
+    options_service__compute_summary --> options_service___safe
+    options_service__compute_summary --> options_service__get_all_chains
+    options_service__compute_gex --> options_service___safe
+    options_service__compute_gex --> options_service__bs_gamma
+    options_service__compute_gex --> options_service__get_all_chains
+    options_service__compute_gex --> options_service__get_chain
+    options_service__get_expirations -.-> stage_classifier___get_cached["(stage_classifier)\n_get_cached()"]:::external
+    options_service__get_expirations -.-> stage_classifier___set_cached["(stage_classifier)\n_set_cached()"]:::external
+    options_service__get_chain -.-> stage_classifier___get_cached["(stage_classifier)\n_get_cached()"]:::external
+    options_service__get_chain -.-> stage_classifier___set_cached["(stage_classifier)\n_set_cached()"]:::external
+    options_service__get_all_chains -.-> stage_classifier___get_cached["(stage_classifier)\n_get_cached()"]:::external
+    options_service__get_all_chains -.-> stage_classifier___set_cached["(stage_classifier)\n_set_cached()"]:::external
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-screener" class="mod-detail">
+        <h3>screener</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_cache_path</span><span style="color:#666;">(key)</span> <span style="color:#444;">L59 (2L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_load_cache</span><span style="color:#666;">(key, max_age_hours)</span> <span style="color:#444;">L63 (9L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_save_cache</span><span style="color:#666;">(key, data)</span> <span style="color:#444;">L74 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">fetch_exchange_quotes</span><span style="color:#666;">(exchange_codes, min_avg_vol)</span> <span style="color:#444;">L79 (27L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Fetch all quotes from given exchanges via yf.screen()
+Returns list of quote dicts</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">screen_stocks</span><span style="color:#666;">(exchange_codes, min_turnover, min_mcap, max_mcap...)</span> <span style="color:#444;">L108 (82L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Screen stocks with given criteria.
+Returns pandas DataFrame sorted by criteria.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_available_sectors</span><span style="color:#666;">(exchange_codes)</span> <span style="color:#444;">L192 (11L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Get list of sectors available in the data</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    screener___cache_path["_cache_path()\n2L"]
+    screener___load_cache["_load_cache()\n9L"]
+    screener___save_cache["_save_cache()\n3L"]
+    screener__fetch_exchange_quotes["fetch_exchange_quotes()\n27L"]
+    screener__screen_stocks["screen_stocks()\n82L"]
+    screener__get_available_sectors["get_available_sectors()\n11L"]
+    screener___load_cache --> screener___cache_path
+    screener___save_cache --> screener___cache_path
+    screener__fetch_exchange_quotes --> screener___load_cache
+    screener__fetch_exchange_quotes --> screener___save_cache
+    screener__screen_stocks --> screener__fetch_exchange_quotes
+    screener__get_available_sectors --> screener__fetch_exchange_quotes
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+    <div id="mod-stage_classifier" class="mod-detail">
+        <h3>stage_classifier</h3>
+        <div style="margin-bottom:8px;font-size:11px;">
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_get_cached</span><span style="color:#666;">(key)</span> <span style="color:#444;">L24 (4L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">_set_cached</span><span style="color:#666;">(key, val)</span> <span style="color:#444;">L30 (3L)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">compute_all_derived_vectorized</span><span style="color:#666;">(close_df, high_df, low_df, volume_df...)</span> <span style="color:#444;">L39 (69L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Compute all derived fields for ALL tickers at once using wide DataFrames.
+Much faster than per-ticke</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">classify_all_stages</span><span style="color:#666;">(d)</span> <span style="color:#444;">L114 (81L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Classify all tickers at once using data-driven criteria.
+Based on feature distribution analysis acro</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">build_results</span><span style="color:#666;">(d, stages, min_price)</span> <span style="color:#444;">L201 (89L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Extract latest row per ticker from the vectorized results.
+Returns a DataFrame ready for display.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">run_stage_from_local_db</span><span style="color:#666;">(min_turnover, min_price)</span> <span style="color:#444;">L296 (64L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Run stage classification from local Parquet DB.
+Cached in memory for 5 minutes.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">clear_cache</span><span style="color:#666;">()</span> <span style="color:#444;">L362 (4L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Clear all in-memory caches (called after data update)</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">run_stage_classification</span><span style="color:#666;">(tickers, min_adv_dollar, min_price)</span> <span style="color:#444;">L368 (3L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Legacy wrapper — use run_stage_from_local_db instead.</span></div>
+        <div style="padding:2px 0;border-bottom:1px solid #1a1a2a;"><span style="color:#10b981;">get_stage_distribution</span><span style="color:#666;">(classified_df)</span> <span style="color:#444;">L373 (16L)</span><br><span style="color:#555;font-size:10px;font-style:italic;">Get stage distribution summary</span></div>
+        </div>
+        <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    stage_classifier___get_cached["_get_cached()\n4L"]
+    stage_classifier___set_cached["_set_cached()\n3L"]
+    stage_classifier__compute_all_derived_vectorized["compute_all_derived_vectorized()\n69L"]
+    stage_classifier__classify_all_stages["classify_all_stages()\n81L"]
+    stage_classifier__build_results["build_results()\n89L"]
+    stage_classifier__run_stage_from_local_db["run_stage_from_local_db()\n64L"]
+    stage_classifier__clear_cache["clear_cache()\n4L"]
+    stage_classifier__run_stage_classification["run_stage_classification()\n3L"]
+    stage_classifier__get_stage_distribution["get_stage_distribution()\n16L"]
+    stage_classifier__run_stage_from_local_db --> stage_classifier___get_cached
+    stage_classifier__run_stage_from_local_db --> stage_classifier___set_cached
+    stage_classifier__run_stage_from_local_db --> stage_classifier__build_results
+    stage_classifier__run_stage_from_local_db --> stage_classifier__classify_all_stages
+    stage_classifier__run_stage_from_local_db --> stage_classifier__compute_all_derived_vectorized
+    stage_classifier__run_stage_classification --> stage_classifier__run_stage_from_local_db
+    stage_classifier__run_stage_from_local_db -.-> data_manager__load_prices["(data_manager)\nload_prices()"]:::external
+    stage_classifier__run_stage_from_local_db -.-> data_manager__load_spy["(data_manager)\nload_spy()"]:::external
+    stage_classifier__run_stage_from_local_db -.-> data_manager__load_universe["(data_manager)\nload_universe()"]:::external
+    classDef route fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    classDef external fill:#33333322,stroke:#666,color:#888
+        </pre></div>
+    </div>
+</div>
+<div id="sec-flows" class="section">
+    <h2>Request Flows</h2>
+    <p style="color:#666;font-size:11px;margin-bottom:12px;">What happens when a user performs an action — from click to data to response.</p>
+    <h3>Screener Page Load</h3>
+    <div class="diagram-wrap"><pre class="mermaid">
+graph LR
+    User(["🖱 User loads /screener"]) --> Route["screener_page()"]
+    Route --> LP["load_prices('close')"]
+    Route --> LU["load_universe()"]
+    Route --> LR["load_refinitiv_snapshot()"]
+    Route --> LC["load_classification_lookups()"]
+    Route -->|"if preset≠all"| RS["run_stage_from_local_db()"]
+    LP --> PQ[("close.parquet")]
+    LU --> UQ[("universe.parquet")]
+    LR --> RFV[("refinitiv_fundamentals.pkl")]
+    LC --> CJ[("classification JSONs")]
+    RS --> CD["compute_all_derived_vectorized()"]
+    CD --> CS["classify_all_stages()"]
+    Route --> HTML["Render screener.html\nwith sector/industry tables"]
+    style User fill:#4f8cf722,stroke:#4f8cf7,color:#4f8cf7
+    style PQ fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style UQ fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style RFV fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style CJ fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style HTML fill:#10b98122,stroke:#10b981,color:#10b981
+    </pre></div>
+    <h3>Stock Panel (EPS Tab)</h3>
+    <div class="diagram-wrap"><pre class="mermaid">
+graph LR
+    Click(["🖱 Click stock → EPS tab"]) --> JS["stock_panel.js"]
+    JS -->|"fetch()"| R12["∕api∕rolling_12m∕SYM"]
+    JS -->|"fetch()"| TTM["∕api∕eps_ttm_forward∕SYM"]
+    R12 --> PKL[("refinitiv_fundamentals.pkl")]
+    TTM --> PKL
+    R12 --> A["quarterly actuals\n→ rolling 4Q sum"]
+    R12 --> B["forward_quarterly\n→ next 8Q estimates"]
+    TTM --> C["trend_eps_fq1-4\n→ revision curves"]
+    A --> PLT["Plotly: TTM line + cone + revisions"]
+    B --> PLT
+    C --> PLT
+    style Click fill:#4f8cf722,stroke:#4f8cf7,color:#4f8cf7
+    style PKL fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style PLT fill:#10b98122,stroke:#10b981,color:#10b981
+    </pre></div>
+    <h3>Options (GEX)</h3>
+    <div class="diagram-wrap"><pre class="mermaid">
+graph LR
+    User(["🖱 Load ∕options → GEX tab"]) --> JS["options.html JS"]
+    JS -->|"fetch()"| API["∕api∕options∕gex∕^SPX"]
+    API --> GEX["compute_gex()"]
+    GEX --> YF[("yfinance API\n5min cache")]
+    GEX --> BSM["bs_gamma()\nγ = N'(d1) ∕ (S·σ·√T)"]
+    BSM --> CALC["GEX = γ × OI × 100 × S²"]
+    CALC --> FLIP["Find flip point\n(net GEX crosses 0)"]
+    CALC --> BAR["Plotly: GEX bar chart\n+ flip line + key levels"]
+    FLIP --> BAR
+    style User fill:#4f8cf722,stroke:#4f8cf7,color:#4f8cf7
+    style YF fill:#ef444422,stroke:#ef4444,color:#ef4444
+    style BAR fill:#10b98122,stroke:#10b981,color:#10b981
+    </pre></div>
+    <h3>Classification Update</h3>
+    <div class="diagram-wrap"><pre class="mermaid">
+graph TD
+    Trigger(["⏰ Run update_classifications.py"]) --> Load["load_prices() + load_spy()"]
+    Load --> PQ[("OHLCV parquets")]
+    Load --> Feat["compute_features()\n20 scale-invariant features"]
+    Feat --> PCA["PCA + KMeans\n→ 5 regimes"]
+    Load --> Stage["classify_all_stages()\n→ S1/S2/S3/S4"]
+    Load --> MA["MA screener\n→ Above Both / Below Both"]
+    Load --> EPS["EPS acceleration\n→ Accelerating / Decelerating"]
+    PCA --> JSON[("pca20_5c_meta.json")]
+    Stage --> JSON2[("stages_meta.json")]
+    MA --> JSON3[("screener_meta.json")]
+    EPS --> JSON4[("eps_growth_meta.json")]
+    style Trigger fill:#84cc1622,stroke:#84cc16,color:#84cc16
+    style PQ fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style JSON fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style JSON2 fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style JSON3 fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    style JSON4 fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b
+    </pre></div>
+</div>
+
+<script>
+mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+        darkMode: true,
+        background: '#0a0a0e',
+        primaryColor: '#4f8cf7',
+        primaryTextColor: '#ccc',
+        lineColor: '#444',
+        secondaryColor: '#1a1a2a',
+        tertiaryColor: '#111',
+    },
+    flowchart: { curve: 'basis', padding: 12 },
+    securityLevel: 'loose',
+});
+
+function switchSection(id) {
+    document.querySelectorAll('.section').forEach(function(s) { s.classList.remove('active'); });
+    document.getElementById('sec-' + id).classList.add('active');
+    document.querySelectorAll('nav button').forEach(function(b, i) {
+        b.classList.toggle('active', ['overview','details','flows'][i] === id);
+    });
+    // Re-render mermaid for newly visible sections
+    setTimeout(function() { mermaid.run(); }, 100);
+}
+
+function showMod(id) {
+    document.querySelectorAll('.mod-detail').forEach(function(d) { d.classList.remove('active'); });
+    document.querySelectorAll('.mod-btn').forEach(function(b) { b.classList.remove('active'); });
+    var el = document.getElementById('mod-' + id);
+    if (el) {
+        el.classList.add('active');
+        event.target.classList.add('active');
+        setTimeout(function() { mermaid.run(); }, 100);
+    }
+}
+</script>
+</body></html>
