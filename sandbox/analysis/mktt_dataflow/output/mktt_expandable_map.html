@@ -15,7 +15,10 @@ button.reset { font-size:11px; padding:3px 10px; background:#1a1a2a; border:1px 
 button.reset:hover { background:#2a2a3a; }
 #main { display:flex; gap:0; }
 #diagram-wrap { flex:1; padding:16px; overflow:auto; min-height:calc(100vh - 50px); }
-#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; padding:16px; min-height:300px; }
+#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; padding:16px; min-height:300px; position:relative; }
+.close-mod { position:absolute; z-index:10; background:#ef4444cc; color:white; border:none; border-radius:50%;
+    width:22px; height:22px; font-size:14px; font-weight:700; cursor:pointer; line-height:20px; text-align:center; }
+.close-mod:hover { background:#ef4444; transform:scale(1.2); }
 #panel { width:360px; background:#111; border-left:1px solid #333; padding:14px; overflow-y:auto;
     max-height:calc(100vh - 50px); display:none; font-size:11px; flex-shrink:0; }
 #panel h3 { color:#10b981; font-size:14px; margin-bottom:6px; }
@@ -72,21 +75,44 @@ function render(code){
                 handleClick(nid);
             });
         });
-        // Also make subgraph labels clickable
-        el.querySelectorAll('.cluster-label').forEach(function(lbl){
-            lbl.style.cursor='pointer';
-            var parent=lbl.closest('.cluster');
-            if(parent){
-                lbl.addEventListener('click',function(e){
-                    e.stopPropagation();
-                    var raw=parent.id||'';
-                    var m=raw.match(/flowchart-(.+?)-\d+$/);
-                    var nid=m?m[1]:raw;
-                    if(nid)handleClick(nid);
-                });
-            }
-        });
+        // Add HTML close buttons overlaid on expanded module nodes
+        addCloseButtons(el,svg);
     }).catch(function(e){el.innerHTML='<pre style="color:#f33;">'+e+'</pre>';});
+}
+
+function addCloseButtons(container, svg) {
+    // Remove old buttons
+    container.querySelectorAll('.close-mod').forEach(function(b){b.remove();});
+    if (!svg) return;
+    var svgRect = svg.getBoundingClientRect();
+    var containerRect = container.getBoundingClientRect();
+    // For each expanded module, find its node in the SVG and place a close button
+    Object.keys(expanded).forEach(function(mid) {
+        if (!expanded[mid]) return;
+        // Find the module node in SVG
+        var nodeEl = null;
+        svg.querySelectorAll('.node').forEach(function(n) {
+            var raw = n.id || '';
+            var m = raw.match(/flowchart-(.+?)-\d+$/);
+            var nid = m ? m[1] : raw;
+            if (nid === mid) nodeEl = n;
+        });
+        if (!nodeEl) return;
+        var nodeRect = nodeEl.getBoundingClientRect();
+        var btn = document.createElement('button');
+        btn.className = 'close-mod';
+        btn.textContent = '✕';
+        btn.title = 'Collapse ' + mid.replace(/_/g, '/');
+        btn.style.left = (nodeRect.right - containerRect.left - 4) + 'px';
+        btn.style.top = (nodeRect.top - containerRect.top - 4) + 'px';
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            expanded[mid] = false;
+            document.getElementById('panel').style.display = 'none';
+            rebuild();
+        });
+        container.appendChild(btn);
+    });
 }
 
 function handleClick(nid){
@@ -123,7 +149,7 @@ function rebuild(){
             // Module node stays, functions branch below it
             var nf=m.functions.length;
             var nr=m.functions.filter(function(f){return f.route;}).length;
-            var lbl='📂 '+mod+'\\n✕ click to collapse';
+            var lbl='📂 '+mod;
             lines.push('    '+mid+'["'+esc(lbl)+'"]');
             lines.push('    style '+mid+' fill:'+m.color+'33,stroke:'+m.color+',color:'+m.color);
 
