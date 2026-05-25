@@ -1,13 +1,9 @@
 """
 Build expandable interactive code map.
-Click module → expands to show functions. Click function → expands to show calls/callers.
-Uses Mermaid.js for stable layouts, re-rendered on each expand/collapse.
-
-Run: cd sandbox/analysis/mktt_dataflow && python build_expandable_map.py
+Click module → expands in-place showing functions. Click function → info panel.
+Uses Mermaid.js subgraphs for stable layouts, re-rendered on expand/collapse.
 """
-import ast
-import os
-import json
+import ast, os, json
 from pathlib import Path
 
 SRC_DIR = Path(__file__).parent.parent.parent.parent / 'src' / 'mktt'
@@ -27,9 +23,7 @@ def parse_module(filepath):
         tree = ast.parse(open(filepath, encoding='utf-8').read())
     except:
         return None
-
     module = {'imports': [], 'functions': []}
-
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             for alias in node.names:
@@ -41,44 +35,34 @@ def parse_module(filepath):
                     if dec.args:
                         try: route = ast.literal_eval(dec.args[0])
                         except: pass
-
             calls = set()
             for child in ast.walk(node):
                 if isinstance(child, ast.Call):
-                    if isinstance(child.func, ast.Name):
-                        calls.add(child.func.id)
-                    elif isinstance(child.func, ast.Attribute):
-                        calls.add(child.func.attr)
-
+                    if isinstance(child.func, ast.Name): calls.add(child.func.id)
+                    elif isinstance(child.func, ast.Attribute): calls.add(child.func.attr)
             module['functions'].append({
-                'name': node.name,
-                'args': [a.arg for a in node.args.args],
-                'route': route,
-                'calls': sorted(calls),
+                'name': node.name, 'args': [a.arg for a in node.args.args],
+                'route': route, 'calls': sorted(calls),
                 'doc': (ast.get_docstring(node) or '')[:150],
                 'lines': (node.end_lineno or node.lineno) - node.lineno + 1,
                 'line': node.lineno,
             })
     return module
 
-# Parse
 modules = {}
 for pyfile in sorted(SRC_DIR.rglob('*.py')):
-    if '__pycache__' in str(pyfile):
-        continue
+    if '__pycache__' in str(pyfile): continue
     rel = pyfile.relative_to(SRC_DIR)
     mod_name = str(rel).replace('.py', '').replace(os.sep, '/')
     parsed = parse_module(pyfile)
     if parsed and (parsed['functions'] or parsed['imports']):
         modules[mod_name] = parsed
 
-# Build function → module lookup
 func_to_mod = {}
 for mod, data in modules.items():
     for f in data['functions']:
         func_to_mod[f['name']] = mod
 
-# Build callers map (who calls this function)
 callers = {}
 for mod, data in modules.items():
     for f in data['functions']:
@@ -86,24 +70,17 @@ for mod, data in modules.items():
             if call in func_to_mod:
                 callers.setdefault(call, []).append({'func': f['name'], 'module': mod})
 
-print(f"Parsed {len(modules)} modules, {sum(len(m['functions']) for m in modules.values())} functions")
-
-# Serialize for JS
 js_data = {}
 for mod, data in modules.items():
-    js_data[mod] = {
-        'functions': data['functions'],
-        'imports': data['imports'],
-        'color': MOD_COLORS.get(mod, '#4f8cf7'),
-    }
+    js_data[mod] = {'functions': data['functions'], 'imports': data['imports'],
+                    'color': MOD_COLORS.get(mod, '#4f8cf7')}
 
-js_func_to_mod = func_to_mod
-js_callers = callers
+print(f"Parsed {len(modules)} modules, {sum(len(m['functions']) for m in modules.values())} functions")
 
-# =========================================================================
-# HTML
-# =========================================================================
-html = """<!DOCTYPE html>
+def esc(s):
+    return s.replace('"', "'").replace('<', '&lt;').replace('>', '&gt;').replace('/', '∕')
+
+html = r"""<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
 <title>MKTT Code Map — Expandable</title>
@@ -111,312 +88,232 @@ html = """<!DOCTYPE html>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#0f1117; color:#ccc; font-family:'JetBrains Mono','Consolas',monospace; }
-
 #header { background:#111; border-bottom:1px solid #333; padding:10px 20px; display:flex; align-items:center; gap:12px; }
 #header h1 { color:#4f8cf7; font-size:16px; }
 #breadcrumb { font-size:12px; color:#666; }
 #breadcrumb span { cursor:pointer; color:#4f8cf7; }
 #breadcrumb span:hover { text-decoration:underline; }
-
-#main { padding:20px; }
-
-#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; padding:20px; margin-bottom:16px;
-    min-height:200px; overflow-x:auto; }
-#diagram .mermaid { font-size:13px; }
-
-#info-panel { background:#111; border:1px solid #222; border-radius:8px; padding:16px; font-size:12px;
-    display:none; margin-bottom:16px; }
-#info-panel h3 { color:#10b981; margin-bottom:6px; }
-#info-panel .route { color:#f59e0b; font-weight:700; }
-#info-panel .doc { color:#888; font-style:italic; margin:4px 0; font-size:11px; }
-#info-panel .call-link { color:#a78bfa; cursor:pointer; }
-#info-panel .call-link:hover { text-decoration:underline; }
-#info-panel .caller-link { color:#06b6d4; cursor:pointer; }
-#info-panel .caller-link:hover { text-decoration:underline; }
-#info-panel .section { margin:8px 0; }
-#info-panel .section-title { color:#666; font-size:10px; text-transform:uppercase; margin-bottom:3px; }
+button.reset { font-size:11px; padding:3px 10px; background:#1a1a2a; border:1px solid #333; color:#ccc; border-radius:4px; cursor:pointer; margin-left:auto; }
+button.reset:hover { background:#2a2a3a; }
+#main { display:flex; gap:0; }
+#diagram-wrap { flex:1; padding:16px; overflow:auto; min-height:calc(100vh - 50px); }
+#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; padding:16px; min-height:300px; }
+#panel { width:360px; background:#111; border-left:1px solid #333; padding:14px; overflow-y:auto;
+    max-height:calc(100vh - 50px); display:none; font-size:11px; flex-shrink:0; }
+#panel h3 { color:#10b981; font-size:14px; margin-bottom:6px; }
+#panel .route { color:#f59e0b; font-weight:700; margin:4px 0; }
+#panel .doc { color:#888; font-style:italic; margin:4px 0; font-size:10px; }
+#panel .sec { margin:10px 0 4px; color:#666; font-size:10px; text-transform:uppercase; border-bottom:1px solid #222; padding-bottom:2px; }
+#panel .link { color:#a78bfa; cursor:pointer; padding:2px 0; }
+#panel .link:hover { text-decoration:underline; }
+#panel .clink { color:#06b6d4; cursor:pointer; padding:2px 0; }
+#panel .clink:hover { text-decoration:underline; }
+.close-btn { position:absolute; top:8px; right:10px; cursor:pointer; color:#f33; font-size:16px; font-weight:700; }
 </style>
 </head><body>
-
 <div id="header">
     <h1>MKTT Code Map</h1>
-    <div id="breadcrumb"><span onclick="goHome()">Modules</span></div>
+    <div id="breadcrumb"><span onclick="goHome()"><b>Modules</b></span> — click any module to expand</div>
+    <button class="reset" onclick="goHome()">Collapse All</button>
 </div>
-
 <div id="main">
-    <div id="info-panel"></div>
-    <div id="diagram"></div>
+    <div id="diagram-wrap"><div id="diagram">Loading...</div></div>
+    <div id="panel" style="position:relative;"></div>
 </div>
-
 <script>
-var MODULES = """ + json.dumps(js_data) + """;
-var FUNC_TO_MOD = """ + json.dumps(func_to_mod) + """;
-var CALLERS = """ + json.dumps(callers) + """;
+var MODULES = """ + json.dumps(js_data) + r""";
+var FUNC_TO_MOD = """ + json.dumps(func_to_mod) + r""";
+var CALLERS = """ + json.dumps(callers) + r""";
+var expanded = {};
 
-var state = { level: 'modules', module: null, func: null, expanded: {} };
+mermaid.initialize({ startOnLoad:false, theme:'dark',
+    themeVariables:{darkMode:true,background:'#0a0a0e',primaryColor:'#4f8cf7',
+        primaryTextColor:'#ccc',lineColor:'#444',secondaryColor:'#1a1a2a',tertiaryColor:'#111'},
+    flowchart:{curve:'basis',padding:12,nodeSpacing:18,rankSpacing:35},
+    securityLevel:'loose'});
 
-mermaid.initialize({
-    startOnLoad: false, theme: 'dark',
-    themeVariables: { darkMode:true, background:'#0a0a0e', primaryColor:'#4f8cf7',
-        primaryTextColor:'#ccc', lineColor:'#444', secondaryColor:'#1a1a2a', tertiaryColor:'#111' },
-    flowchart: { curve:'basis', padding:15, nodeSpacing:30, rankSpacing:50 },
-    securityLevel:'loose',
-});
+function esc(s){return s.replace(/"/g,"'").replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\//g,'∕');}
 
-function esc(s) { return s.replace(/"/g, "'").replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\//g, '∕'); }
-
-function renderDiagram(mermaidCode) {
-    var el = document.getElementById('diagram');
-    el.innerHTML = '';
-    var id = 'mmd_' + Date.now();
-    mermaid.render(id, mermaidCode).then(function(result) {
-        el.innerHTML = result.svg;
-        // Attach click handlers to all nodes in the rendered SVG
-        el.querySelectorAll('.node').forEach(function(node) {
-            node.style.cursor = 'pointer';
-            node.addEventListener('click', function(e) {
-                // Extract node ID from the group's id attribute
-                var nodeId = node.id.split('-').slice(1).join('-');
-                // Clean up mermaid prefix
-                nodeId = nodeId.replace(/^flowchart-/, '').replace(/-\\d+$/, '');
-                if (nodeId) handleNodeClick(nodeId);
+function render(code){
+    var el=document.getElementById('diagram');
+    el.innerHTML='';
+    var id='m'+Date.now();
+    mermaid.render(id,code).then(function(r){
+        el.innerHTML=r.svg;
+        var svg=el.querySelector('svg');
+        if(svg){svg.style.width='100%';svg.style.maxWidth='none';}
+        // Clickable nodes
+        el.querySelectorAll('.node,.cluster').forEach(function(n){
+            n.style.cursor='pointer';
+            n.addEventListener('click',function(e){
+                e.stopPropagation();
+                var raw=n.id||'';
+                var m=raw.match(/flowchart-(.+?)-\d+$/);
+                var nid=m?m[1]:raw;
+                if(!nid)return;
+                handleClick(nid);
             });
         });
-    }).catch(function(err) {
-        el.innerHTML = '<span style="color:#f33;">Render error: ' + err + '</span>';
-    });
+        // Also make subgraph labels clickable
+        el.querySelectorAll('.cluster-label').forEach(function(lbl){
+            lbl.style.cursor='pointer';
+            var parent=lbl.closest('.cluster');
+            if(parent){
+                lbl.addEventListener('click',function(e){
+                    e.stopPropagation();
+                    var raw=parent.id||'';
+                    var m=raw.match(/flowchart-(.+?)-\d+$/);
+                    var nid=m?m[1]:raw;
+                    if(nid)handleClick(nid);
+                });
+            }
+        });
+    }).catch(function(e){el.innerHTML='<pre style="color:#f33;">'+e+'</pre>';});
 }
 
-function handleNodeClick(nodeId) {
-    // Route to appropriate handler based on node ID pattern
-    if (nodeId.indexOf('__') > -1) {
-        // Function node: mod__funcName or mod__ext__funcName
-        var parts = nodeId.split('__');
-        if (parts.indexOf('ext') > -1) {
-            // External reference: mod__ext__funcName
-            var extIdx = parts.indexOf('ext');
-            var funcName = parts[extIdx + 1];
-            var targetMod = FUNC_TO_MOD[funcName];
-            if (targetMod) showFunction(targetMod, funcName);
-        } else {
-            var funcName = parts[parts.length - 1];
-            var modName = parts.slice(0, -1).join('/');
-            showFunction(modName, funcName);
-        }
-    } else if (nodeId.indexOf('caller_') === 0 || nodeId.indexOf('target_') === 0) {
-        // Caller/target nodes in function view — find from text
-        // These are handled by the info panel click links instead
-    } else if (nodeId.indexOf('_header') > -1) {
-        // Module header — already expanded, ignore
+function handleClick(nid){
+    if(nid.indexOf('__')>-1){
+        // Function node
+        var parts=nid.split('__');
+        var fn=parts[parts.length-1];
+        var mid=parts.slice(0,-1).join('_');
+        var mod=mid.replace(/_/g,'/');
+        showPanel(mod,fn);
     } else {
-        // Module node
-        var mod = nodeId.replace(/_/g, '/');
-        if (MODULES[mod]) expandModule(mod);
+        // Module: toggle expand
+        expanded[nid]=!expanded[nid];
+        document.getElementById('panel').style.display='none';
+        rebuild();
     }
 }
 
-function goHome() {
-    state = { level:'modules', module:null, func:null, expanded:{} };
-    document.getElementById('info-panel').style.display = 'none';
-    document.getElementById('breadcrumb').innerHTML = '<span onclick="goHome()"><b>Modules</b></span>';
-    renderModules();
+function goHome(){
+    expanded={};
+    document.getElementById('panel').style.display='none';
+    document.getElementById('breadcrumb').innerHTML='<span onclick="goHome()"><b>Modules</b></span> — click any module to expand';
+    rebuild();
 }
 
-function renderModules() {
-    var lines = ['graph LR'];
-    var mods = Object.keys(MODULES);
+function rebuild(){
+    var lines=['graph TD'];
+    var mods=Object.keys(MODULES);
 
-    mods.forEach(function(mod) {
-        var m = MODULES[mod];
-        var id = mod.replace(/\\//g,'_');
-        var nf = m.functions.length;
-        var routes = m.functions.filter(function(f){return f.route;}).length;
-        var label = mod + '\\n' + nf + ' funcs';
-        if (routes) label += ' | ' + routes + ' routes';
-        lines.push('    ' + id + '["' + esc(label) + '"]');
-        // click handled via DOM
+    mods.forEach(function(mod){
+        var m=MODULES[mod];
+        var mid=mod.replace(/\//g,'_');
+        if(expanded[mid]){
+            lines.push('    subgraph '+mid+'["📂 '+esc(mod)+' — click to collapse"]');
+            lines.push('        direction TB');
+            m.functions.forEach(function(f){
+                var fid=mid+'__'+f.name;
+                var lbl=f.name+'()';
+                if(f.route) lbl=f.route+'\\n'+f.name+'()';
+                lines.push('        '+fid+'["'+esc(lbl)+'"]');
+                if(f.route) lines.push('        style '+fid+' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
+            });
+            var fnames=m.functions.map(function(f){return f.name;});
+            m.functions.forEach(function(f){
+                f.calls.forEach(function(c){
+                    if(fnames.indexOf(c)>-1 && c!==f.name)
+                        lines.push('        '+mid+'__'+f.name+' --> '+mid+'__'+c);
+                });
+            });
+            lines.push('    end');
+            lines.push('    style '+mid+' fill:'+m.color+'08,stroke:'+m.color+',color:'+m.color);
+        } else {
+            var nf=m.functions.length;
+            var nr=m.functions.filter(function(f){return f.route;}).length;
+            var lbl=mod+'\\n'+nf+' funcs';
+            if(nr) lbl+=' | '+nr+' routes';
+            lines.push('    '+mid+'["'+esc(lbl)+'"]');
+            lines.push('    style '+mid+' fill:'+m.color+'22,stroke:'+m.color+',color:'+m.color);
+        }
     });
 
     // Import edges
-    var seen = {};
-    mods.forEach(function(mod) {
-        var src = mod.replace(/\\//g,'_');
-        MODULES[mod].imports.forEach(function(imp) {
-            var base = imp.module.split('.')[0];
-            mods.forEach(function(other) {
-                var otherBase = other.split('/')[0];
-                var tgt = other.replace(/\\//g,'_');
-                if (otherBase === base && src !== tgt && !seen[src+'->'+tgt]) {
-                    lines.push('    ' + src + ' --> ' + tgt);
-                    seen[src+'->'+tgt] = true;
+    var seen={};
+    mods.forEach(function(mod){
+        var src=mod.replace(/\//g,'_');
+        MODULES[mod].imports.forEach(function(imp){
+            var base=imp.module.split('.')[0];
+            mods.forEach(function(other){
+                if(other.split('/')[0]===base){
+                    var tgt=other.replace(/\//g,'_');
+                    if(src!==tgt && !seen[src+'->'+tgt]){
+                        lines.push('    '+src+' -.-> '+tgt);
+                        seen[src+'->'+tgt]=true;
+                    }
                 }
             });
         });
     });
 
-    // Styles
-    mods.forEach(function(mod) {
-        var id = mod.replace(/\\//g,'_');
-        var c = MODULES[mod].color;
-        lines.push('    style ' + id + ' fill:' + c + '22,stroke:' + c + ',color:' + c);
+    // Cross-module function calls from expanded modules
+    mods.forEach(function(mod){
+        var mid=mod.replace(/\//g,'_');
+        if(!expanded[mid]) return;
+        MODULES[mod].functions.forEach(function(f){
+            f.calls.forEach(function(c){
+                var tm=FUNC_TO_MOD[c];
+                if(tm && tm!==mod){
+                    var tmid=tm.replace(/\//g,'_');
+                    if(expanded[tmid])
+                        lines.push('    '+mid+'__'+f.name+' --> '+tmid+'__'+c);
+                    else
+                        lines.push('    '+mid+'__'+f.name+' --> '+tmid);
+                }
+            });
+        });
     });
 
-    renderDiagram(lines.join('\\n'));
+    // Breadcrumb
+    var exp=Object.keys(expanded).filter(function(k){return expanded[k];}).map(function(k){return k.replace(/_/g,'/');});
+    var bc='<span onclick="goHome()">Modules</span>';
+    if(exp.length) bc+=' → '+exp.map(function(n){return '<b style="color:'+(MODULES[n]||{}).color+';">'+n+'</b>';}).join(', ');
+    document.getElementById('breadcrumb').innerHTML=bc;
+
+    render(lines.join('\n'));
 }
 
-// Click handling is done via DOM event delegation in renderDiagram()
+function showPanel(mod,funcName){
+    var m=MODULES[mod];
+    if(!m) return;
+    var f=m.functions.find(function(x){return x.name===funcName;});
+    if(!f) return;
+    var p=document.getElementById('panel');
+    p.style.display='block';
+    var h='<span class="close-btn" onclick="document.getElementById(\'panel\').style.display=\'none\'">✕</span>';
+    h+='<h3>'+funcName+'('+f.args.join(', ')+')</h3>';
+    if(f.route) h+='<div class="route">'+f.route+'</div>';
+    h+='<div style="color:#666;">'+mod+' | L'+f.line+' | '+f.lines+' lines</div>';
+    if(f.doc) h+='<div class="doc">'+esc(f.doc)+'</div>';
 
-function expandModule(mod) {
-    if (!MODULES[mod]) return;
-    state.level = 'module';
-    state.module = mod;
-
-    document.getElementById('breadcrumb').innerHTML =
-        '<span onclick="goHome()">Modules</span> → <span><b>' + mod + '</b></span>';
-
-    var m = MODULES[mod];
-    var mid = mod.replace(/\\//g, '_');
-    var lines = ['graph TD'];
-
-    // Module header
-    lines.push('    ' + mid + '_header["📦 ' + esc(mod) + '\\n' + m.functions.length + ' functions"]');
-    lines.push('    style ' + mid + '_header fill:' + m.color + '33,stroke:' + m.color + ',color:' + m.color);
-
-    // Functions
-    m.functions.forEach(function(f) {
-        var fid = mid + '__' + f.name;
-        var label = f.name + '()';
-        if (f.route) label = f.route + '\\n' + f.name + '()';
-        else label += '\\n' + f.lines + ' lines';
-        lines.push('    ' + fid + '["' + esc(label) + '"]');
-        lines.push('    ' + mid + '_header --> ' + fid);
-        // click handled via DOM
-
-        if (f.route) {
-            lines.push('    style ' + fid + ' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
-        }
-
-        // Cross-module calls
-        f.calls.forEach(function(call) {
-            if (FUNC_TO_MOD[call] && FUNC_TO_MOD[call] !== mod) {
-                var extMod = FUNC_TO_MOD[call];
-                var extId = extMod.replace(/\\//g, '_') + '__ext__' + call;
-                lines.push('    ' + extId + '["' + esc(extMod) + '\\n' + call + '()"]');
-                lines.push('    ' + fid + ' -.-> ' + extId);
-                lines.push('    click ' + extId + ' callMod');
-                var ec = (MODULES[extMod] || {}).color || '#666';
-                lines.push('    style ' + extId + ' fill:' + ec + '11,stroke:' + ec + ',color:' + ec);
-            }
-        });
+    h+='<div class="sec">Calls →</div>';
+    f.calls.forEach(function(c){
+        var tm=FUNC_TO_MOD[c];
+        if(tm) h+='<div class="link" onclick="navTo(\''+tm+'\',\''+c+'\')">'+c+'() <span style="color:#555;">← '+tm+'</span></div>';
+        else h+='<div style="color:#555;">'+c+'()</div>';
     });
+    if(!f.calls.length) h+='<div style="color:#555;">None</div>';
 
-    // Internal calls
-    var funcNames = m.functions.map(function(f){return f.name;});
-    m.functions.forEach(function(f) {
-        var fid = mid + '__' + f.name;
-        f.calls.forEach(function(call) {
-            if (funcNames.indexOf(call) > -1 && call !== f.name) {
-                lines.push('    ' + fid + ' --> ' + mid + '__' + call);
-            }
-        });
+    var cl=CALLERS[funcName]||[];
+    h+='<div class="sec">← Called by</div>';
+    cl.forEach(function(c){
+        h+='<div class="clink" onclick="navTo(\''+c.module+'\',\''+c.func+'\')">'+c.func+'() <span style="color:#555;">← '+c.module+'</span></div>';
     });
+    if(!cl.length) h+='<div style="color:#555;">No callers found</div>';
 
-    renderDiagram(lines.join('\\n'));
-    document.getElementById('info-panel').style.display = 'none';
+    p.innerHTML=h;
 }
 
-function showFunction(mod, funcName) {
-    var m = MODULES[mod];
-    if (!m) return;
-    var func = m.functions.find(function(f){return f.name === funcName;});
-    if (!func) return;
-
-    state.level = 'function';
-    state.func = funcName;
-
-    document.getElementById('breadcrumb').innerHTML =
-        '<span onclick="goHome()">Modules</span> → ' +
-        '<span onclick="expandModule(\\'' + mod + '\\')">' + mod + '</span> → ' +
-        '<span><b>' + funcName + '()</b></span>';
-
-    // Info panel
-    var panel = document.getElementById('info-panel');
-    panel.style.display = 'block';
-    var h = '<h3>' + funcName + '(' + func.args.join(', ') + ')</h3>';
-    if (func.route) h += '<div class="route">Route: ' + func.route + '</div>';
-    h += '<div style="color:#666;">Module: ' + mod + ' | Line ' + func.line + ' | ' + func.lines + ' lines</div>';
-    if (func.doc) h += '<div class="doc">' + esc(func.doc) + '</div>';
-
-    // Calls
-    h += '<div class="section"><div class="section-title">Calls →</div>';
-    if (func.calls.length) {
-        func.calls.forEach(function(c) {
-            var targetMod = FUNC_TO_MOD[c];
-            if (targetMod) {
-                h += '<div class="call-link" onclick="showFunction(\\'' + targetMod + '\\',\\'' + c + '\\')">' + c + '() <span style="color:#555;">← ' + targetMod + '</span></div>';
-            } else {
-                h += '<div style="color:#555;">' + c + '()</div>';
-            }
-        });
-    } else {
-        h += '<div style="color:#555;">None</div>';
-    }
-    h += '</div>';
-
-    // Callers
-    var myCallers = CALLERS[funcName] || [];
-    h += '<div class="section"><div class="section-title">← Called by</div>';
-    if (myCallers.length) {
-        myCallers.forEach(function(c) {
-            h += '<div class="caller-link" onclick="showFunction(\\'' + c.module + '\\',\\'' + c.func + '\\')">' + c.func + '() <span style="color:#555;">← ' + c.module + '</span></div>';
-        });
-    } else {
-        h += '<div style="color:#555;">No callers found</div>';
-    }
-    h += '</div>';
-    panel.innerHTML = h;
-
-    // Diagram: this function + what it calls + who calls it
-    var mid = mod.replace(/\\//g, '_');
-    var fid = mid + '__' + funcName;
-    var lines = ['graph LR'];
-
-    // Callers on the left
-    myCallers.forEach(function(c, i) {
-        var cid = 'caller_' + i;
-        var cmod = c.module.replace(/\\//g, '_');
-        var cc = (MODULES[c.module] || {}).color || '#666';
-        lines.push('    ' + cid + '["' + esc(c.module) + '\\n' + c.func + '()"]');
-        lines.push('    ' + cid + ' --> ' + fid);
-        // click handled via DOM
-        lines.push('    style ' + cid + ' fill:' + cc + '11,stroke:' + cc + ',color:' + cc);
-    });
-
-    // This function in center
-    var label = funcName + '()';
-    if (func.route) label = func.route + '\\n' + funcName + '()';
-    lines.push('    ' + fid + '["' + esc(label) + '"]');
-    var mc = MODULES[mod].color;
-    lines.push('    style ' + fid + ' fill:' + mc + '33,stroke:' + mc + ',color:white');
-    // click handled via DOM
-
-    // Calls on the right
-    func.calls.forEach(function(call, i) {
-        var targetMod = FUNC_TO_MOD[call];
-        if (targetMod) {
-            var tid = 'target_' + i;
-            var tc = (MODULES[targetMod] || {}).color || '#666';
-            lines.push('    ' + tid + '["' + esc(targetMod) + '\\n' + call + '()"]');
-            lines.push('    ' + fid + ' --> ' + tid);
-            // click handled via DOM
-            lines.push('    style ' + tid + ' fill:' + tc + '11,stroke:' + tc + ',color:' + tc);
-        }
-    });
-
-    renderDiagram(lines.join('\\n'));
+function navTo(mod,func){
+    var mid=mod.replace(/\//g,'_');
+    expanded[mid]=true;
+    rebuild();
+    // After rebuild, show panel for the function
+    setTimeout(function(){ showPanel(mod,func); },200);
 }
 
-// Start
 goHome();
 </script>
 </body></html>"""
@@ -424,6 +321,4 @@ goHome();
 out_path = OUT / 'mktt_expandable_map.html'
 with open(out_path, 'w', encoding='utf-8') as f:
     f.write(html)
-
-print(f"Saved: {out_path}")
-print(f"Size: {out_path.stat().st_size / 1e3:.0f} KB")
+print(f"Saved: {out_path} ({out_path.stat().st_size / 1e3:.0f} KB)")
