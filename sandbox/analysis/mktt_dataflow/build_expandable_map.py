@@ -210,15 +210,16 @@ function rebuild(){
         if(expanded[mid]){
             lines.push('    subgraph '+mid+'["📂 '+esc(mod)+'"]');
             lines.push('        direction TB');
-            // Collapse button node
+            // Collapse button node — link to first function to force it above
             var colId=mid+'__COLLAPSE';
             lines.push('        '+colId+'["✕ collapse"]');
             lines.push('        style '+colId+' fill:#33333366,stroke:#555,color:#aaa');
-            m.functions.forEach(function(f){
+            m.functions.forEach(function(f,i){
                 var fid=mid+'__'+f.name;
                 var lbl=f.name+'()';
                 if(f.route) lbl=f.route+'\\n'+f.name+'()';
                 lines.push('        '+fid+'["'+esc(lbl)+'"]');
+                if(i===0) lines.push('        '+colId+' ~~~ '+fid);
                 if(f.route) lines.push('        style '+fid+' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
             });
             var fnames=m.functions.map(function(f){return f.name;});
