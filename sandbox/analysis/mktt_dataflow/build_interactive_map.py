@@ -238,34 +238,49 @@ body { background: #0a0a0e; color: #ccc; font-family: 'JetBrains Mono', 'Consola
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     background: #111; border-bottom: 1px solid #333; padding: 8px 16px;
     display: flex; align-items: center; gap: 12px; font-size: 12px;
+    flex-wrap: wrap;
 }
 #controls button { font-size: 11px; padding: 3px 10px; background: #1a1a2a; border: 1px solid #333;
     color: #ccc; border-radius: 4px; cursor: pointer; }
 #controls button:hover { background: #2a2a3a; }
 #controls button.active { background: #4f8cf7; color: white; border-color: #4f8cf7; }
+#controls label { font-size: 10px; color: #666; }
+#controls input[type=range] { width: 80px; accent-color: #4f8cf7; }
 
 #graph { width: 100vw; height: calc(100vh - 36px); margin-top: 36px; }
 
 #detail {
-    position: fixed; right: 0; top: 36px; bottom: 0; width: 380px;
-    background: #111; border-left: 1px solid #333; padding: 12px;
+    position: fixed; right: 0; top: 36px; bottom: 0; width: 400px;
+    background: #111; border-left: 1px solid #333; padding: 14px;
     overflow-y: auto; font-size: 11px; display: none; z-index: 50;
 }
-#detail h2 { color: #4f8cf7; font-size: 14px; margin-bottom: 8px; }
-#detail h3 { color: #10b981; font-size: 12px; margin: 8px 0 4px; }
+#detail h2 { color: #4f8cf7; font-size: 15px; margin-bottom: 8px; }
+#detail h3 { color: #10b981; font-size: 12px; margin: 10px 0 4px; border-bottom: 1px solid #222; padding-bottom: 2px; }
 #detail .route { color: #f59e0b; font-weight: 700; }
-#detail .func-item { padding: 4px 0; border-bottom: 1px solid #1a1a2a; cursor: pointer; }
+#detail .func-item { padding: 5px 4px; border-bottom: 1px solid #1a1a2a; cursor: pointer; }
 #detail .func-item:hover { background: #1a1a2a; }
 #detail .func-name { color: #10b981; font-weight: 600; }
 #detail .func-args { color: #666; }
-#detail .func-doc { color: #888; font-size: 10px; margin-top: 2px; }
-#detail .calls-list { color: #a78bfa; font-size: 10px; }
-#detail .close-btn { position: absolute; top: 8px; right: 8px; cursor: pointer; color: #f33; font-size: 16px; }
+#detail .func-doc { color: #888; font-size: 10px; margin-top: 2px; font-style: italic; }
+#detail .calls-list { color: #a78bfa; font-size: 10px; margin-top: 2px; }
+#detail .close-btn { position: absolute; top: 8px; right: 10px; cursor: pointer; color: #f33; font-size: 18px; font-weight: 700; }
 
 .tooltip {
-    position: absolute; background: #1a1a2a; border: 1px solid #333;
-    border-radius: 4px; padding: 6px 10px; font-size: 11px; pointer-events: none;
-    z-index: 200; max-width: 300px;
+    position: absolute; background: #1a1a2aee; border: 1px solid #444;
+    border-radius: 6px; padding: 8px 12px; font-size: 11px; pointer-events: none;
+    z-index: 200; max-width: 320px; line-height: 1.4;
+}
+
+#legend {
+    position: fixed; bottom: 12px; left: 12px; background: #111; border: 1px solid #333;
+    border-radius: 6px; padding: 8px 12px; font-size: 10px; z-index: 50;
+}
+#legend div { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+#legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+#help {
+    position: fixed; bottom: 12px; right: 12px; background: #111; border: 1px solid #333;
+    border-radius: 6px; padding: 8px 12px; font-size: 10px; color: #666; z-index: 50;
 }
 </style>
 </head><body>
@@ -275,6 +290,11 @@ body { background: #0a0a0e; color: #ccc; font-family: 'JetBrains Mono', 'Consola
     <button class="active" onclick="setView('modules')">Modules</button>
     <button onclick="setView('functions')">Functions</button>
     <button onclick="setView('routes')">Routes</button>
+    <span style="color:#333;">|</span>
+    <label>Font: <input type="range" id="fontSlider" min="6" max="18" value="11" oninput="setFontSize(this.value)"></label>
+    <label>Spacing: <input type="range" id="spaceSlider" min="50" max="400" value="150" oninput="setSpacing(this.value)"></label>
+    <button onclick="toggleLabels()" id="labelBtn">Hide Labels</button>
+    <button onclick="resetZoom()">Reset Zoom</button>
     <span id="info" style="margin-left:auto;color:#666;"></span>
 </div>
 
@@ -285,6 +305,21 @@ body { background: #0a0a0e; color: #ccc; font-family: 'JetBrains Mono', 'Consola
     <div id="detail-content"></div>
 </div>
 
+<div id="legend">
+    <div><span class="dot" style="background:#10b981;"></span> app.py (routes)</div>
+    <div><span class="dot" style="background:#f59e0b;"></span> data_manager.py</div>
+    <div><span class="dot" style="background:#a78bfa;"></span> stage_classifier.py</div>
+    <div><span class="dot" style="background:#ef4444;"></span> options_service.py</div>
+    <div><span class="dot" style="background:#06b6d4;"></span> macro/*</div>
+    <div><span class="dot" style="background:#888;"></span> data_freshness.py</div>
+    <div><span class="dot" style="background:#ec4899;"></span> screener.py</div>
+</div>
+
+<div id="help">
+    Scroll = zoom | Drag background = pan | Drag node = move<br>
+    Click node = detail panel | Hover = tooltip
+</div>
+
 <script>
 var DATA = """ + json.dumps(graph_data) + """;
 
@@ -293,6 +328,11 @@ var width, height;
 var simulation;
 var currentView = 'modules';
 var tooltip;
+var labelsVisible = true;
+var currentFontSize = 11;
+var currentSpacing = 150;
+var zoomTransform = d3.zoomIdentity;
+var zoomBehavior;
 
 function init() {
     var rect = svg.node().getBoundingClientRect();
@@ -302,6 +342,26 @@ function init() {
     tooltip = d3.select('body').append('div').attr('class', 'tooltip').style('display', 'none');
 
     setView('modules');
+}
+
+function setFontSize(val) {
+    currentFontSize = +val;
+    svg.selectAll('.node text').attr('font-size', currentFontSize + 'px');
+}
+
+function setSpacing(val) {
+    currentSpacing = +val;
+    render();
+}
+
+function toggleLabels() {
+    labelsVisible = !labelsVisible;
+    svg.selectAll('.node text').style('display', labelsVisible ? 'block' : 'none');
+    document.getElementById('labelBtn').textContent = labelsVisible ? 'Hide Labels' : 'Show Labels';
+}
+
+function resetZoom() {
+    svg.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity);
 }
 
 function setView(view) {
@@ -318,10 +378,11 @@ function render() {
     var g = svg.append('g');
 
     // Zoom
-    var zoom = d3.zoom().scaleExtent([0.1, 5]).on('zoom', function(e) {
+    zoomBehavior = d3.zoom().scaleExtent([0.1, 8]).on('zoom', function(e) {
         g.attr('transform', e.transform);
+        zoomTransform = e.transform;
     });
-    svg.call(zoom);
+    svg.call(zoomBehavior);
 
     var nodes, links;
 
@@ -381,13 +442,15 @@ function render() {
 
     simulation = d3.forceSimulation(nodes)
         .force('link', d3.forceLink(mappedLinks).distance(function(l) {
-            return l.type === 'contains' ? 40 : l.type === 'imports' ? 120 : 80;
+            return l.type === 'contains' ? currentSpacing * 0.3 : l.type === 'imports' ? currentSpacing : currentSpacing * 0.6;
         }))
         .force('charge', d3.forceManyBody().strength(function(n) {
-            return n.type === 'module' ? -300 : -80;
+            return n.type === 'module' ? -currentSpacing * 3 : -currentSpacing * 0.8;
         }))
         .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(function(n) { return nodeSize(n) + 5; }));
+        .force('collision', d3.forceCollide().radius(function(n) { return nodeSize(n) + currentSpacing * 0.15; }))
+        .force('x', d3.forceX(width / 2).strength(0.03))
+        .force('y', d3.forceY(height / 2).strength(0.03));
 
     // Links
     var link = g.selectAll('.link').data(mappedLinks).enter().append('line')
@@ -416,17 +479,32 @@ function render() {
         .attr('stroke-width', function(d) { return d.type === 'module' ? 2 : 0; })
         .attr('opacity', 0.85);
 
+    // Text background for readability
+    node.append('rect')
+        .attr('class', 'label-bg')
+        .attr('fill', '#0a0a0ecc')
+        .attr('rx', 2)
+        .attr('x', function(d) { return nodeSize(d) + 2; })
+        .attr('y', -7)
+        .attr('width', function(d) {
+            var t = d.type === 'module' ? d.id : (d.route || d.name || '');
+            return t.length * (d.type === 'module' ? 7.5 : 5.5) + 6;
+        })
+        .attr('height', 14)
+        .style('display', labelsVisible ? 'block' : 'none');
+
     node.append('text')
         .text(function(d) {
             if (d.type === 'module') return d.id;
             if (d.route) return d.route;
             return d.name || '';
         })
-        .attr('dx', function(d) { return nodeSize(d) + 4; })
-        .attr('dy', 3)
-        .attr('fill', function(d) { return d.route ? '#f59e0b' : '#aaa'; })
-        .attr('font-size', function(d) { return d.type === 'module' ? '12px' : '9px'; })
-        .attr('font-weight', function(d) { return d.type === 'module' ? '700' : '400'; });
+        .attr('dx', function(d) { return nodeSize(d) + 5; })
+        .attr('dy', 4)
+        .attr('fill', function(d) { return d.route ? '#f59e0b' : d.type === 'module' ? '#fff' : '#aaa'; })
+        .attr('font-size', function(d) { return d.type === 'module' ? currentFontSize + 2 + 'px' : currentFontSize + 'px'; })
+        .attr('font-weight', function(d) { return d.type === 'module' ? '700' : '400'; })
+        .style('display', labelsVisible ? 'block' : 'none');
 
     // Hover
     node.on('mouseover', function(e, d) {
