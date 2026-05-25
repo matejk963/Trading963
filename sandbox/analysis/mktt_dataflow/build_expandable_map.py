@@ -96,11 +96,18 @@ body { background:#0f1117; color:#ccc; font-family:'JetBrains Mono','Consolas',m
 button.reset { font-size:11px; padding:3px 10px; background:#1a1a2a; border:1px solid #333; color:#ccc; border-radius:4px; cursor:pointer; margin-left:auto; }
 button.reset:hover { background:#2a2a3a; }
 #main { display:flex; gap:0; }
-#diagram-wrap { flex:1; padding:16px; overflow:auto; min-height:calc(100vh - 50px); }
-#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; padding:16px; min-height:300px; position:relative; }
+#diagram-wrap { flex:1; padding:16px; overflow:hidden; min-height:calc(100vh - 50px); position:relative; }
+#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; min-height:300px; position:relative;
+    transform-origin:0 0; cursor:grab; }
+#diagram:active { cursor:grabbing; }
 .close-mod { position:absolute; z-index:10; background:#ef4444cc; color:white; border:none; border-radius:50%;
     width:22px; height:22px; font-size:14px; font-weight:700; cursor:pointer; line-height:20px; text-align:center; }
 .close-mod:hover { background:#ef4444; transform:scale(1.2); }
+#zoom-controls { position:absolute; bottom:12px; left:12px; z-index:20; display:flex; gap:4px; }
+#zoom-controls button { width:30px; height:30px; font-size:16px; background:#1a1a2a; border:1px solid #333;
+    color:#ccc; border-radius:4px; cursor:pointer; }
+#zoom-controls button:hover { background:#2a2a3a; }
+#zoom-controls span { font-size:11px; color:#666; padding:8px 4px; }
 #panel { width:360px; background:#111; border-left:1px solid #333; padding:14px; overflow-y:auto;
     max-height:calc(100vh - 50px); display:none; font-size:11px; flex-shrink:0; }
 #panel h3 { color:#10b981; font-size:14px; margin-bottom:6px; }
@@ -117,10 +124,19 @@ button.reset:hover { background:#2a2a3a; }
 <div id="header">
     <h1>MKTT Code Map</h1>
     <div id="breadcrumb"><span onclick="goHome()"><b>Modules</b></span> — click any module to expand</div>
+    <button id="callsBtn" onclick="toggleCalls()" style="font-size:11px;padding:3px 10px;background:#1a1a2a;border:1px solid #333;color:#888;border-radius:4px;cursor:pointer;">Show Calls</button>
     <button class="reset" onclick="goHome()">Collapse All</button>
 </div>
 <div id="main">
-    <div id="diagram-wrap"><div id="diagram">Loading...</div></div>
+    <div id="diagram-wrap">
+        <div id="diagram">Loading...</div>
+        <div id="zoom-controls">
+            <button onclick="zoomIn()">+</button>
+            <button onclick="zoomOut()">−</button>
+            <button onclick="zoomReset()">⟲</button>
+            <span id="zoom-level">100%</span>
+        </div>
+    </div>
     <div id="panel" style="position:relative;"></div>
 </div>
 <script>
@@ -128,6 +144,51 @@ var MODULES = """ + json.dumps(js_data) + r""";
 var FUNC_TO_MOD = """ + json.dumps(func_to_mod) + r""";
 var CALLERS = """ + json.dumps(callers) + r""";
 var expanded = {};
+var showCalls = false;
+var zoom = 1;
+var panX = 0, panY = 0;
+var isDragging = false, dragStartX, dragStartY;
+
+// Zoom/Pan
+function applyTransform() {
+    var el = document.getElementById('diagram');
+    el.style.transform = 'scale('+zoom+') translate('+panX+'px,'+panY+'px)';
+    document.getElementById('zoom-level').textContent = Math.round(zoom*100)+'%';
+}
+function zoomIn() { zoom = Math.min(zoom * 1.25, 5); applyTransform(); }
+function zoomOut() { zoom = Math.max(zoom * 0.8, 0.2); applyTransform(); }
+function zoomReset() { zoom = 1; panX = 0; panY = 0; applyTransform(); }
+
+document.addEventListener('DOMContentLoaded', function() {
+    var wrap = document.getElementById('diagram-wrap');
+    wrap.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        if (e.deltaY < 0) zoom = Math.min(zoom * 1.1, 5);
+        else zoom = Math.max(zoom * 0.9, 0.2);
+        applyTransform();
+    }, {passive: false});
+    // Pan with mouse drag on background
+    wrap.addEventListener('mousedown', function(e) {
+        if (e.target.closest('.node,.close-mod,#panel,#zoom-controls')) return;
+        isDragging = true; dragStartX = e.clientX - panX * zoom; dragStartY = e.clientY - panY * zoom;
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        panX = (e.clientX - dragStartX) / zoom;
+        panY = (e.clientY - dragStartY) / zoom;
+        applyTransform();
+    });
+    document.addEventListener('mouseup', function() { isDragging = false; });
+});
+
+function toggleCalls() {
+    showCalls = !showCalls;
+    var btn = document.getElementById('callsBtn');
+    btn.style.background = showCalls ? '#a78bfa' : '#1a1a2a';
+    btn.style.color = showCalls ? 'white' : '#888';
+    btn.textContent = showCalls ? 'Hide Calls' : 'Show Calls';
+    rebuild();
+}
 
 mermaid.initialize({ startOnLoad:false, theme:'dark',
     themeVariables:{darkMode:true,background:'#0a0a0e',primaryColor:'#4f8cf7',
@@ -240,7 +301,7 @@ function rebuild(){
                 var fid=mid+'__'+f.name;
                 var flbl=f.name+'()';
                 if(f.route) flbl=f.route+'\\n'+f.name+'()';
-                else flbl+=' ('+f.lines+'L)';
+                // no line count in label — keep it clean
                 lines.push('    '+fid+'["'+esc(flbl)+'"]');
                 lines.push('    '+mid+' --> '+fid);
                 if(f.route) lines.push('    style '+fid+' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
@@ -283,23 +344,25 @@ function rebuild(){
         });
     });
 
-    // Cross-module function calls from expanded modules
-    mods.forEach(function(mod){
-        var mid=mod.replace(/\//g,'_');
-        if(!expanded[mid]) return;
-        MODULES[mod].functions.forEach(function(f){
-            f.calls.forEach(function(c){
-                var tm=FUNC_TO_MOD[c];
-                if(tm && tm!==mod){
-                    var tmid=tm.replace(/\//g,'_');
-                    if(expanded[tmid])
-                        lines.push('    '+mid+'__'+f.name+' --> '+tmid+'__'+c);
-                    else
-                        lines.push('    '+mid+'__'+f.name+' --> '+tmid);
-                }
+    // Cross-module function calls (only when Show Calls is active)
+    if(showCalls){
+        mods.forEach(function(mod){
+            var mid=mod.replace(/\//g,'_');
+            if(!expanded[mid]) return;
+            MODULES[mod].functions.forEach(function(f){
+                f.calls.forEach(function(c){
+                    var tm=FUNC_TO_MOD[c];
+                    if(tm && tm!==mod){
+                        var tmid=tm.replace(/\//g,'_');
+                        if(expanded[tmid])
+                            lines.push('    '+mid+'__'+f.name+' ==> '+tmid+'__'+c);
+                        else
+                            lines.push('    '+mid+'__'+f.name+' ==> '+tmid);
+                    }
+                });
             });
         });
-    });
+    }
 
     // Breadcrumb
     var exp=Object.keys(expanded).filter(function(k){return expanded[k];}).map(function(k){return k.replace(/_/g,'/');});

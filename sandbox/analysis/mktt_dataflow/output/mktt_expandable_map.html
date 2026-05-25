@@ -14,11 +14,18 @@ body { background:#0f1117; color:#ccc; font-family:'JetBrains Mono','Consolas',m
 button.reset { font-size:11px; padding:3px 10px; background:#1a1a2a; border:1px solid #333; color:#ccc; border-radius:4px; cursor:pointer; margin-left:auto; }
 button.reset:hover { background:#2a2a3a; }
 #main { display:flex; gap:0; }
-#diagram-wrap { flex:1; padding:16px; overflow:auto; min-height:calc(100vh - 50px); }
-#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; padding:16px; min-height:300px; position:relative; }
+#diagram-wrap { flex:1; padding:16px; overflow:hidden; min-height:calc(100vh - 50px); position:relative; }
+#diagram { background:#0a0a0e; border:1px solid #222; border-radius:8px; min-height:300px; position:relative;
+    transform-origin:0 0; cursor:grab; }
+#diagram:active { cursor:grabbing; }
 .close-mod { position:absolute; z-index:10; background:#ef4444cc; color:white; border:none; border-radius:50%;
     width:22px; height:22px; font-size:14px; font-weight:700; cursor:pointer; line-height:20px; text-align:center; }
 .close-mod:hover { background:#ef4444; transform:scale(1.2); }
+#zoom-controls { position:absolute; bottom:12px; left:12px; z-index:20; display:flex; gap:4px; }
+#zoom-controls button { width:30px; height:30px; font-size:16px; background:#1a1a2a; border:1px solid #333;
+    color:#ccc; border-radius:4px; cursor:pointer; }
+#zoom-controls button:hover { background:#2a2a3a; }
+#zoom-controls span { font-size:11px; color:#666; padding:8px 4px; }
 #panel { width:360px; background:#111; border-left:1px solid #333; padding:14px; overflow-y:auto;
     max-height:calc(100vh - 50px); display:none; font-size:11px; flex-shrink:0; }
 #panel h3 { color:#10b981; font-size:14px; margin-bottom:6px; }
@@ -35,10 +42,19 @@ button.reset:hover { background:#2a2a3a; }
 <div id="header">
     <h1>MKTT Code Map</h1>
     <div id="breadcrumb"><span onclick="goHome()"><b>Modules</b></span> — click any module to expand</div>
+    <button id="callsBtn" onclick="toggleCalls()" style="font-size:11px;padding:3px 10px;background:#1a1a2a;border:1px solid #333;color:#888;border-radius:4px;cursor:pointer;">Show Calls</button>
     <button class="reset" onclick="goHome()">Collapse All</button>
 </div>
 <div id="main">
-    <div id="diagram-wrap"><div id="diagram">Loading...</div></div>
+    <div id="diagram-wrap">
+        <div id="diagram">Loading...</div>
+        <div id="zoom-controls">
+            <button onclick="zoomIn()">+</button>
+            <button onclick="zoomOut()">−</button>
+            <button onclick="zoomReset()">⟲</button>
+            <span id="zoom-level">100%</span>
+        </div>
+    </div>
     <div id="panel" style="position:relative;"></div>
 </div>
 <script>
@@ -46,6 +62,51 @@ var MODULES = {"app": {"functions": [{"name": "load_classification_lookups", "ar
 var FUNC_TO_MOD = {"load_classification_lookups": "app", "load_refinitiv_snapshot": "app", "_safe_num": "app", "_safe_val": "app", "fmt_number": "app", "inject_now": "app", "screener_page": "app", "rolling_12m_api": "app", "_rolling_12m_impl": "app", "sales_ttm_forward_api": "app", "_sales_ttm_forward_impl": "app", "options_page": "app", "options_expirations_api": "app", "options_chain_api": "app", "options_surface_api": "app", "options_summary_api": "app", "options_gex_api": "app", "watchlist_page": "app", "watchlist_api": "app", "_watchlist_api_impl": "app", "sector_map_api": "app", "_sector_map_impl": "app", "chart_page": "app", "chart_api": "app", "freshness_api": "app", "_chart_api_impl": "app", "fundamentals_api": "app", "_fundamentals_impl": "app", "eps_ttm_forward_api": "app", "_eps_ttm_forward_impl": "app", "revisions_api": "app", "_revisions_impl": "app", "_jsonable": "data_freshness", "check_prices": "data_freshness", "check_refinitiv": "data_freshness", "check_universe": "data_freshness", "check_classifications": "data_freshness", "full_report": "data_freshness", "print_report": "data_freshness", "fetch_liquid_universe": "data_manager", "fetch_prices_batch": "data_manager", "save_universe": "data_manager", "save_prices": "data_manager", "save_spy": "data_manager", "build_sector_map": "data_manager", "_load_parquet_cached": "data_manager", "build_industry_map": "data_manager", "load_sector_map": "data_manager", "load_universe": "data_manager", "load_prices": "data_manager", "load_spy": "data_manager", "get_db_status": "data_manager", "build_database": "data_manager", "update_prices": "data_manager", "auto_update_if_stale": "data_manager", "refresh_universe": "data_manager", "ttl_cache": "macro/cache", "invalidate": "macro/cache", "_load_raw_data": "macro/liquidity_service", "get_raw_data": "macro/liquidity_service", "get_dashboard_data": "macro/liquidity_service", "build_dashboard_response": "macro/liquidity_service", "build_layer_detail_response": "macro/liquidity_service", "build_overlay_response": "macro/liquidity_service", "build_transmission_response": "macro/liquidity_service", "macro_page": "macro/routes", "section_page": "macro/routes", "api_liquidity": "macro/routes", "api_layer": "macro/routes", "api_overlay": "macro/routes", "api_transmission": "macro/routes", "api_rrg": "macro/routes", "api_rrg_drill": "macro/routes", "_fetch_etf": "macro/rrg_service", "_fetch_futures": "macro/rrg_service", "get_etf_prices": "macro/rrg_service", "get_futures_prices": "macro/rrg_service", "get_etf_name_color_map": "macro/rrg_service", "get_futures_group_name_color_map": "macro/rrg_service", "get_intra_group_name_color_map": "macro/rrg_service", "build_rrg_traces": "macro/rrg_service", "build_positions_table": "macro/rrg_service", "_serialize_full_data": "macro/rrg_service", "build_rrg_response": "macro/rrg_service", "_build_futures_group_response": "macro/rrg_service", "build_rrg_drill_response": "macro/rrg_service", "_safe": "options_service", "_get_cached": "stage_classifier", "_set_cached": "stage_classifier", "get_expirations": "options_service", "get_chain": "options_service", "get_all_chains": "options_service", "bs_d1": "options_service", "bs_gamma": "options_service", "bs_delta_call": "options_service", "bs_delta_put": "options_service", "bs_theta_call": "options_service", "bs_vega": "options_service", "process_chain": "options_service", "compute_iv_surface": "options_service", "compute_summary": "options_service", "compute_gex": "options_service", "_cache_path": "screener", "_load_cache": "screener", "_save_cache": "screener", "fetch_exchange_quotes": "screener", "screen_stocks": "screener", "get_available_sectors": "screener", "compute_all_derived_vectorized": "stage_classifier", "classify_all_stages": "stage_classifier", "build_results": "stage_classifier", "run_stage_from_local_db": "stage_classifier", "clear_cache": "stage_classifier", "run_stage_classification": "stage_classifier", "get_stage_distribution": "stage_classifier"};
 var CALLERS = {"_safe_num": [{"func": "load_refinitiv_snapshot", "module": "app"}], "_safe_val": [{"func": "load_refinitiv_snapshot", "module": "app"}], "build_sector_map": [{"func": "screener_page", "module": "app"}], "get_stage_distribution": [{"func": "screener_page", "module": "app"}], "load_classification_lookups": [{"func": "screener_page", "module": "app"}, {"func": "_sector_map_impl", "module": "app"}], "load_prices": [{"func": "screener_page", "module": "app"}, {"func": "_watchlist_api_impl", "module": "app"}, {"func": "_sector_map_impl", "module": "app"}, {"func": "chart_page", "module": "app"}, {"func": "_chart_api_impl", "module": "app"}, {"func": "update_prices", "module": "data_manager"}, {"func": "refresh_universe", "module": "data_manager"}, {"func": "run_stage_from_local_db", "module": "stage_classifier"}], "load_refinitiv_snapshot": [{"func": "screener_page", "module": "app"}, {"func": "_watchlist_api_impl", "module": "app"}, {"func": "_sector_map_impl", "module": "app"}], "load_sector_map": [{"func": "screener_page", "module": "app"}], "load_universe": [{"func": "screener_page", "module": "app"}, {"func": "_watchlist_api_impl", "module": "app"}, {"func": "_sector_map_impl", "module": "app"}, {"func": "run_stage_from_local_db", "module": "stage_classifier"}], "run_stage_from_local_db": [{"func": "screener_page", "module": "app"}, {"func": "run_stage_classification", "module": "stage_classifier"}], "_rolling_12m_impl": [{"func": "rolling_12m_api", "module": "app"}], "_sales_ttm_forward_impl": [{"func": "sales_ttm_forward_api", "module": "app"}], "get_expirations": [{"func": "options_expirations_api", "module": "app"}, {"func": "get_all_chains", "module": "options_service"}], "process_chain": [{"func": "options_chain_api", "module": "app"}], "compute_iv_surface": [{"func": "options_surface_api", "module": "app"}], "compute_summary": [{"func": "options_summary_api", "module": "app"}], "compute_gex": [{"func": "options_gex_api", "module": "app"}], "_watchlist_api_impl": [{"func": "watchlist_api", "module": "app"}], "_sector_map_impl": [{"func": "sector_map_api", "module": "app"}], "_chart_api_impl": [{"func": "chart_api", "module": "app"}], "full_report": [{"func": "freshness_api", "module": "app"}], "_fundamentals_impl": [{"func": "fundamentals_api", "module": "app"}], "_eps_ttm_forward_impl": [{"func": "eps_ttm_forward_api", "module": "app"}], "_revisions_impl": [{"func": "revisions_api", "module": "app"}], "_safe": [{"func": "_revisions_impl", "module": "app"}, {"func": "process_chain", "module": "options_service"}, {"func": "compute_iv_surface", "module": "options_service"}, {"func": "compute_summary", "module": "options_service"}, {"func": "compute_gex", "module": "options_service"}], "_jsonable": [{"func": "_jsonable", "module": "data_freshness"}, {"func": "full_report", "module": "data_freshness"}], "check_classifications": [{"func": "full_report", "module": "data_freshness"}], "check_prices": [{"func": "full_report", "module": "data_freshness"}], "check_refinitiv": [{"func": "full_report", "module": "data_freshness"}], "check_universe": [{"func": "full_report", "module": "data_freshness"}], "_load_parquet_cached": [{"func": "load_sector_map", "module": "data_manager"}, {"func": "load_universe", "module": "data_manager"}, {"func": "load_prices", "module": "data_manager"}, {"func": "load_spy", "module": "data_manager"}], "fetch_liquid_universe": [{"func": "build_database", "module": "data_manager"}, {"func": "refresh_universe", "module": "data_manager"}], "fetch_prices_batch": [{"func": "build_database", "module": "data_manager"}, {"func": "refresh_universe", "module": "data_manager"}], "save_prices": [{"func": "build_database", "module": "data_manager"}], "save_spy": [{"func": "build_database", "module": "data_manager"}], "save_universe": [{"func": "build_database", "module": "data_manager"}, {"func": "refresh_universe", "module": "data_manager"}], "load_spy": [{"func": "update_prices", "module": "data_manager"}, {"func": "run_stage_from_local_db", "module": "stage_classifier"}], "update_prices": [{"func": "auto_update_if_stale", "module": "data_manager"}], "ttl_cache": [{"func": "get_raw_data", "module": "macro/liquidity_service"}, {"func": "get_dashboard_data", "module": "macro/liquidity_service"}, {"func": "build_overlay_response", "module": "macro/liquidity_service"}, {"func": "build_transmission_response", "module": "macro/liquidity_service"}, {"func": "get_etf_prices", "module": "macro/rrg_service"}, {"func": "get_futures_prices", "module": "macro/rrg_service"}], "get_raw_data": [{"func": "get_dashboard_data", "module": "macro/liquidity_service"}, {"func": "build_layer_detail_response", "module": "macro/liquidity_service"}, {"func": "build_overlay_response", "module": "macro/liquidity_service"}, {"func": "build_transmission_response", "module": "macro/liquidity_service"}], "get_dashboard_data": [{"func": "build_dashboard_response", "module": "macro/liquidity_service"}], "section_page": [{"func": "macro_page", "module": "macro/routes"}, {"func": "section_page", "module": "macro/routes"}], "build_dashboard_response": [{"func": "api_liquidity", "module": "macro/routes"}], "build_layer_detail_response": [{"func": "api_layer", "module": "macro/routes"}], "build_overlay_response": [{"func": "api_overlay", "module": "macro/routes"}], "build_transmission_response": [{"func": "api_transmission", "module": "macro/routes"}], "build_rrg_response": [{"func": "api_rrg", "module": "macro/routes"}], "build_rrg_drill_response": [{"func": "api_rrg_drill", "module": "macro/routes"}], "_fetch_etf": [{"func": "get_etf_prices", "module": "macro/rrg_service"}], "_fetch_futures": [{"func": "get_futures_prices", "module": "macro/rrg_service"}], "_build_futures_group_response": [{"func": "build_rrg_response", "module": "macro/rrg_service"}], "_serialize_full_data": [{"func": "build_rrg_response", "module": "macro/rrg_service"}, {"func": "_build_futures_group_response", "module": "macro/rrg_service"}, {"func": "build_rrg_drill_response", "module": "macro/rrg_service"}], "build_positions_table": [{"func": "build_rrg_response", "module": "macro/rrg_service"}, {"func": "_build_futures_group_response", "module": "macro/rrg_service"}, {"func": "build_rrg_drill_response", "module": "macro/rrg_service"}], "build_rrg_traces": [{"func": "build_rrg_response", "module": "macro/rrg_service"}, {"func": "_build_futures_group_response", "module": "macro/rrg_service"}, {"func": "build_rrg_drill_response", "module": "macro/rrg_service"}], "get_etf_name_color_map": [{"func": "build_rrg_response", "module": "macro/rrg_service"}], "get_etf_prices": [{"func": "build_rrg_response", "module": "macro/rrg_service"}], "get_futures_group_name_color_map": [{"func": "_build_futures_group_response", "module": "macro/rrg_service"}], "get_futures_prices": [{"func": "_build_futures_group_response", "module": "macro/rrg_service"}, {"func": "build_rrg_drill_response", "module": "macro/rrg_service"}], "get_intra_group_name_color_map": [{"func": "build_rrg_drill_response", "module": "macro/rrg_service"}], "_get_cached": [{"func": "get_expirations", "module": "options_service"}, {"func": "get_chain", "module": "options_service"}, {"func": "get_all_chains", "module": "options_service"}, {"func": "run_stage_from_local_db", "module": "stage_classifier"}], "_set_cached": [{"func": "get_expirations", "module": "options_service"}, {"func": "get_chain", "module": "options_service"}, {"func": "get_all_chains", "module": "options_service"}, {"func": "run_stage_from_local_db", "module": "stage_classifier"}], "get_chain": [{"func": "get_all_chains", "module": "options_service"}, {"func": "process_chain", "module": "options_service"}, {"func": "compute_gex", "module": "options_service"}], "bs_d1": [{"func": "bs_gamma", "module": "options_service"}, {"func": "bs_delta_call", "module": "options_service"}, {"func": "bs_delta_put", "module": "options_service"}, {"func": "bs_theta_call", "module": "options_service"}, {"func": "bs_vega", "module": "options_service"}], "bs_delta_call": [{"func": "process_chain", "module": "options_service"}], "bs_delta_put": [{"func": "process_chain", "module": "options_service"}], "bs_gamma": [{"func": "process_chain", "module": "options_service"}, {"func": "compute_gex", "module": "options_service"}], "bs_theta_call": [{"func": "process_chain", "module": "options_service"}], "bs_vega": [{"func": "process_chain", "module": "options_service"}], "get_all_chains": [{"func": "compute_iv_surface", "module": "options_service"}, {"func": "compute_summary", "module": "options_service"}, {"func": "compute_gex", "module": "options_service"}], "_cache_path": [{"func": "_load_cache", "module": "screener"}, {"func": "_save_cache", "module": "screener"}], "_load_cache": [{"func": "fetch_exchange_quotes", "module": "screener"}], "_save_cache": [{"func": "fetch_exchange_quotes", "module": "screener"}], "fetch_exchange_quotes": [{"func": "screen_stocks", "module": "screener"}, {"func": "get_available_sectors", "module": "screener"}], "build_results": [{"func": "run_stage_from_local_db", "module": "stage_classifier"}], "classify_all_stages": [{"func": "run_stage_from_local_db", "module": "stage_classifier"}], "compute_all_derived_vectorized": [{"func": "run_stage_from_local_db", "module": "stage_classifier"}]};
 var expanded = {};
+var showCalls = false;
+var zoom = 1;
+var panX = 0, panY = 0;
+var isDragging = false, dragStartX, dragStartY;
+
+// Zoom/Pan
+function applyTransform() {
+    var el = document.getElementById('diagram');
+    el.style.transform = 'scale('+zoom+') translate('+panX+'px,'+panY+'px)';
+    document.getElementById('zoom-level').textContent = Math.round(zoom*100)+'%';
+}
+function zoomIn() { zoom = Math.min(zoom * 1.25, 5); applyTransform(); }
+function zoomOut() { zoom = Math.max(zoom * 0.8, 0.2); applyTransform(); }
+function zoomReset() { zoom = 1; panX = 0; panY = 0; applyTransform(); }
+
+document.addEventListener('DOMContentLoaded', function() {
+    var wrap = document.getElementById('diagram-wrap');
+    wrap.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        if (e.deltaY < 0) zoom = Math.min(zoom * 1.1, 5);
+        else zoom = Math.max(zoom * 0.9, 0.2);
+        applyTransform();
+    }, {passive: false});
+    // Pan with mouse drag on background
+    wrap.addEventListener('mousedown', function(e) {
+        if (e.target.closest('.node,.close-mod,#panel,#zoom-controls')) return;
+        isDragging = true; dragStartX = e.clientX - panX * zoom; dragStartY = e.clientY - panY * zoom;
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        panX = (e.clientX - dragStartX) / zoom;
+        panY = (e.clientY - dragStartY) / zoom;
+        applyTransform();
+    });
+    document.addEventListener('mouseup', function() { isDragging = false; });
+});
+
+function toggleCalls() {
+    showCalls = !showCalls;
+    var btn = document.getElementById('callsBtn');
+    btn.style.background = showCalls ? '#a78bfa' : '#1a1a2a';
+    btn.style.color = showCalls ? 'white' : '#888';
+    btn.textContent = showCalls ? 'Hide Calls' : 'Show Calls';
+    rebuild();
+}
 
 mermaid.initialize({ startOnLoad:false, theme:'dark',
     themeVariables:{darkMode:true,background:'#0a0a0e',primaryColor:'#4f8cf7',
@@ -158,7 +219,7 @@ function rebuild(){
                 var fid=mid+'__'+f.name;
                 var flbl=f.name+'()';
                 if(f.route) flbl=f.route+'\\n'+f.name+'()';
-                else flbl+=' ('+f.lines+'L)';
+                // no line count in label — keep it clean
                 lines.push('    '+fid+'["'+esc(flbl)+'"]');
                 lines.push('    '+mid+' --> '+fid);
                 if(f.route) lines.push('    style '+fid+' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
@@ -201,23 +262,25 @@ function rebuild(){
         });
     });
 
-    // Cross-module function calls from expanded modules
-    mods.forEach(function(mod){
-        var mid=mod.replace(/\//g,'_');
-        if(!expanded[mid]) return;
-        MODULES[mod].functions.forEach(function(f){
-            f.calls.forEach(function(c){
-                var tm=FUNC_TO_MOD[c];
-                if(tm && tm!==mod){
-                    var tmid=tm.replace(/\//g,'_');
-                    if(expanded[tmid])
-                        lines.push('    '+mid+'__'+f.name+' --> '+tmid+'__'+c);
-                    else
-                        lines.push('    '+mid+'__'+f.name+' --> '+tmid);
-                }
+    // Cross-module function calls (only when Show Calls is active)
+    if(showCalls){
+        mods.forEach(function(mod){
+            var mid=mod.replace(/\//g,'_');
+            if(!expanded[mid]) return;
+            MODULES[mod].functions.forEach(function(f){
+                f.calls.forEach(function(c){
+                    var tm=FUNC_TO_MOD[c];
+                    if(tm && tm!==mod){
+                        var tmid=tm.replace(/\//g,'_');
+                        if(expanded[tmid])
+                            lines.push('    '+mid+'__'+f.name+' ==> '+tmid+'__'+c);
+                        else
+                            lines.push('    '+mid+'__'+f.name+' ==> '+tmid);
+                    }
+                });
             });
         });
-    });
+    }
 
     // Breadcrumb
     var exp=Object.keys(expanded).filter(function(k){return expanded[k];}).map(function(k){return k.replace(/_/g,'/');});
