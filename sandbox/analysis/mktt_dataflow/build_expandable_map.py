@@ -168,11 +168,51 @@ function esc(s) { return s.replace(/"/g, "'").replace(/</g, '&lt;').replace(/>/g
 function renderDiagram(mermaidCode) {
     var el = document.getElementById('diagram');
     el.innerHTML = '';
-    var pre = document.createElement('pre');
-    pre.className = 'mermaid';
-    pre.textContent = mermaidCode;
-    el.appendChild(pre);
-    mermaid.run({nodes: [pre]});
+    var id = 'mmd_' + Date.now();
+    mermaid.render(id, mermaidCode).then(function(result) {
+        el.innerHTML = result.svg;
+        // Attach click handlers to all nodes in the rendered SVG
+        el.querySelectorAll('.node').forEach(function(node) {
+            node.style.cursor = 'pointer';
+            node.addEventListener('click', function(e) {
+                // Extract node ID from the group's id attribute
+                var nodeId = node.id.split('-').slice(1).join('-');
+                // Clean up mermaid prefix
+                nodeId = nodeId.replace(/^flowchart-/, '').replace(/-\\d+$/, '');
+                if (nodeId) handleNodeClick(nodeId);
+            });
+        });
+    }).catch(function(err) {
+        el.innerHTML = '<span style="color:#f33;">Render error: ' + err + '</span>';
+    });
+}
+
+function handleNodeClick(nodeId) {
+    // Route to appropriate handler based on node ID pattern
+    if (nodeId.indexOf('__') > -1) {
+        // Function node: mod__funcName or mod__ext__funcName
+        var parts = nodeId.split('__');
+        if (parts.indexOf('ext') > -1) {
+            // External reference: mod__ext__funcName
+            var extIdx = parts.indexOf('ext');
+            var funcName = parts[extIdx + 1];
+            var targetMod = FUNC_TO_MOD[funcName];
+            if (targetMod) showFunction(targetMod, funcName);
+        } else {
+            var funcName = parts[parts.length - 1];
+            var modName = parts.slice(0, -1).join('/');
+            showFunction(modName, funcName);
+        }
+    } else if (nodeId.indexOf('caller_') === 0 || nodeId.indexOf('target_') === 0) {
+        // Caller/target nodes in function view — find from text
+        // These are handled by the info panel click links instead
+    } else if (nodeId.indexOf('_header') > -1) {
+        // Module header — already expanded, ignore
+    } else {
+        // Module node
+        var mod = nodeId.replace(/_/g, '/');
+        if (MODULES[mod]) expandModule(mod);
+    }
 }
 
 function goHome() {
@@ -194,7 +234,7 @@ function renderModules() {
         var label = mod + '\\n' + nf + ' funcs';
         if (routes) label += ' | ' + routes + ' routes';
         lines.push('    ' + id + '["' + esc(label) + '"]');
-        lines.push('    click ' + id + ' callMod');
+        // click handled via DOM
     });
 
     // Import edges
@@ -224,19 +264,7 @@ function renderModules() {
     renderDiagram(lines.join('\\n'));
 }
 
-// Called by Mermaid click handler
-window.callMod = function(nodeId) {
-    var mod = nodeId.replace(/_/g, '/');
-    // Check if it's a double-underscore (function node)
-    if (nodeId.indexOf('__') > -1) {
-        var parts = nodeId.split('__');
-        var funcName = parts[parts.length - 1];
-        var modName = parts.slice(0, -1).join('/');
-        showFunction(modName, funcName);
-    } else {
-        expandModule(mod);
-    }
-};
+// Click handling is done via DOM event delegation in renderDiagram()
 
 function expandModule(mod) {
     if (!MODULES[mod]) return;
@@ -262,7 +290,7 @@ function expandModule(mod) {
         else label += '\\n' + f.lines + ' lines';
         lines.push('    ' + fid + '["' + esc(label) + '"]');
         lines.push('    ' + mid + '_header --> ' + fid);
-        lines.push('    click ' + fid + ' callMod');
+        // click handled via DOM
 
         if (f.route) {
             lines.push('    style ' + fid + ' fill:#f59e0b22,stroke:#f59e0b,color:#f59e0b');
@@ -360,7 +388,7 @@ function showFunction(mod, funcName) {
         var cc = (MODULES[c.module] || {}).color || '#666';
         lines.push('    ' + cid + '["' + esc(c.module) + '\\n' + c.func + '()"]');
         lines.push('    ' + cid + ' --> ' + fid);
-        lines.push('    click ' + cid + ' callMod');
+        // click handled via DOM
         lines.push('    style ' + cid + ' fill:' + cc + '11,stroke:' + cc + ',color:' + cc);
     });
 
@@ -370,7 +398,7 @@ function showFunction(mod, funcName) {
     lines.push('    ' + fid + '["' + esc(label) + '"]');
     var mc = MODULES[mod].color;
     lines.push('    style ' + fid + ' fill:' + mc + '33,stroke:' + mc + ',color:white');
-    lines.push('    click ' + fid + ' callMod');
+    // click handled via DOM
 
     // Calls on the right
     func.calls.forEach(function(call, i) {
@@ -380,7 +408,7 @@ function showFunction(mod, funcName) {
             var tc = (MODULES[targetMod] || {}).color || '#666';
             lines.push('    ' + tid + '["' + esc(targetMod) + '\\n' + call + '()"]');
             lines.push('    ' + fid + ' --> ' + tid);
-            lines.push('    click ' + tid + ' callMod');
+            // click handled via DOM
             lines.push('    style ' + tid + ' fill:' + tc + '11,stroke:' + tc + ',color:' + tc);
         }
     });
