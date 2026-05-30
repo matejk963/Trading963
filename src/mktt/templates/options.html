@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title_suffix %}// Options{% endblock %}
+{% block title_suffix %}// GEX{% endblock %}
 
 {% block head %}
 <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
@@ -7,380 +7,284 @@
 
 {% block content %}
 <style>
-.opt-tabs { display:flex; gap:0; margin-bottom:10px; }
-.opt-tab { padding:6px 16px; font-size:12px; cursor:pointer; color:var(--text-dim); border-bottom:2px solid transparent; }
-.opt-tab.active { color:white; border-bottom-color:var(--primary); }
-.opt-controls { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
-.opt-controls label { font-size:12px; color:var(--text-dim); }
-.opt-controls select, .opt-controls input { font-size:12px; padding:3px 8px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; }
-.chain-table { width:100%; border-collapse:collapse; font-size:11px; }
-.chain-table th { padding:3px 6px; text-align:center; color:var(--text-faint); border-bottom:1px solid var(--border); font-weight:400; }
-.chain-table td { padding:2px 6px; text-align:center; }
-.chain-table .itm { background:rgba(79,140,247,0.08); }
-.chain-table .strike-col { font-weight:700; background:var(--bg-card); border-left:1px solid var(--border); border-right:1px solid var(--border); }
-.chain-table .atm { background:rgba(245,158,11,0.2) !important; }
+.gex-controls { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+.gex-controls label { font-size:12px; color:var(--text-dim); }
+.gex-controls select, .gex-controls input { font-size:12px; padding:3px 8px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; }
+.gex-btn { font-size:11px; padding:4px 12px; background:var(--bg-card); border:1px solid var(--border); color:var(--text-dim); border-radius:4px; cursor:pointer; }
+.gex-btn:hover { color:var(--text); }
+#gex-exp-picker { margin-bottom:10px; display:flex; flex-wrap:wrap; align-items:center; gap:0; max-height:90px; overflow-y:auto; }
+.exp-chip { display:inline-block; font-size:11px; padding:3px 8px; margin:2px; border:1px solid var(--border); border-radius:4px; color:var(--text-dim); cursor:pointer; background:var(--bg-card); }
+.exp-chip.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+.exp-chip:hover { color:var(--text); }
+.exp-reset { font-size:11px; color:var(--text-faint); cursor:pointer; margin-left:8px; }
+.exp-reset:hover { color:var(--text); }
+.gex-cards { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.gex-card { background:var(--bg-card); border:1px solid var(--border); border-radius:6px; padding:8px 14px; min-width:120px; }
+.gex-card .lbl { font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.5px; }
+.gex-card .val { font-size:16px; font-weight:700; margin-top:2px; }
+.regime-pos { color:#10b981; }
+.regime-neg { color:#ef4444; }
+.gex-table { width:100%; border-collapse:collapse; font-size:11px; }
+.gex-table th { padding:4px 6px; text-align:right; color:var(--text-faint); border-bottom:1px solid var(--border); font-weight:400; cursor:pointer; user-select:none; }
+.gex-table th:first-child { text-align:left; }
+.gex-table td { padding:2px 6px; text-align:right; }
+.gex-table tr { cursor:pointer; }
+.gex-table tr:hover { background:rgba(255,255,255,0.04); }
+.pos { color:#10b981; }
+.neg { color:#ef4444; }
+.badge-stale { background:rgba(245,158,11,0.2); color:#f59e0b; padding:2px 8px; border-radius:4px; font-size:11px; }
+.disclosure { font-size:10px; color:var(--text-faint); margin-top:10px; line-height:1.5; border-top:1px solid var(--border); padding-top:8px; }
+#gex-drill { margin-top:10px; }
 </style>
 
-<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-    <h2 class="page-title" style="margin:0;">Options</h2>
-    <div class="opt-controls">
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+    <h2 class="page-title" style="margin:0;">Options · GEX</h2>
+    <div class="gex-controls">
         <span style="display:flex;gap:0;">
-            <button onclick="selectSym('^SPX')" id="btn-spx" style="font-size:11px;padding:4px 12px;background:var(--primary);border:1px solid var(--border);color:white;border-radius:4px 0 0 4px;cursor:pointer;">SPX</button>
-            <button onclick="selectSym('SPY')" id="btn-spy" style="font-size:11px;padding:4px 12px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer;">SPY</button>
+            <button class="gex-btn" onclick="selectSym('SPY')" style="border-radius:4px 0 0 4px;">SPY</button>
+            <button class="gex-btn" onclick="selectSym('QQQ')" style="border-radius:0;">QQQ</button>
+            <button class="gex-btn" onclick="selectSym('IWM')" style="border-radius:0;">IWM</button>
+            <button class="gex-btn" onclick="selectSym('^NDX')" style="border-radius:0 4px 4px 0;">NDX</button>
         </span>
-        <input type="text" id="opt-sym" value="{{ default_sym }}" style="width:70px;text-transform:uppercase;margin-left:8px;" onkeydown="if(event.key==='Enter')loadOptions()">
-        <button onclick="loadOptions()" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer;">Go</button>
-        <span id="opt-spot" style="font-size:13px;font-weight:600;color:var(--text);margin-left:8px;"></span>
-    </div>
-</div>
-
-<div class="opt-tabs">
-    <span class="opt-tab active" onclick="switchOptTab('chain')">Chain</span>
-    <span class="opt-tab" onclick="switchOptTab('surface')">IV Surface</span>
-    <span class="opt-tab" onclick="switchOptTab('oi')">P/C & OI</span>
-    <span class="opt-tab" onclick="switchOptTab('gex')">GEX</span>
-</div>
-
-<div id="opt-chain" style="display:block;">
-    <div class="opt-controls">
-        <label>Expiration:</label>
-        <select id="opt-exp" onchange="loadChain()"></select>
-        <span id="opt-dte" style="font-size:11px;color:var(--text-faint);"></span>
-    </div>
-    <div id="chain-wrap" style="overflow-x:auto;max-height:70vh;overflow-y:auto;"></div>
-</div>
-
-<div id="opt-surface" style="display:none;">
-    <div id="surface-chart" style="height:500px;"></div>
-</div>
-
-<div id="opt-oi" style="display:none;">
-    <div class="opt-controls">
-        <label>Expiration:</label>
-        <select id="oi-exp" onchange="loadOI()"></select>
-    </div>
-    <div style="display:flex;gap:8px;">
-        <div id="oi-chart" style="flex:2;height:450px;"></div>
-        <div id="oi-summary" style="flex:1;font-size:12px;"></div>
-    </div>
-</div>
-
-<div id="opt-gex" style="display:none;">
-    <div class="opt-controls">
-        <label>Scope:</label>
-        <select id="gex-scope" onchange="loadGEX()">
-            <option value="all">Near-term</option>
+        <input type="text" id="gex-sym" value="{{ default_sym }}" style="width:80px;text-transform:uppercase;" onkeydown="if(event.key==='Enter')loadSymbol()">
+        <button class="gex-btn" onclick="loadSymbol()">Go</button>
+        <label>Band:</label>
+        <select id="gex-band" onchange="loadGEX()">
+            <option value="5">±5%</option>
+            <option value="10">±10%</option>
+            <option value="15" selected>±15%</option>
+            <option value="25">±25%</option>
+            <option value="all">All</option>
         </select>
-        <label>Max DTE:</label>
-        <select id="gex-dte" onchange="loadGEX()">
-            <option value="7">7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-            <option value="45" selected>45 days</option>
-            <option value="90">90 days</option>
-            <option value="365">All</option>
-        </select>
+        <button class="gex-btn" onclick="loadGEX(true)" title="Force refetch">&#8635; Refresh</button>
+        <span id="gex-spot" style="font-size:13px;font-weight:600;color:var(--text);"></span>
+        <span id="gex-stale"></span>
     </div>
-    <div style="display:flex;gap:8px;">
-        <div id="gex-chart" style="flex:2;height:500px;"></div>
-        <div id="gex-table" style="flex:1;max-height:500px;overflow-y:auto;"></div>
-    </div>
-    <div id="gex-info" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
 </div>
+
+<div id="gex-exp-picker"></div>
+
+<div class="gex-cards" id="gex-cards"></div>
+
+<div style="display:flex;gap:10px;align-items:flex-start;">
+    <div id="gex-chart" style="flex:2;height:600px;min-width:0;"></div>
+    <div id="gex-table-wrap" style="flex:1;max-height:600px;overflow-y:auto;"></div>
+</div>
+
+<div id="gex-drill"></div>
+
+<div class="disclosure" id="gex-disclosure"></div>
 
 <script>
-var _optSym = '{{ default_sym }}';
-var _optExps = [];
-var _optChainCache = {};
+var _sym = '{{ default_sym }}';
+var _profile = null;
+var _selectedExps = null;   // null = let backend pick the first 4 (default)
+var _sortKey = 'strike', _sortDir = 1;
 var DARK = {paper_bgcolor:'#0a0a0e',plot_bgcolor:'#0a0a0e',font:{color:'#888',family:'JetBrains Mono,monospace',size:11},
-    xaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a'},yaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a'},margin:{l:50,r:20,t:35,b:35}};
+    xaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a',zerolinecolor:'#333'},
+    yaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a'},margin:{l:55,r:20,t:40,b:40}};
+
+function fmtGex(v) {
+    var a = Math.abs(v), s = v < 0 ? '-' : '';
+    if (a >= 1e9) return s + '$' + (a/1e9).toFixed(2) + 'Bn';
+    if (a >= 1e6) return s + '$' + (a/1e6).toFixed(1) + 'M';
+    if (a >= 1e3) return s + '$' + (a/1e3).toFixed(0) + 'K';
+    return s + '$' + a.toFixed(0);
+}
 
 function selectSym(sym) {
-    document.getElementById('opt-sym').value = sym;
-    document.getElementById('btn-spx').style.background = sym === '^SPX' ? 'var(--primary)' : 'var(--bg-card)';
-    document.getElementById('btn-spx').style.color = sym === '^SPX' ? 'white' : 'var(--text-dim)';
-    document.getElementById('btn-spy').style.background = sym === 'SPY' ? 'var(--primary)' : 'var(--bg-card)';
-    document.getElementById('btn-spy').style.color = sym === 'SPY' ? 'white' : 'var(--text-dim)';
-    loadOptions();
+    document.getElementById('gex-sym').value = sym;
+    loadSymbol();
 }
 
-function switchOptTab(tab) {
-    ['chain','surface','oi','gex'].forEach(function(t) {
-        document.getElementById('opt-'+t).style.display = t === tab ? 'block' : 'none';
+// Symbol change -> drop the expiration selection so the new symbol defaults to first 4.
+function loadSymbol() {
+    _selectedExps = null;
+    loadGEX();
+}
+
+function expsParam() {
+    return (_selectedExps && _selectedExps.length)
+        ? '&exps=' + encodeURIComponent(_selectedExps.join(',')) : '';
+}
+
+function loadGEX(refresh) {
+    _sym = document.getElementById('gex-sym').value.toUpperCase().trim();
+    var band = document.getElementById('gex-band').value;
+    var url = '/api/options/gex/' + encodeURIComponent(_sym) + '?band=' + band
+              + expsParam() + (refresh ? '&refresh=1' : '');
+    document.getElementById('gex-spot').textContent = 'Loading…';
+    document.getElementById('gex-chart').innerHTML = '<span style="color:#666;padding:20px;">Computing GEX…</span>';
+    document.getElementById('gex-drill').innerHTML = '';
+    fetch(url).then(function(r){return r.json();}).then(function(d) {
+        if (d.error) {
+            document.getElementById('gex-spot').textContent = '';
+            document.getElementById('gex-chart').innerHTML = '<span style="color:#f33;padding:20px;">' + d.error + '</span>';
+            document.getElementById('gex-cards').innerHTML = '';
+            document.getElementById('gex-table-wrap').innerHTML = '';
+            return;
+        }
+        _profile = d;
+        if (!_selectedExps) _selectedExps = (d.expirations || []).slice();
+        document.getElementById('gex-spot').textContent = _sym + ' $' + d.spot;
+        var stale = document.getElementById('gex-stale');
+        stale.innerHTML = d.meta && d.meta.stale ? '<span class="badge-stale">STALE · ' + (d.meta.warning||'') + '</span>' : '';
+        renderExpPicker(d);
+        renderCards(d);
+        renderChart(d);
+        renderTable(d);
+        renderDisclosure(d);
+    }).catch(function(e) {
+        document.getElementById('gex-chart').innerHTML = '<span style="color:#f33;padding:20px;">' + e.message + '</span>';
     });
-    document.querySelectorAll('.opt-tab').forEach(function(el,i) {
-        var tabs = ['chain','surface','oi','gex'];
-        el.classList.toggle('active', tabs[i] === tab);
+}
+
+function renderExpPicker(d) {
+    var avail = d.available_expirations || [];
+    var sel = _selectedExps || [];
+    var today = new Date();
+    var h = '<span style="font-size:11px;color:var(--text-faint);margin-right:6px;">Expirations ('+sel.length+'):</span>';
+    avail.forEach(function(e) {
+        var on = sel.indexOf(e) >= 0;
+        var dte = Math.max(0, Math.round((new Date(e + 'T00:00:00') - today) / 86400000));
+        h += '<span class="exp-chip' + (on ? ' on' : '') + '" onclick="toggleExp(\'' + e + '\')">'
+             + e.slice(5) + ' <span style="opacity:.6;">' + dte + 'd</span></span>';
     });
-    if (tab === 'surface') loadSurface();
-    if (tab === 'oi') loadOISummary();
-    if (tab === 'gex') loadGEX();
+    h += '<span class="exp-reset" onclick="resetExps()">↺ first 4</span>';
+    document.getElementById('gex-exp-picker').innerHTML = h;
 }
 
-function loadOptions() {
-    _optSym = document.getElementById('opt-sym').value.toUpperCase().trim();
-    document.getElementById('opt-spot').textContent = 'Loading...';
-    fetch('/api/options/expirations/' + encodeURIComponent(_optSym))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { alert(d.error); return; }
-            _optExps = d.expirations;
-            // Populate expiration dropdowns
-            ['opt-exp','oi-exp'].forEach(function(id) {
-                var sel = document.getElementById(id);
-                sel.innerHTML = '';
-                _optExps.forEach(function(e) {
-                    var o = document.createElement('option');
-                    o.value = e; o.textContent = e;
-                    sel.appendChild(o);
-                });
-            });
-            // GEX scope
-            var gexSel = document.getElementById('gex-scope');
-            gexSel.innerHTML = '<option value="all">All Expirations</option>';
-            _optExps.forEach(function(e) {
-                var o = document.createElement('option');
-                o.value = e; o.textContent = e;
-                gexSel.appendChild(o);
-            });
-            loadChain();
-        })
-        .catch(function(e) { document.getElementById('opt-spot').textContent = 'Error: ' + e.message; });
+function toggleExp(e) {
+    if (!_selectedExps) _selectedExps = _profile ? (_profile.expirations || []).slice() : [];
+    var i = _selectedExps.indexOf(e);
+    if (i >= 0) {
+        if (_selectedExps.length <= 1) return;   // keep at least one expiration
+        _selectedExps.splice(i, 1);
+    } else {
+        _selectedExps.push(e);
+    }
+    // keep chronological order using the available-expirations ordering
+    var av = (_profile && _profile.available_expirations) || [];
+    _selectedExps.sort(function(a, b) { return av.indexOf(a) - av.indexOf(b); });
+    loadGEX();
 }
 
-function loadChain() {
-    var exp = document.getElementById('opt-exp').value;
-    if (!exp) return;
-    document.getElementById('chain-wrap').innerHTML = '<span style="color:#666;padding:10px;">Loading...</span>';
-    fetch('/api/options/chain/' + encodeURIComponent(_optSym) + '?exp=' + exp)
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { document.getElementById('chain-wrap').innerHTML = '<span style="color:#f33;">'+d.error+'</span>'; return; }
-            document.getElementById('opt-spot').textContent = _optSym + ' $' + d.spot;
-            document.getElementById('opt-dte').textContent = d.dte + ' DTE';
-            renderChain(d);
-        })
-        .catch(function(e) { document.getElementById('chain-wrap').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
+function resetExps() {
+    _selectedExps = (_profile && _profile.default_expirations)
+        ? _profile.default_expirations.slice() : null;
+    loadGEX();
 }
 
-function renderChain(d) {
-    var spot = d.spot;
-    // Merge calls and puts by strike
-    var strikeMap = {};
-    d.calls.forEach(function(c) { strikeMap[c.strike] = strikeMap[c.strike] || {}; strikeMap[c.strike].call = c; });
-    d.puts.forEach(function(p) { strikeMap[p.strike] = strikeMap[p.strike] || {}; strikeMap[p.strike].put = p; });
-    var strikes = Object.keys(strikeMap).map(Number).sort(function(a,b){return a-b;});
+function renderCards(d) {
+    var regimeCls = d.regime === 'positive' ? 'regime-pos' : 'regime-neg';
+    var regimeTxt = d.regime === 'positive' ? 'POSITIVE · stabilizing' : 'NEGATIVE · trending';
+    var h = '';
+    h += '<div class="gex-card"><div class="lbl">Total GEX</div><div class="val ' + regimeCls + '">' + fmtGex(d.total_gex) + '</div></div>';
+    h += '<div class="gex-card"><div class="lbl">Regime</div><div class="val ' + regimeCls + '" style="font-size:13px;">' + regimeTxt + '</div></div>';
+    h += '<div class="gex-card"><div class="lbl">Gamma Flip</div><div class="val" style="color:#a78bfa;">' + (d.flip != null ? '$' + d.flip : '—') + '</div></div>';
+    h += '<div class="gex-card"><div class="lbl">Call Wall</div><div class="val pos">' + (d.call_wall != null ? '$' + d.call_wall : '—') + '</div></div>';
+    h += '<div class="gex-card"><div class="lbl">Put Wall</div><div class="val neg">' + (d.put_wall != null ? '$' + d.put_wall : '—') + '</div></div>';
+    document.getElementById('gex-cards').innerHTML = h;
+}
 
-    // Find ATM
-    var atmStrike = strikes.reduce(function(prev,curr) { return Math.abs(curr-spot) < Math.abs(prev-spot) ? curr : prev; });
+function renderChart(d) {
+    document.getElementById('gex-chart').innerHTML = '';  // clear loading placeholder
+    var strikes = d.strikes.map(function(s){return s.strike;});
+    var net = d.strikes.map(function(s){return s.net_gex;});
+    var colors = net.map(function(g){return g >= 0 ? '#10b981' : '#ef4444';});
 
-    var h = '<table class="chain-table"><thead><tr>';
-    h += '<th colspan="7" style="color:var(--accent);border-bottom:2px solid var(--accent);">CALLS</th>';
-    h += '<th class="strike-col">Strike</th>';
-    h += '<th colspan="7" style="color:var(--red);border-bottom:2px solid var(--red);">PUTS</th>';
-    h += '</tr><tr>';
-    ['IV','Delta','Vol','OI','Ask','Bid','Last'].forEach(function(c) { h += '<th>'+c+'</th>'; });
-    h += '<th class="strike-col"></th>';
-    ['Last','Bid','Ask','OI','Vol','Delta','IV'].forEach(function(c) { h += '<th>'+c+'</th>'; });
+    var shapes = [
+        {type:'line', xref:'paper', x0:0, x1:1, y0:d.spot, y1:d.spot, line:{color:'#f59e0b',dash:'dot',width:1.5}},
+    ];
+    var annos = [
+        {xref:'paper', x:1, y:d.spot, text:'Spot $'+d.spot, showarrow:false, font:{color:'#f59e0b',size:10}, xanchor:'right', yanchor:'bottom'},
+    ];
+    if (d.flip != null) {
+        shapes.push({type:'line', xref:'paper', x0:0, x1:1, y0:d.flip, y1:d.flip, line:{color:'#a78bfa',dash:'dash',width:1.5}});
+        annos.push({xref:'paper', x:0, y:d.flip, text:'Flip $'+d.flip, showarrow:false, font:{color:'#a78bfa',size:10}, xanchor:'left', yanchor:'bottom'});
+    }
+
+    Plotly.newPlot('gex-chart', [{
+        type:'bar', orientation:'h', x:net, y:strikes, marker:{color:colors},
+        customdata: d.strikes.map(function(s){return [s.call_gex, s.put_gex, s.oi];}),
+        hovertemplate:'Strike %{y}<br>Net GEX: %{x:$,.0f}<br>Call: %{customdata[0]:$,.0f} · Put: %{customdata[1]:$,.0f}<br>OI: %{customdata[2]:,}<extra></extra>',
+    }], Object.assign({}, DARK, {
+        title:{text:'Gamma Exposure — ' + _sym + '  (' + (d.expirations||[]).join(', ') + ')', font:{size:13,color:'#aaa'}},
+        xaxis:Object.assign({}, DARK.xaxis, {title:'Net GEX ($ / 1% move)'}),
+        yaxis:Object.assign({}, DARK.yaxis, {title:'Strike', autorange:true}),
+        shapes:shapes, annotations:annos, showlegend:false, bargap:0.15,
+    }), {displayModeBar:false, responsive:true});
+
+    document.getElementById('gex-chart').on('plotly_click', function(ev) {
+        if (ev.points && ev.points.length) loadDrill(ev.points[0].y);
+    });
+}
+
+function renderTable(d) {
+    var rows = d.strikes.slice().sort(function(a,b){
+        var av=a[_sortKey], bv=b[_sortKey];
+        return (av<bv?-1:av>bv?1:0) * _sortDir;
+    });
+    var cols = [['strike','Strike'],['call_gex','Call'],['put_gex','Put'],['net_gex','Net'],['oi','OI']];
+    var h = '<table class="gex-table"><thead><tr>';
+    cols.forEach(function(c){ h += '<th onclick="sortTable(\''+c[0]+'\')">'+c[1]+(_sortKey===c[0]?(_sortDir>0?' ▲':' ▼'):'')+'</th>'; });
     h += '</tr></thead><tbody>';
-
-    strikes.forEach(function(strike) {
-        var s = strikeMap[strike];
-        var c = s.call || {};
-        var p = s.put || {};
-        var isAtm = strike === atmStrike;
-        var cItm = c.itm ? ' itm' : '';
-        var pItm = p.itm ? ' itm' : '';
-        var atmCls = isAtm ? ' atm' : '';
-
-        h += '<tr>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.iv||'—')+'</td>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.delta||'—')+'</td>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.volume||'—')+'</td>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.oi||'—')+'</td>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.ask?c.ask.toFixed(2):'—')+'</td>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.bid?c.bid.toFixed(2):'—')+'</td>';
-        h += '<td class="'+cItm+atmCls+'">'+(c.last?c.last.toFixed(2):'—')+'</td>';
-        h += '<td class="strike-col'+atmCls+'">'+strike+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.last?p.last.toFixed(2):'—')+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.bid?p.bid.toFixed(2):'—')+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.ask?p.ask.toFixed(2):'—')+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.oi||'—')+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.volume||'—')+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.delta||'—')+'</td>';
-        h += '<td class="'+pItm+atmCls+'">'+(p.iv||'—')+'</td>';
+    rows.forEach(function(s){
+        var isSpot = Math.abs(s.strike - d.spot) < d.spot*0.005;
+        var bg = isSpot ? 'background:rgba(245,158,11,0.12);' : '';
+        h += '<tr style="'+bg+'" onclick="loadDrill('+s.strike+')">';
+        h += '<td style="text-align:left;font-weight:600;">'+s.strike+'</td>';
+        h += '<td class="pos">'+fmtGex(s.call_gex)+'</td>';
+        h += '<td class="neg">'+fmtGex(s.put_gex)+'</td>';
+        h += '<td class="'+(s.net_gex>=0?'pos':'neg')+'">'+fmtGex(s.net_gex)+'</td>';
+        h += '<td>'+s.oi.toLocaleString()+'</td>';
         h += '</tr>';
     });
     h += '</tbody></table>';
-    document.getElementById('chain-wrap').innerHTML = h;
+    document.getElementById('gex-table-wrap').innerHTML = h;
 }
 
-function loadSurface() {
-    document.getElementById('surface-chart').innerHTML = '<span style="color:#666;padding:20px;">Loading IV surface...</span>';
-    fetch('/api/options/surface/' + encodeURIComponent(_optSym))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { document.getElementById('surface-chart').innerHTML = '<span style="color:#f33;">'+d.error+'</span>'; return; }
-            // Build heatmap: X=moneyness, Y=DTE, Z=IV (calls only)
-            var calls = d.surface.filter(function(s) { return s.type === 'call'; });
-            var dtes = [...new Set(calls.map(function(s){return s.dte;}))].sort(function(a,b){return a-b;});
-            var moneys = [...new Set(calls.map(function(s){return s.moneyness;}))].sort(function(a,b){return a-b;});
-            // Filter to reasonable range
-            moneys = moneys.filter(function(m) { return m >= -30 && m <= 30; });
-
-            var z = [];
-            dtes.forEach(function(dte) {
-                var row = [];
-                moneys.forEach(function(m) {
-                    var pt = calls.find(function(s) { return s.dte === dte && s.moneyness === m; });
-                    row.push(pt ? pt.iv : null);
-                });
-                z.push(row);
-            });
-
-            Plotly.newPlot('surface-chart', [{
-                type: 'heatmap', z: z, x: moneys, y: dtes.map(String),
-                colorscale: 'Viridis', colorbar: {title: 'IV %'},
-                hovertemplate: 'Moneyness: %{x}%<br>DTE: %{y}<br>IV: %{z}%<extra></extra>',
-            }], Object.assign({}, DARK, {
-                height: 480, title: {text: 'Implied Volatility Surface (Calls) — ' + _optSym, font:{size:13,color:'#aaa'}},
-                xaxis: Object.assign({}, DARK.xaxis, {title: 'Moneyness (%)'}),
-                yaxis: Object.assign({}, DARK.yaxis, {title: 'Days to Expiration', type: 'category'}),
-            }), {displayModeBar: false, responsive: true});
-        })
-        .catch(function(e) { document.getElementById('surface-chart').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
+function sortTable(key) {
+    if (_sortKey === key) _sortDir = -_sortDir; else { _sortKey = key; _sortDir = 1; }
+    if (_profile) renderTable(_profile);
 }
 
-function loadOISummary() {
-    document.getElementById('oi-summary').innerHTML = '<span style="color:#666;">Loading...</span>';
-    fetch('/api/options/summary/' + encodeURIComponent(_optSym))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { document.getElementById('oi-summary').innerHTML = '<span style="color:#f33;">'+d.error+'</span>'; return; }
-            // Summary panel
-            var h = '<div style="padding:8px;">';
-            h += '<div style="font-size:14px;font-weight:700;margin-bottom:8px;">'+_optSym+' $'+d.spot+'</div>';
-            h += '<div>Total Call OI: <strong>'+d.total_call_oi.toLocaleString()+'</strong></div>';
-            h += '<div>Total Put OI: <strong>'+d.total_put_oi.toLocaleString()+'</strong></div>';
-            h += '<div>P/C Ratio: <strong style="color:'+(d.total_pc_oi>1?'var(--red)':'var(--accent)')+'">'+d.total_pc_oi+'</strong></div>';
-            h += '<hr style="border-color:#222;margin:8px 0;">';
-            h += '<table style="width:100%;font-size:11px;border-collapse:collapse;">';
-            h += '<tr><th style="text-align:left;padding:2px 4px;">Exp</th><th>DTE</th><th>P/C</th><th>MaxPain</th></tr>';
-            d.per_expiration.forEach(function(e) {
-                h += '<tr style="border-bottom:1px solid #1a1a2a;">';
-                h += '<td style="padding:2px 4px;">'+e.expiration+'</td>';
-                h += '<td style="text-align:center;">'+e.dte+'</td>';
-                h += '<td style="text-align:center;color:'+(e.pc_oi>1?'var(--red)':'var(--accent)')+'">'+e.pc_oi+'</td>';
-                h += '<td style="text-align:center;">$'+e.max_pain+'</td>';
+function loadDrill(strike) {
+    var wrap = document.getElementById('gex-drill');
+    wrap.innerHTML = '<span style="color:#666;font-size:12px;">Loading contracts at '+strike+'…</span>';
+    fetch('/api/options/drilldown/' + encodeURIComponent(_sym) + '?strike=' + strike + expsParam())
+        .then(function(r){return r.json();}).then(function(d){
+            if (d.error) { wrap.innerHTML = '<span style="color:#f33;">'+d.error+'</span>'; return; }
+            var h = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">Contracts behind strike $'+d.strike+'</div>';
+            h += '<table class="gex-table" style="max-width:680px;"><thead><tr>';
+            ['Expiration','Side','OI','IV','Gamma','GEX'].forEach(function(c,i){ h += '<th style="text-align:'+(i<2?'left':'right')+';">'+c+'</th>'; });
+            h += '</tr></thead><tbody>';
+            d.contracts.forEach(function(c){
+                h += '<tr>';
+                h += '<td style="text-align:left;">'+c.expiration+'</td>';
+                h += '<td style="text-align:left;" class="'+(c.side==='call'?'pos':'neg')+'">'+c.side.toUpperCase()+'</td>';
+                h += '<td>'+c.oi.toLocaleString()+'</td>';
+                h += '<td>'+(c.iv!=null?(c.iv*100).toFixed(1)+'%':'—')+'</td>';
+                h += '<td>'+c.gamma.toFixed(4)+'</td>';
+                h += '<td class="'+(c.gex>=0?'pos':'neg')+'">'+fmtGex(c.gex)+'</td>';
                 h += '</tr>';
             });
-            h += '</table></div>';
-            document.getElementById('oi-summary').innerHTML = h;
-            loadOI();
-        })
-        .catch(function(e) { document.getElementById('oi-summary').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
+            h += '</tbody></table>';
+            wrap.innerHTML = h;
+        }).catch(function(e){ wrap.innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
 }
 
-function loadOI() {
-    var exp = document.getElementById('oi-exp').value;
-    if (!exp) return;
-    fetch('/api/options/chain/' + encodeURIComponent(_optSym) + '?exp=' + exp)
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) return;
-            var strikes = [], callOI = [], putOI = [];
-            var strikeMap = {};
-            d.calls.forEach(function(c) { strikeMap[c.strike] = strikeMap[c.strike]||{}; strikeMap[c.strike].callOI = c.oi; });
-            d.puts.forEach(function(p) { strikeMap[p.strike] = strikeMap[p.strike]||{}; strikeMap[p.strike].putOI = p.oi; });
-            Object.keys(strikeMap).map(Number).sort(function(a,b){return a-b;}).forEach(function(s) {
-                strikes.push(s);
-                callOI.push(strikeMap[s].callOI || 0);
-                putOI.push(-(strikeMap[s].putOI || 0));
-            });
-
-            Plotly.newPlot('oi-chart', [
-                {x: strikes, y: callOI, type: 'bar', name: 'Call OI', marker: {color: '#10b981'}},
-                {x: strikes, y: putOI, type: 'bar', name: 'Put OI', marker: {color: '#ef4444'}},
-            ], Object.assign({}, DARK, {
-                height: 430, barmode: 'relative',
-                title: {text: 'Open Interest by Strike — ' + exp, font:{size:13,color:'#aaa'}},
-                xaxis: Object.assign({}, DARK.xaxis, {title: 'Strike'}),
-                yaxis: Object.assign({}, DARK.yaxis, {title: 'Open Interest'}),
-                shapes: [{type:'line',x0:d.spot,x1:d.spot,y0:0,y1:1,yref:'paper',line:{color:'#f59e0b',dash:'dot',width:2}}],
-            }), {displayModeBar: false, responsive: true});
-        });
+function renderDisclosure(d) {
+    var a = d.assumptions || {};
+    var m = d.meta || {};
+    var h = '';
+    h += 'Fetched ' + (m.fetched_at||'?') + ' · OI as of ' + (m.oi_as_of||'?') + '. ';
+    h += 'GEX = Γ × OI × 100 × S² × 0.01 × (calls +1 / puts −1), summed over the next ' + ((d.expirations||[]).length) + ' expirations; units: ' + (a.units||'') + '. ';
+    h += 'Assumptions (estimates, not exact facts): risk-free ' + (a.risk_free) + ', dividend yield ' + (a.dividend_yield) + ', dealer positioning ' + (a.dealer_positioning) + '. ';
+    h += 'Gamma is Black-Scholes from yfinance implied volatility; open interest is ' + (a.oi_basis||'prior-session EOD') + ' and lags intraday.';
+    document.getElementById('gex-disclosure').textContent = h;
 }
 
-function loadGEX() {
-    var scope = document.getElementById('gex-scope').value;
-    var maxDte = document.getElementById('gex-dte').value;
-    var url = '/api/options/gex/' + encodeURIComponent(_optSym) + '?max_dte=' + maxDte;
-    if (scope !== 'all') url += '&exp=' + scope;
-    document.getElementById('gex-chart').innerHTML = '<span style="color:#666;padding:20px;">Computing GEX...</span>';
-    fetch(url)
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { document.getElementById('gex-chart').innerHTML = '<span style="color:#f33;">'+d.error+'</span>'; return; }
-            var strikes = d.strikes.map(function(s){return s.strike;});
-            var netGex = d.strikes.map(function(s){return s.net_gex;});
-            var colors = netGex.map(function(g){return g >= 0 ? '#10b981' : '#ef4444';});
-
-            var shapes = [{type:'line',x0:d.spot,x1:d.spot,y0:0,y1:1,yref:'paper',line:{color:'#f59e0b',dash:'dot',width:2}}];
-            if (d.flip_strike) {
-                shapes.push({type:'line',x0:d.flip_strike,x1:d.flip_strike,y0:0,y1:1,yref:'paper',line:{color:'#a78bfa',dash:'dash',width:2}});
-            }
-
-            Plotly.newPlot('gex-chart', [{
-                x: strikes, y: netGex, type: 'bar', marker: {color: colors},
-                hovertemplate: 'Strike: %{x}<br>Net GEX: %{y:,.0f}<extra></extra>',
-            }], Object.assign({}, DARK, {
-                height: 480, showlegend: false,
-                title: {text: 'Gamma Exposure (GEX) — ' + _optSym, font:{size:13,color:'#aaa'}},
-                xaxis: Object.assign({}, DARK.xaxis, {title: 'Strike'}),
-                yaxis: Object.assign({}, DARK.yaxis, {title: 'Net GEX ($)'}),
-                shapes: shapes,
-                annotations: [
-                    {x: d.spot, y: 1, yref:'paper', text:'Spot $'+d.spot, showarrow:false, font:{color:'#f59e0b',size:10}, yanchor:'bottom'},
-                    d.flip_strike ? {x:d.flip_strike,y:1,yref:'paper',text:'GEX Flip $'+d.flip_strike,showarrow:false,font:{color:'#a78bfa',size:10},yanchor:'bottom'} : {},
-                ].filter(function(a){return a.x;}),
-            }), {displayModeBar: false, responsive: true});
-
-            // Info
-            var info = 'Spot: $'+d.spot;
-            if (d.flip_strike) info += ' | GEX Flip: $'+d.flip_strike;
-            if (d.max_positive_strike) info += ' | Max +GEX: $'+d.max_positive_strike;
-            if (d.max_negative_strike) info += ' | Max -GEX: $'+d.max_negative_strike;
-            info += ' | Total GEX: '+(d.total_gex>0?'+':'')+d.total_gex.toLocaleString();
-            document.getElementById('gex-info').textContent = info;
-
-            // GEX table — sorted by absolute net GEX descending
-            var sorted = d.strikes.slice().sort(function(a,b) { return a.strike - b.strike; });
-            var th = '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-            th += '<thead><tr style="border-bottom:2px solid #333;">';
-            th += '<th style="padding:3px 6px;text-align:right;">Strike</th>';
-            th += '<th style="padding:3px 6px;text-align:right;">Call GEX</th>';
-            th += '<th style="padding:3px 6px;text-align:right;">Put GEX</th>';
-            th += '<th style="padding:3px 6px;text-align:right;">Net GEX</th>';
-            th += '</tr></thead><tbody>';
-            sorted.forEach(function(s) {
-                if (s.net_gex === 0) return;
-                var cls = s.net_gex > 0 ? 'positive' : 'negative';
-                var isSpot = Math.abs(s.strike - d.spot) < (d.spot * 0.005);
-                var bg = isSpot ? 'background:rgba(245,158,11,0.15);' : '';
-                th += '<tr style="border-bottom:1px solid #1a1a2a;'+bg+'">';
-                th += '<td style="padding:2px 6px;text-align:right;font-weight:600;">'+s.strike+'</td>';
-                th += '<td style="padding:2px 6px;text-align:right;color:var(--accent);">'+s.call_gex.toLocaleString()+'</td>';
-                th += '<td style="padding:2px 6px;text-align:right;color:var(--red);">'+s.put_gex.toLocaleString()+'</td>';
-                th += '<td style="padding:2px 6px;text-align:right;" class="'+cls+'">'+(s.net_gex>0?'+':'')+s.net_gex.toLocaleString()+'</td>';
-                th += '</tr>';
-            });
-            th += '</tbody></table>';
-            document.getElementById('gex-table').innerHTML = th;
-        })
-        .catch(function(e) { document.getElementById('gex-chart').innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
-}
-
-// Auto-load on page ready
-document.addEventListener('DOMContentLoaded', function() { loadOptions(); });
+document.addEventListener('DOMContentLoaded', function(){ loadGEX(); });
 </script>
 {% endblock %}

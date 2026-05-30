@@ -1406,70 +1406,54 @@ def _sales_ttm_forward_impl(symbol):
 
 @app.route('/options')
 def options_page():
-    sym = request.args.get('sym', '^SPX')
+    sym = request.args.get('sym', 'SPY')
     return render_template('options.html', active_section='options', default_sym=sym)
 
 
-@app.route('/api/options/expirations/<symbol>')
-def options_expirations_api(symbol):
-    try:
-        from options_service import get_expirations
-        exps = get_expirations(symbol)
-        if isinstance(exps, dict) and 'error' in exps:
-            return jsonify(exps), 500
-        return jsonify({'expirations': exps})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# Strike-band selector value -> fraction of spot (None = no filter / "all")
+_GEX_BANDS = {'5': 0.05, '10': 0.10, '15': 0.15, '25': 0.25, 'all': None}
 
 
-@app.route('/api/options/chain/<symbol>')
-def options_chain_api(symbol):
-    try:
-        from options_service import process_chain
-        exp = request.args.get('exp', '')
-        if not exp:
-            return jsonify({'error': 'exp parameter required'}), 400
-        result = process_chain(symbol, exp)
-        if 'error' in result:
-            return jsonify(result), 500
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/options/surface/<symbol>')
-def options_surface_api(symbol):
-    try:
-        from options_service import compute_iv_surface
-        result = compute_iv_surface(symbol)
-        if 'error' in result:
-            return jsonify(result), 500
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/options/summary/<symbol>')
-def options_summary_api(symbol):
-    try:
-        from options_service import compute_summary
-        result = compute_summary(symbol)
-        if 'error' in result:
-            return jsonify(result), 500
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+def _parse_exps(raw):
+    """Comma-separated expirations -> list (or None for default first-N)."""
+    if not raw:
+        return None
+    exps = [e.strip() for e in raw.split(',') if e.strip()]
+    return exps or None
 
 
 @app.route('/api/options/gex/<symbol>')
 def options_gex_api(symbol):
+    """Aggregated net-GEX profile for selected expirations of a single symbol."""
     try:
-        from options_service import compute_gex
-        exp = request.args.get('exp', None)
-        max_dte = int(request.args.get('max_dte', 45))
-        result = compute_gex(symbol, expiration=exp, max_dte=max_dte)
+        from options_service import gex_profile, DEFAULT_N_EXP
+        band_key = request.args.get('band', '15')
+        band_pct = _GEX_BANDS.get(band_key, 0.15)
+        n_exp = int(request.args.get('n_exp', DEFAULT_N_EXP))
+        exps = _parse_exps(request.args.get('exps', ''))
+        refresh = request.args.get('refresh', '0') in ('1', 'true', 'yes')
+        result = gex_profile(symbol, band_pct=band_pct, n_exp=n_exp,
+                             expirations=exps, force_refresh=refresh)
         if 'error' in result:
-            return jsonify(result), 500
+            return jsonify(result), 502
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/options/drilldown/<symbol>')
+def options_drilldown_api(symbol):
+    """Per-expiration / per-side contract breakdown behind a single strike."""
+    try:
+        from options_service import drilldown, DEFAULT_N_EXP
+        strike = request.args.get('strike', '')
+        if not strike:
+            return jsonify({'error': 'strike parameter required'}), 400
+        n_exp = int(request.args.get('n_exp', DEFAULT_N_EXP))
+        exps = _parse_exps(request.args.get('exps', ''))
+        result = drilldown(symbol, strike, n_exp=n_exp, expirations=exps)
+        if 'error' in result:
+            return jsonify(result), 502
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
