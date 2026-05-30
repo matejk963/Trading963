@@ -1414,17 +1414,26 @@ def options_page():
 _GEX_BANDS = {'5': 0.05, '10': 0.10, '15': 0.15, '25': 0.25, 'all': None}
 
 
+def _parse_exps(raw):
+    """Comma-separated expirations -> list (or None for default first-N)."""
+    if not raw:
+        return None
+    exps = [e.strip() for e in raw.split(',') if e.strip()]
+    return exps or None
+
+
 @app.route('/api/options/gex/<symbol>')
 def options_gex_api(symbol):
-    """Aggregated net-GEX profile for the next N expirations of a single symbol."""
+    """Aggregated net-GEX profile for selected expirations of a single symbol."""
     try:
         from options_service import gex_profile, DEFAULT_N_EXP
         band_key = request.args.get('band', '15')
         band_pct = _GEX_BANDS.get(band_key, 0.15)
         n_exp = int(request.args.get('n_exp', DEFAULT_N_EXP))
+        exps = _parse_exps(request.args.get('exps', ''))
         refresh = request.args.get('refresh', '0') in ('1', 'true', 'yes')
         result = gex_profile(symbol, band_pct=band_pct, n_exp=n_exp,
-                             force_refresh=refresh)
+                             expirations=exps, force_refresh=refresh)
         if 'error' in result:
             return jsonify(result), 502
         return jsonify(result)
@@ -1441,7 +1450,8 @@ def options_drilldown_api(symbol):
         if not strike:
             return jsonify({'error': 'strike parameter required'}), 400
         n_exp = int(request.args.get('n_exp', DEFAULT_N_EXP))
-        result = drilldown(symbol, strike, n_exp=n_exp)
+        exps = _parse_exps(request.args.get('exps', ''))
+        result = drilldown(symbol, strike, n_exp=n_exp, expirations=exps)
         if 'error' in result:
             return jsonify(result), 502
         return jsonify(result)

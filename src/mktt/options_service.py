@@ -114,84 +114,148 @@ def _oi_as_of():
     return prev.strftime("%Y-%m-%d") + " close"
 
 
-def get_next_chains(symbol, n_exp=DEFAULT_N_EXP, force_refresh=False):
+def get_expirations(symbol, force_refresh=False):
+    """All available expiration dates for symbol (cached)."""
+    symbol = symbol.upper().strip()
+    key = (symbol, "__exps__")
+    if not force_refresh and _fresh(key):
+        return _cache[key]
+    t = yf.Ticker(symbol)
+    exps = _fetch_with_backoff(lambda: list(t.options), f"options({symbol})")
+    if not exps:
+        raise ValueError(f"No option expirations available for {symbol}")
+    _set_cache(key, exps)
+    return exps
+
+
+def _get_spot(symbol, t=None, force_refresh=False):
+    key = (symbol, "__spot__")
+    if not force_refresh and _fresh(key):
+        return _cache[key]
+    spot = _resolve_spot(t or yf.Ticker(symbol))
+    if spot <= 0:
+        raise ValueError(f"Could not resolve spot price for {symbol}")
+    _set_cache(key, spot)
+    return spot
+
+
+def _get_one_chain(symbol, expiration, t=None, force_refresh=False):
+    """Normalized single-expiration chain (cached per expiration)."""
+    key = (symbol, expiration)
+    if not force_refresh and _fresh(key):
+        return _cache[key]
+    t = t or yf.Ticker(symbol)
+    chain = _fetch_with_backoff(
+        lambda: t.option_chain(expiration), f"chain({symbol},{expiration})")
+    dte = max((pd.Timestamp(expiration) - pd.Timestamp.now()).days, 1)
+    payload = {
+        "expiration": expiration,
+        "dte": dte,
+        "calls": _normalize_side(chain.calls),
+        "puts": _normalize_side(chain.puts),
+    }
+    _set_cache(key, payload)
+    return payload
+
+
+def _resolve_selection(available, expirations, n_exp):
+    """Pick which expirations to use: explicit (valid subset) else first n_exp."""
+    if expirations:
+        selected = [e for e in expirations if e in available]
+        if selected:
+            return selected
+    return available[:n_exp]
+
+
+def get_next_chains(symbol, n_exp=DEFAULT_N_EXP, expirations=None, force_refresh=False):
     """
-    Fetch + normalize the next n_exp expirations for symbol.
+    Fetch + normalize the selected expirations for symbol.
+
+    `expirations` (optional list) overrides the default "first n_exp"; invalid
+    entries are dropped and an empty result falls back to the first n_exp.
+    Chains are cached per expiration, so adding one expiry never refetches the
+    others.
 
     Returns:
         {
-          "symbol": str, "spot": float,
-          "chains": [{expiration, dte, calls:[...], puts:[...]}, ...],
-          "expirations": [str, ...],
-          "meta": {"fetched_at": iso, "oi_as_of": str, "stale": bool, "warning": str|None},
+          "symbol", "spot",
+          "chains": [{expiration, dte, calls, puts}, ...],
+          "expirations": [str, ...],            # what was actually used
+          "available_expirations": [str, ...],  # full list for the picker
+          "default_expirations": [str, ...],    # the first n_exp
+          "meta": {"fetched_at", "oi_as_of", "stale", "warning"},
         }
-    On rate-limit with a prior cache entry, returns that entry marked stale.
+    On fetch failure, assembles a stale payload from per-expiration cache if able.
     """
     symbol = symbol.upper().strip()
-    key = (symbol, n_exp)
-    if not force_refresh and _fresh(key):
-        logger.debug("cache hit %s", key)
-        return _cache[key]
-
     try:
+        available = get_expirations(symbol, force_refresh=force_refresh)
+        selected = _resolve_selection(available, expirations, n_exp)
         t = yf.Ticker(symbol)
-        exps = _fetch_with_backoff(lambda: list(t.options), f"options({symbol})")
-        if not exps:
-            raise ValueError(f"No option expirations available for {symbol}")
-        chosen = exps[:n_exp]
-        spot = _resolve_spot(t)
-        if spot <= 0:
-            raise ValueError(f"Could not resolve spot price for {symbol}")
-
-        now = pd.Timestamp.now()
-        chains = []
-        for exp in chosen:
-            chain = _fetch_with_backoff(
-                lambda e=exp: t.option_chain(e), f"chain({symbol},{exp})")
-            dte = max((pd.Timestamp(exp) - now).days, 1)
-            chains.append({
-                "expiration": exp,
-                "dte": dte,
-                "calls": _normalize_side(chain.calls),
-                "puts": _normalize_side(chain.puts),
-            })
-
+        spot = _get_spot(symbol, t, force_refresh=force_refresh)
+        chains = [_get_one_chain(symbol, e, t, force_refresh=force_refresh)
+                  for e in selected]
         payload = {
             "symbol": symbol,
             "spot": spot,
             "chains": chains,
-            "expirations": chosen,
+            "expirations": selected,
+            "available_expirations": available,
+            "default_expirations": available[:n_exp],
             "meta": {
-                "fetched_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "fetched_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "oi_as_of": _oi_as_of(),
                 "stale": False,
                 "warning": None,
             },
         }
-        _set_cache(key, payload)
-        logger.debug("fetched %s: spot=%.2f, %d expirations", symbol, spot, len(chains))
+        logger.debug("assembled %s: spot=%.2f, %d/%d expirations",
+                     symbol, spot, len(chains), len(available))
         return payload
 
-    except Exception as e:  # noqa: BLE001
-        # Fall back to last cached value if we have one
-        if key in _cache:
-            stale = dict(_cache[key])
-            meta = dict(stale["meta"])
-            meta["stale"] = True
-            meta["warning"] = f"Live fetch failed ({e}); showing last cached data."
-            stale["meta"] = meta
+    except Exception as e:  # noqa: BLE001 — provider boundary
+        stale = _assemble_from_cache(symbol, n_exp, expirations, e)
+        if stale is not None:
             logger.debug("serving stale cache for %s due to: %s", symbol, e)
             return stale
         logger.debug("no cache fallback for %s: %s", symbol, e)
         return {"error": str(e)}
 
 
+def _assemble_from_cache(symbol, n_exp, expirations, exc):
+    """Best-effort stale payload built from whatever per-key caches exist."""
+    av_key, sp_key = (symbol, "__exps__"), (symbol, "__spot__")
+    if av_key not in _cache or sp_key not in _cache:
+        return None
+    available = _cache[av_key]
+    selected = _resolve_selection(available, expirations, n_exp)
+    cached = [e for e in selected if (symbol, e) in _cache]
+    if not cached:
+        return None
+    return {
+        "symbol": symbol,
+        "spot": _cache[sp_key],
+        "chains": [_cache[(symbol, e)] for e in cached],
+        "expirations": cached,
+        "available_expirations": available,
+        "default_expirations": available[:n_exp],
+        "meta": {
+            "fetched_at": "(cached)",
+            "oi_as_of": _oi_as_of(),
+            "stale": True,
+            "warning": f"Live fetch failed ({exc}); showing last cached data.",
+        },
+    }
+
+
 # --------------------------------------------------------------------------- #
 # High-level: provider + engine
 # --------------------------------------------------------------------------- #
-def gex_profile(symbol, band_pct=0.15, n_exp=DEFAULT_N_EXP, force_refresh=False):
+def gex_profile(symbol, band_pct=0.15, n_exp=DEFAULT_N_EXP, expirations=None,
+                force_refresh=False):
     """Fetch chains and compute the full GEX profile. Returns engine output + meta."""
-    data = get_next_chains(symbol, n_exp=n_exp, force_refresh=force_refresh)
+    data = get_next_chains(symbol, n_exp=n_exp, expirations=expirations,
+                           force_refresh=force_refresh)
     if "error" in data:
         return data
     try:
@@ -201,13 +265,15 @@ def gex_profile(symbol, band_pct=0.15, n_exp=DEFAULT_N_EXP, force_refresh=False)
         return {"error": str(e)}
     profile["symbol"] = data["symbol"]
     profile["expirations"] = data["expirations"]
+    profile["available_expirations"] = data.get("available_expirations", [])
+    profile["default_expirations"] = data.get("default_expirations", [])
     profile["meta"] = data["meta"]
     return profile
 
 
-def drilldown(symbol, strike, n_exp=DEFAULT_N_EXP):
+def drilldown(symbol, strike, n_exp=DEFAULT_N_EXP, expirations=None):
     """Per-expiration / per-side contract breakdown behind a single strike."""
-    data = get_next_chains(symbol, n_exp=n_exp)
+    data = get_next_chains(symbol, n_exp=n_exp, expirations=expirations)
     if "error" in data:
         return data
     rows = gex_engine.strike_breakdown(data["chains"], data["spot"], float(strike))
@@ -216,5 +282,6 @@ def drilldown(symbol, strike, n_exp=DEFAULT_N_EXP):
         "strike": float(strike),
         "spot": data["spot"],
         "contracts": rows,
+        "expirations": data["expirations"],
         "meta": data["meta"],
     }

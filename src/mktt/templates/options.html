@@ -12,6 +12,12 @@
 .gex-controls select, .gex-controls input { font-size:12px; padding:3px 8px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; }
 .gex-btn { font-size:11px; padding:4px 12px; background:var(--bg-card); border:1px solid var(--border); color:var(--text-dim); border-radius:4px; cursor:pointer; }
 .gex-btn:hover { color:var(--text); }
+#gex-exp-picker { margin-bottom:10px; display:flex; flex-wrap:wrap; align-items:center; gap:0; max-height:90px; overflow-y:auto; }
+.exp-chip { display:inline-block; font-size:11px; padding:3px 8px; margin:2px; border:1px solid var(--border); border-radius:4px; color:var(--text-dim); cursor:pointer; background:var(--bg-card); }
+.exp-chip.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+.exp-chip:hover { color:var(--text); }
+.exp-reset { font-size:11px; color:var(--text-faint); cursor:pointer; margin-left:8px; }
+.exp-reset:hover { color:var(--text); }
 .gex-cards { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
 .gex-card { background:var(--bg-card); border:1px solid var(--border); border-radius:6px; padding:8px 14px; min-width:120px; }
 .gex-card .lbl { font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.5px; }
@@ -40,8 +46,8 @@
             <button class="gex-btn" onclick="selectSym('IWM')" style="border-radius:0;">IWM</button>
             <button class="gex-btn" onclick="selectSym('^NDX')" style="border-radius:0 4px 4px 0;">NDX</button>
         </span>
-        <input type="text" id="gex-sym" value="{{ default_sym }}" style="width:80px;text-transform:uppercase;" onkeydown="if(event.key==='Enter')loadGEX()">
-        <button class="gex-btn" onclick="loadGEX()">Go</button>
+        <input type="text" id="gex-sym" value="{{ default_sym }}" style="width:80px;text-transform:uppercase;" onkeydown="if(event.key==='Enter')loadSymbol()">
+        <button class="gex-btn" onclick="loadSymbol()">Go</button>
         <label>Band:</label>
         <select id="gex-band" onchange="loadGEX()">
             <option value="5">±5%</option>
@@ -55,6 +61,8 @@
         <span id="gex-stale"></span>
     </div>
 </div>
+
+<div id="gex-exp-picker"></div>
 
 <div class="gex-cards" id="gex-cards"></div>
 
@@ -70,6 +78,7 @@
 <script>
 var _sym = '{{ default_sym }}';
 var _profile = null;
+var _selectedExps = null;   // null = let backend pick the first 4 (default)
 var _sortKey = 'strike', _sortDir = 1;
 var DARK = {paper_bgcolor:'#0a0a0e',plot_bgcolor:'#0a0a0e',font:{color:'#888',family:'JetBrains Mono,monospace',size:11},
     xaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a',zerolinecolor:'#333'},
@@ -85,13 +94,25 @@ function fmtGex(v) {
 
 function selectSym(sym) {
     document.getElementById('gex-sym').value = sym;
+    loadSymbol();
+}
+
+// Symbol change -> drop the expiration selection so the new symbol defaults to first 4.
+function loadSymbol() {
+    _selectedExps = null;
     loadGEX();
+}
+
+function expsParam() {
+    return (_selectedExps && _selectedExps.length)
+        ? '&exps=' + encodeURIComponent(_selectedExps.join(',')) : '';
 }
 
 function loadGEX(refresh) {
     _sym = document.getElementById('gex-sym').value.toUpperCase().trim();
     var band = document.getElementById('gex-band').value;
-    var url = '/api/options/gex/' + encodeURIComponent(_sym) + '?band=' + band + (refresh ? '&refresh=1' : '');
+    var url = '/api/options/gex/' + encodeURIComponent(_sym) + '?band=' + band
+              + expsParam() + (refresh ? '&refresh=1' : '');
     document.getElementById('gex-spot').textContent = 'Loading…';
     document.getElementById('gex-chart').innerHTML = '<span style="color:#666;padding:20px;">Computing GEX…</span>';
     document.getElementById('gex-drill').innerHTML = '';
@@ -104,9 +125,11 @@ function loadGEX(refresh) {
             return;
         }
         _profile = d;
+        if (!_selectedExps) _selectedExps = (d.expirations || []).slice();
         document.getElementById('gex-spot').textContent = _sym + ' $' + d.spot;
         var stale = document.getElementById('gex-stale');
         stale.innerHTML = d.meta && d.meta.stale ? '<span class="badge-stale">STALE · ' + (d.meta.warning||'') + '</span>' : '';
+        renderExpPicker(d);
         renderCards(d);
         renderChart(d);
         renderTable(d);
@@ -114,6 +137,42 @@ function loadGEX(refresh) {
     }).catch(function(e) {
         document.getElementById('gex-chart').innerHTML = '<span style="color:#f33;padding:20px;">' + e.message + '</span>';
     });
+}
+
+function renderExpPicker(d) {
+    var avail = d.available_expirations || [];
+    var sel = _selectedExps || [];
+    var today = new Date();
+    var h = '<span style="font-size:11px;color:var(--text-faint);margin-right:6px;">Expirations ('+sel.length+'):</span>';
+    avail.forEach(function(e) {
+        var on = sel.indexOf(e) >= 0;
+        var dte = Math.max(0, Math.round((new Date(e + 'T00:00:00') - today) / 86400000));
+        h += '<span class="exp-chip' + (on ? ' on' : '') + '" onclick="toggleExp(\'' + e + '\')">'
+             + e.slice(5) + ' <span style="opacity:.6;">' + dte + 'd</span></span>';
+    });
+    h += '<span class="exp-reset" onclick="resetExps()">↺ first 4</span>';
+    document.getElementById('gex-exp-picker').innerHTML = h;
+}
+
+function toggleExp(e) {
+    if (!_selectedExps) _selectedExps = _profile ? (_profile.expirations || []).slice() : [];
+    var i = _selectedExps.indexOf(e);
+    if (i >= 0) {
+        if (_selectedExps.length <= 1) return;   // keep at least one expiration
+        _selectedExps.splice(i, 1);
+    } else {
+        _selectedExps.push(e);
+    }
+    // keep chronological order using the available-expirations ordering
+    var av = (_profile && _profile.available_expirations) || [];
+    _selectedExps.sort(function(a, b) { return av.indexOf(a) - av.indexOf(b); });
+    loadGEX();
+}
+
+function resetExps() {
+    _selectedExps = (_profile && _profile.default_expirations)
+        ? _profile.default_expirations.slice() : null;
+    loadGEX();
 }
 
 function renderCards(d) {
@@ -193,7 +252,7 @@ function sortTable(key) {
 function loadDrill(strike) {
     var wrap = document.getElementById('gex-drill');
     wrap.innerHTML = '<span style="color:#666;font-size:12px;">Loading contracts at '+strike+'…</span>';
-    fetch('/api/options/drilldown/' + encodeURIComponent(_sym) + '?strike=' + strike)
+    fetch('/api/options/drilldown/' + encodeURIComponent(_sym) + '?strike=' + strike + expsParam())
         .then(function(r){return r.json();}).then(function(d){
             if (d.error) { wrap.innerHTML = '<span style="color:#f33;">'+d.error+'</span>'; return; }
             var h = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">Contracts behind strike $'+d.strike+'</div>';
