@@ -5,6 +5,9 @@ data/
 *.xml
 *.log
 
+# MKTT runtime caches (regenerated from yfinance; ~94MB of pickles/quote dumps)
+src/mktt/cache/
+
 # Python
 __pycache__/
 *.py[cod]
