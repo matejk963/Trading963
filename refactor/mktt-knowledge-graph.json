@@ -1,0 +1,3671 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "MKTT",
+    "languages": [
+      "python",
+      "html"
+    ],
+    "frameworks": [
+      "Flask"
+    ],
+    "description": "Matej Krajcovic Trading Tool \u2014 Flask stock-market analysis web app: screener, Weinstein stage classifier, Options/GEX view, and a macro liquidity/RRG blueprint.",
+    "analyzedAt": "2026-06-08T14:18:06Z",
+    "gitCommitHash": "09eb96f794e2076cb3a7fb24f120a9622a419ecf"
+  },
+  "nodes": [
+    {
+      "id": "file:app.py",
+      "type": "file",
+      "name": "app.py",
+      "filePath": "app.py",
+      "summary": "Main Flask application entry point that constructs the app, registers the macro blueprint, and defines all top-level page routes and JSON API endpoints (screener, options/GEX, watchlist, charts, fundamentals, EPS/revisions). It wires the screener and stage-classifier engines into the HTTP layer and loads PCA/stage/Refinitiv classification lookups.",
+      "tags": [
+        "entry-point",
+        "api-handler",
+        "controller",
+        "flask",
+        "service",
+        "tested"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Each API route is split into a thin Flask handler plus a private _impl function holding the logic, easing testing and reuse."
+    },
+    {
+      "id": "function:app.py:load_classification_lookups",
+      "type": "function",
+      "name": "load_classification_lookups",
+      "filePath": "app.py",
+      "lineRange": [
+        30,
+        97
+      ],
+      "summary": "Loads and caches PCA classification, stage, EPS-accel, and MA-screen lookups from JSON files for use across screener rendering.",
+      "tags": [
+        "data-loading",
+        "cache",
+        "classification"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app.py:load_refinitiv_snapshot",
+      "type": "function",
+      "name": "load_refinitiv_snapshot",
+      "filePath": "app.py",
+      "lineRange": [
+        105,
+        168
+      ],
+      "summary": "Reads the cached Refinitiv pickle snapshot and flattens per-symbol fundamental rows (estimates, forward EPS/revenue) into a lookup dict for the screener.",
+      "tags": [
+        "data-loading",
+        "serialization",
+        "fundamentals"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app.py:screener_page",
+      "type": "function",
+      "name": "screener_page",
+      "filePath": "app.py",
+      "lineRange": [
+        216,
+        1133
+      ],
+      "summary": "Renders the main screener page: parses dozens of query-string filters, computes returns/RS ranks and moving averages from local price data, joins Refinitiv fundamentals and sector/industry maps, runs stage classification, and produces the sortable results table.",
+      "tags": [
+        "api-handler",
+        "screener",
+        "data-pipeline",
+        "page-route"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Very large handler combining filter parsing, pandas vectorized metric computation, and template rendering in one function."
+    },
+    {
+      "id": "function:app.py:_rolling_12m_impl",
+      "type": "function",
+      "name": "_rolling_12m_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1146,
+        1280
+      ],
+      "summary": "Computes rolling 12-month trailing fundamental series for a symbol used by the rolling_12m API endpoint.",
+      "tags": [
+        "api-handler",
+        "fundamentals",
+        "data-pipeline"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:app.py:_sales_ttm_forward_impl",
+      "type": "function",
+      "name": "_sales_ttm_forward_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1293,
+        1404
+      ],
+      "summary": "Builds the trailing and forward sales (TTM/NTM) time series for a symbol backing the sales_ttm_forward API.",
+      "tags": [
+        "api-handler",
+        "fundamentals",
+        "data-pipeline"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:app.py:options_gex_api",
+      "type": "function",
+      "name": "options_gex_api",
+      "filePath": "app.py",
+      "lineRange": [
+        1426,
+        1441
+      ],
+      "summary": "API endpoint returning the gamma-exposure (GEX) profile for a symbol across selected expirations by delegating to the options service.",
+      "tags": [
+        "api-handler",
+        "options",
+        "gex"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app.py:options_drilldown_api",
+      "type": "function",
+      "name": "options_drilldown_api",
+      "filePath": "app.py",
+      "lineRange": [
+        1445,
+        1459
+      ],
+      "summary": "API endpoint returning per-contract GEX drilldown for a given symbol and strike via the options service.",
+      "tags": [
+        "api-handler",
+        "options",
+        "gex"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:app.py:_watchlist_api_impl",
+      "type": "function",
+      "name": "_watchlist_api_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1478,
+        1559
+      ],
+      "summary": "Assembles the watchlist API payload, computing per-symbol metrics and fundamentals for the user's tracked tickers.",
+      "tags": [
+        "api-handler",
+        "watchlist",
+        "data-pipeline"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:app.py:_sector_map_impl",
+      "type": "function",
+      "name": "_sector_map_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1572,
+        1726
+      ],
+      "summary": "Builds the sector/industry treemap data structure aggregating universe membership and valuation metrics for the sector map view.",
+      "tags": [
+        "api-handler",
+        "sector-map",
+        "data-pipeline"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:app.py:chart_page",
+      "type": "function",
+      "name": "chart_page",
+      "filePath": "app.py",
+      "lineRange": [
+        1730,
+        1774
+      ],
+      "summary": "Renders the chart page for a single symbol, preparing price/series context for the template.",
+      "tags": [
+        "page-route",
+        "chart"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app.py:_chart_api_impl",
+      "type": "function",
+      "name": "_chart_api_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1795,
+        1827
+      ],
+      "summary": "Produces the OHLC/price series JSON for a symbol used by the chart API endpoint.",
+      "tags": [
+        "api-handler",
+        "chart",
+        "data-pipeline"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app.py:_fundamentals_impl",
+      "type": "function",
+      "name": "_fundamentals_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1840,
+        1881
+      ],
+      "summary": "Gathers per-symbol fundamental metrics from the Refinitiv snapshot for the fundamentals API endpoint.",
+      "tags": [
+        "api-handler",
+        "fundamentals"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:app.py:_eps_ttm_forward_impl",
+      "type": "function",
+      "name": "_eps_ttm_forward_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        1894,
+        2020
+      ],
+      "summary": "Builds trailing and forward EPS (TTM/NTM) time series for a symbol backing the eps_ttm_forward API.",
+      "tags": [
+        "api-handler",
+        "fundamentals",
+        "eps"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:app.py:_revisions_impl",
+      "type": "function",
+      "name": "_revisions_impl",
+      "filePath": "app.py",
+      "lineRange": [
+        2033,
+        2076
+      ],
+      "summary": "Computes estimate revisions history for a symbol used by the revisions API endpoint.",
+      "tags": [
+        "api-handler",
+        "fundamentals",
+        "revisions"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:macro/__init__.py",
+      "type": "file",
+      "name": "__init__.py",
+      "filePath": "macro/__init__.py",
+      "summary": "Macro package initializer that defines the macro Flask Blueprint (url_prefix /macro) for the liquidity dashboard and sector RRG, then imports its routes module to register endpoints.",
+      "tags": [
+        "entry-point",
+        "barrel",
+        "blueprint",
+        "flask"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:macro/routes.py",
+      "type": "file",
+      "name": "routes.py",
+      "filePath": "macro/routes.py",
+      "summary": "Defines the macro blueprint routes: the macro landing page, section sub-pages, and JSON APIs for liquidity, layer detail, overlay, transmission, and sector RRG (plus RRG drilldown). Handlers delegate to the liquidity and RRG services.",
+      "tags": [
+        "api-handler",
+        "controller",
+        "blueprint",
+        "flask"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:macro/routes.py:macro_page",
+      "type": "function",
+      "name": "macro_page",
+      "filePath": "macro/routes.py",
+      "lineRange": [
+        6,
+        10
+      ],
+      "summary": "Renders the macro section landing page (liquidity dashboard + RRG entry).",
+      "tags": [
+        "page-route",
+        "macro"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:macro/routes.py:section_page",
+      "type": "function",
+      "name": "section_page",
+      "filePath": "macro/routes.py",
+      "lineRange": [
+        11,
+        25
+      ],
+      "summary": "Renders a specific macro section sub-page selected by the section URL parameter.",
+      "tags": [
+        "page-route",
+        "macro"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:macro/routes.py:api_liquidity",
+      "type": "function",
+      "name": "api_liquidity",
+      "filePath": "macro/routes.py",
+      "lineRange": [
+        26,
+        34
+      ],
+      "summary": "API endpoint returning the global liquidity dashboard data by delegating to the liquidity service.",
+      "tags": [
+        "api-handler",
+        "liquidity",
+        "macro"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:macro/routes.py:api_layer",
+      "type": "function",
+      "name": "api_layer",
+      "filePath": "macro/routes.py",
+      "lineRange": [
+        35,
+        43
+      ],
+      "summary": "API endpoint returning detail for a single liquidity layer identified by layer_id.",
+      "tags": [
+        "api-handler",
+        "liquidity",
+        "macro"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:macro/routes.py:api_rrg",
+      "type": "function",
+      "name": "api_rrg",
+      "filePath": "macro/routes.py",
+      "lineRange": [
+        67,
+        79
+      ],
+      "summary": "API endpoint returning sector Relative Rotation Graph (RRG) traces and positions via the RRG service.",
+      "tags": [
+        "api-handler",
+        "rrg",
+        "macro"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:macro/routes.py:api_rrg_drill",
+      "type": "function",
+      "name": "api_rrg_drill",
+      "filePath": "macro/routes.py",
+      "lineRange": [
+        80,
+        90
+      ],
+      "summary": "API endpoint returning intra-group RRG drilldown data for a selected sector/group.",
+      "tags": [
+        "api-handler",
+        "rrg",
+        "macro"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:screener.py",
+      "type": "file",
+      "name": "screener.py",
+      "filePath": "screener.py",
+      "summary": "Screener engine that fetches exchange quotes from the Yahoo Finance screener API with on-disk caching, screens stocks across configured exchanges, and exposes the available-sectors helper consumed by the Flask screener route.",
+      "tags": [
+        "service",
+        "screener",
+        "data-pipeline",
+        "cache"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:screener.py:fetch_exchange_quotes",
+      "type": "function",
+      "name": "fetch_exchange_quotes",
+      "filePath": "screener.py",
+      "lineRange": [
+        60,
+        130
+      ],
+      "summary": "Fetches quote rows for a given exchange from the Yahoo Finance screener API, applying disk-cache reads/writes to limit network calls.",
+      "tags": [
+        "data-loading",
+        "screener",
+        "cache"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:screener.py:screen_stocks",
+      "type": "function",
+      "name": "screen_stocks",
+      "filePath": "screener.py",
+      "lineRange": [
+        131,
+        185
+      ],
+      "summary": "Screens stocks across the configured exchange universe, aggregating fetched quotes into a normalized result set for the screener page.",
+      "tags": [
+        "screener",
+        "data-pipeline",
+        "service"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:screener.py:get_available_sectors",
+      "type": "function",
+      "name": "get_available_sectors",
+      "filePath": "screener.py",
+      "lineRange": [
+        186,
+        202
+      ],
+      "summary": "Returns the list of sectors available in the screened universe for populating filter UI options.",
+      "tags": [
+        "screener",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:gex_engine.py",
+      "type": "file",
+      "name": "gex_engine.py",
+      "filePath": "gex_engine.py",
+      "summary": "Pure-math gamma exposure (GEX) engine: Black-Scholes gamma, per-contract GEX, strike aggregation, gamma-flip detection, call/put wall identification, and full profile/drilldown computation from option chains.",
+      "tags": [
+        "service",
+        "options",
+        "gamma-exposure",
+        "financial-math",
+        "utility",
+        "tested"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Stateless functional module with no external dependencies beyond math; all functions are dependency-free transforms over plain dicts, making them highly testable."
+    },
+    {
+      "id": "function:gex_engine.py:bs_gamma",
+      "type": "function",
+      "name": "bs_gamma",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        53,
+        65
+      ],
+      "summary": "Computes Black-Scholes option gamma for given spot, strike, time-to-expiry, rate, volatility, and dividend yield; returns zero for degenerate inputs.",
+      "tags": [
+        "financial-math",
+        "black-scholes",
+        "options"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:gex_engine.py:contract_gex",
+      "type": "function",
+      "name": "contract_gex",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        68,
+        71
+      ],
+      "summary": "Converts a single contract's gamma and open interest into signed dollar gamma exposure (positive for calls, negative for puts) using the S squared times 0.01 convention.",
+      "tags": [
+        "financial-math",
+        "gamma-exposure",
+        "options"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:gex_engine.py:aggregate_by_strike",
+      "type": "function",
+      "name": "aggregate_by_strike",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        82,
+        114
+      ],
+      "summary": "Aggregates option chains into per-strike net/call/put GEX totals, computing gamma per contract and skipping rows with invalid IV or zero open interest.",
+      "tags": [
+        "aggregation",
+        "gamma-exposure",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:gex_engine.py:filter_band",
+      "type": "function",
+      "name": "filter_band",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        117,
+        126
+      ],
+      "summary": "Restricts the sorted strike list to those within a percentage band around spot, or returns all strikes when no band is specified.",
+      "tags": [
+        "filtering",
+        "options",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:gex_engine.py:compute_flip",
+      "type": "function",
+      "name": "compute_flip",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        129,
+        154
+      ],
+      "summary": "Finds the gamma-flip strike by detecting sign changes in cumulative net GEX, linearly interpolating crossings and selecting the one nearest to spot.",
+      "tags": [
+        "gamma-exposure",
+        "interpolation",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:gex_engine.py:find_walls",
+      "type": "function",
+      "name": "find_walls",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        157,
+        165
+      ],
+      "summary": "Identifies the call wall and put wall strikes as the extremes of positive and negative net GEX across the strike list.",
+      "tags": [
+        "gamma-exposure",
+        "options",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:gex_engine.py:compute_profile",
+      "type": "function",
+      "name": "compute_profile",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        168,
+        226
+      ],
+      "summary": "Top-level GEX profile builder: aggregates chains by strike, applies band filter, computes flip, walls, total/regime, and assembles the rounded per-strike output contract.",
+      "tags": [
+        "gamma-exposure",
+        "orchestration",
+        "options"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:gex_engine.py:strike_breakdown",
+      "type": "function",
+      "name": "strike_breakdown",
+      "filePath": "gex_engine.py",
+      "lineRange": [
+        229,
+        261
+      ],
+      "summary": "Produces a per-contract drilldown for a single strike across all expirations, returning gamma, GEX, OI and side details for each matching contract.",
+      "tags": [
+        "gamma-exposure",
+        "drilldown",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:options_service.py",
+      "type": "file",
+      "name": "options_service.py",
+      "filePath": "options_service.py",
+      "summary": "Options-data orchestration layer: fetches option chains and spot via yfinance with caching and rate-limit backoff, normalizes chains, and delegates GEX profile/drilldown computation to gex_engine.",
+      "tags": [
+        "service",
+        "options",
+        "data-fetch",
+        "caching",
+        "orchestration",
+        "tested"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Module-level in-memory cache with TTL freshness checks plus exponential backoff on yfinance rate limits; graceful degradation by assembling results from cache on fetch failure."
+    },
+    {
+      "id": "function:options_service.py:_fetch_with_backoff",
+      "type": "function",
+      "name": "_fetch_with_backoff",
+      "filePath": "options_service.py",
+      "lineRange": [
+        52,
+        68
+      ],
+      "summary": "Retries a fetch callable with exponential backoff specifically on rate-limit errors, re-raising other exceptions immediately.",
+      "tags": [
+        "retry",
+        "rate-limit",
+        "data-fetch"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:options_service.py:_resolve_spot",
+      "type": "function",
+      "name": "_resolve_spot",
+      "filePath": "options_service.py",
+      "lineRange": [
+        74,
+        90
+      ],
+      "summary": "Resolves the current spot price for a yfinance ticker, preferring fast_info fields and falling back to recent price history.",
+      "tags": [
+        "data-fetch",
+        "options",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:options_service.py:_normalize_side",
+      "type": "function",
+      "name": "_normalize_side",
+      "filePath": "options_service.py",
+      "lineRange": [
+        93,
+        107
+      ],
+      "summary": "Normalizes a calls or puts DataFrame into a list of plain dicts with cleaned strike, open interest, and implied volatility values, dropping NaNs.",
+      "tags": [
+        "serialization",
+        "data-cleaning",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:options_service.py:get_expirations",
+      "type": "function",
+      "name": "get_expirations",
+      "filePath": "options_service.py",
+      "lineRange": [
+        117,
+        128
+      ],
+      "summary": "Returns the cached or freshly fetched list of available option expiration dates for a symbol, raising on empty results.",
+      "tags": [
+        "data-fetch",
+        "caching",
+        "options"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:options_service.py:_get_one_chain",
+      "type": "function",
+      "name": "_get_one_chain",
+      "filePath": "options_service.py",
+      "lineRange": [
+        142,
+        158
+      ],
+      "summary": "Fetches and caches a single expiration's option chain, normalizing both sides and attaching computed days-to-expiry.",
+      "tags": [
+        "data-fetch",
+        "caching",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:options_service.py:get_next_chains",
+      "type": "function",
+      "name": "get_next_chains",
+      "filePath": "options_service.py",
+      "lineRange": [
+        170,
+        222
+      ],
+      "summary": "Orchestrates selection and retrieval of the next N expiration chains plus spot, with cache assembly fallback on failure; the core data-gathering entry point for GEX.",
+      "tags": [
+        "orchestration",
+        "data-fetch",
+        "caching",
+        "options"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:options_service.py:_assemble_from_cache",
+      "type": "function",
+      "name": "_assemble_from_cache",
+      "filePath": "options_service.py",
+      "lineRange": [
+        225,
+        248
+      ],
+      "summary": "Fallback that reconstructs the chains/spot payload from previously cached data when a live fetch fails.",
+      "tags": [
+        "caching",
+        "fallback",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:options_service.py:gex_profile",
+      "type": "function",
+      "name": "gex_profile",
+      "filePath": "options_service.py",
+      "lineRange": [
+        254,
+        271
+      ],
+      "summary": "Public service entry point that gathers chains for a symbol and delegates to gex_engine.compute_profile, returning the full GEX profile payload.",
+      "tags": [
+        "service",
+        "gamma-exposure",
+        "api-handler",
+        "orchestration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:options_service.py:drilldown",
+      "type": "function",
+      "name": "drilldown",
+      "filePath": "options_service.py",
+      "lineRange": [
+        274,
+        287
+      ],
+      "summary": "Public service entry point that gathers chains and delegates to gex_engine.strike_breakdown for a single strike's per-contract drilldown.",
+      "tags": [
+        "service",
+        "drilldown",
+        "api-handler",
+        "orchestration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:tests/test_gex_api.py",
+      "type": "file",
+      "name": "test_gex_api.py",
+      "filePath": "tests/test_gex_api.py",
+      "summary": "Flask API integration tests for the GEX and drilldown endpoints, stubbing options_service.get_next_chains and asserting response contracts, expiration selection, band filtering, and error handling.",
+      "tags": [
+        "test",
+        "api-handler",
+        "integration-test",
+        "options"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/test_gex_engine.py",
+      "type": "file",
+      "name": "test_gex_engine.py",
+      "filePath": "tests/test_gex_engine.py",
+      "summary": "Unit tests for the pure gex_engine math: Black-Scholes gamma references, contract GEX sign/formula, strike aggregation, flip interpolation, walls, band filtering, and profile/drilldown reconciliation.",
+      "tags": [
+        "test",
+        "unit-test",
+        "gamma-exposure",
+        "financial-math"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:data_manager.py",
+      "type": "file",
+      "name": "data_manager.py",
+      "filePath": "data_manager.py",
+      "summary": "Core market-data layer that fetches the liquid equity universe and OHLCV prices from yfinance, persists them as parquet files, and provides cached loaders plus incremental update routines used across the MKTT app.",
+      "tags": [
+        "data-model",
+        "service",
+        "serialization",
+        "caching",
+        "data-pipeline"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Uses pandas multi-index column slicing from yfinance downloads and an in-process _mem_cache for parquet reads; persistence is parquet on disk rather than a database."
+    },
+    {
+      "id": "function:data_manager.py:fetch_liquid_universe",
+      "type": "function",
+      "name": "fetch_liquid_universe",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        39,
+        76
+      ],
+      "summary": "Screens the equity universe via yfinance EquityQuery filtered by exchange and minimum average daily volume, returning a deduplicated DataFrame of liquid symbols.",
+      "tags": [
+        "data-fetch",
+        "screening",
+        "yfinance"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:fetch_prices_batch",
+      "type": "function",
+      "name": "fetch_prices_batch",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        83,
+        141
+      ],
+      "summary": "Downloads OHLCV history for a list of tickers in batches via yfinance, reshaping the multi-index result into per-field DataFrames and tracking failed downloads.",
+      "tags": [
+        "data-fetch",
+        "batch",
+        "yfinance",
+        "serialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:data_manager.py:save_prices",
+      "type": "function",
+      "name": "save_prices",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        155,
+        163
+      ],
+      "summary": "Persists each per-field price DataFrame to its parquet file on disk.",
+      "tags": [
+        "serialization",
+        "persistence",
+        "write"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:build_sector_map",
+      "type": "function",
+      "name": "build_sector_map",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        180,
+        230
+      ],
+      "summary": "Builds and caches a symbol-to-sector mapping by screening each yfinance sector, falling back to a cached parquet when fresh.",
+      "tags": [
+        "data-fetch",
+        "mapping",
+        "caching"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:data_manager.py:_load_parquet_cached",
+      "type": "function",
+      "name": "_load_parquet_cached",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        236,
+        247
+      ],
+      "summary": "Reads a parquet file with an in-memory cache keyed by path and mtime to avoid redundant disk reads.",
+      "tags": [
+        "caching",
+        "serialization",
+        "read"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:build_industry_map",
+      "type": "function",
+      "name": "build_industry_map",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        250,
+        277
+      ],
+      "summary": "Constructs a sector-to-industry mapping from yfinance fundamental equity data, caching the result to parquet.",
+      "tags": [
+        "data-fetch",
+        "mapping",
+        "caching"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:data_manager.py:load_prices",
+      "type": "function",
+      "name": "load_prices",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        293,
+        304
+      ],
+      "summary": "Loads a price field (close/high/low/volume) parquet, optionally subsetting to requested tickers, via the cached parquet reader.",
+      "tags": [
+        "read",
+        "loader",
+        "caching"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:load_universe",
+      "type": "function",
+      "name": "load_universe",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        288,
+        290
+      ],
+      "summary": "Loads the cached universe metadata parquet via the in-memory cached parquet reader.",
+      "tags": [
+        "read",
+        "loader",
+        "caching"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:load_spy",
+      "type": "function",
+      "name": "load_spy",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        307,
+        309
+      ],
+      "summary": "Loads the cached SPY benchmark price parquet via the in-memory cached parquet reader.",
+      "tags": [
+        "read",
+        "loader",
+        "caching"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:get_db_status",
+      "type": "function",
+      "name": "get_db_status",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        312,
+        331
+      ],
+      "summary": "Reports freshness and size of the local parquet data store including universe count and latest price date.",
+      "tags": [
+        "monitoring",
+        "status",
+        "read"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:build_database",
+      "type": "function",
+      "name": "build_database",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        338,
+        390
+      ],
+      "summary": "End-to-end pipeline that fetches the liquid universe, downloads price history, and saves universe, prices, and SPY parquet files from scratch.",
+      "tags": [
+        "data-pipeline",
+        "orchestration",
+        "build-system"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:data_manager.py:update_prices",
+      "type": "function",
+      "name": "update_prices",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        397,
+        531
+      ],
+      "summary": "Incrementally extends the stored price parquets by downloading only missing trading days since the last stored date and merging them, including SPY.",
+      "tags": [
+        "data-pipeline",
+        "incremental-update",
+        "serialization"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:data_manager.py:auto_update_if_stale",
+      "type": "function",
+      "name": "auto_update_if_stale",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        534,
+        548
+      ],
+      "summary": "Triggers update_prices when the local price data is older than a configurable age threshold.",
+      "tags": [
+        "scheduling",
+        "incremental-update",
+        "freshness"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_manager.py:refresh_universe",
+      "type": "function",
+      "name": "refresh_universe",
+      "filePath": "data_manager.py",
+      "lineRange": [
+        551,
+        652
+      ],
+      "summary": "Re-screens the liquid universe, adds newly qualifying symbols, backfills their price history, and merges them into the existing universe and price parquets.",
+      "tags": [
+        "data-pipeline",
+        "universe",
+        "serialization"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:stage_classifier.py",
+      "type": "file",
+      "name": "stage_classifier.py",
+      "filePath": "stage_classifier.py",
+      "summary": "Implements vectorized Weinstein stage analysis: computes moving-average, RS-line, and distribution-day features across the full price panel and classifies every ticker into Stage 1-4.",
+      "tags": [
+        "data-model",
+        "classification",
+        "analytics",
+        "caching"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Heavily vectorized pandas (rolling windows, div/pct_change across a wide DataFrame) with a TTL-style module-level cache keyed by parameters."
+    },
+    {
+      "id": "function:stage_classifier.py:compute_all_derived_vectorized",
+      "type": "function",
+      "name": "compute_all_derived_vectorized",
+      "filePath": "stage_classifier.py",
+      "lineRange": [
+        39,
+        107
+      ],
+      "summary": "Computes all derived technical features (50/150/200-day MAs, 52-week high/low, relative-strength line, ATR, distribution days, 6-month RS rank) for the full price panel in a vectorized pass.",
+      "tags": [
+        "analytics",
+        "vectorization",
+        "feature-engineering"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:stage_classifier.py:classify_all_stages",
+      "type": "function",
+      "name": "classify_all_stages",
+      "filePath": "stage_classifier.py",
+      "lineRange": [
+        114,
+        194
+      ],
+      "summary": "Applies Weinstein stage-classification rules to the derived feature DataFrames, returning a per-ticker per-day stage (1-4) matrix.",
+      "tags": [
+        "classification",
+        "analytics",
+        "vectorization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:stage_classifier.py:build_results",
+      "type": "function",
+      "name": "build_results",
+      "filePath": "stage_classifier.py",
+      "lineRange": [
+        201,
+        289
+      ],
+      "summary": "Assembles the final per-ticker classification result table with latest stage, stage labels/actions, recent stage mode, and price-based filters.",
+      "tags": [
+        "serialization",
+        "analytics",
+        "result-assembly"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:stage_classifier.py:run_stage_from_local_db",
+      "type": "function",
+      "name": "run_stage_from_local_db",
+      "filePath": "stage_classifier.py",
+      "lineRange": [
+        296,
+        359
+      ],
+      "summary": "Top-level entry that loads universe and price parquets, runs feature computation and stage classification, builds results, and caches the output.",
+      "tags": [
+        "orchestration",
+        "caching",
+        "entry-point"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:stage_classifier.py:get_stage_distribution",
+      "type": "function",
+      "name": "get_stage_distribution",
+      "filePath": "stage_classifier.py",
+      "lineRange": [
+        373,
+        388
+      ],
+      "summary": "Aggregates a classified DataFrame into a per-stage distribution with counts, percentages, labels, and recommended actions.",
+      "tags": [
+        "analytics",
+        "aggregation",
+        "summary"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:update_classifications.py",
+      "type": "file",
+      "name": "update_classifications.py",
+      "filePath": "update_classifications.py",
+      "summary": "Daily batch script that recomputes all classification JSON artifacts (Weinstein stages, PCA 5-cluster regimes, MA-position screener, EPS-growth acceleration) from current price data and writes them to the stage_pca output directory.",
+      "tags": [
+        "script",
+        "entry-point",
+        "data-pipeline",
+        "batch",
+        "serialization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Module-level procedural script (no function definitions) executed top-to-bottom; mutates sys.path to import from the sandbox stage_pca analysis package."
+    },
+    {
+      "id": "file:macro/cache.py",
+      "type": "file",
+      "name": "cache.py",
+      "filePath": "macro/cache.py",
+      "summary": "Lightweight in-memory TTL cache helper used across the macro service layer to memoize expensive data computations with time-based expiry and manual invalidation.",
+      "tags": [
+        "utility",
+        "cache",
+        "service",
+        "memoization"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Module-level dict acts as a process-wide cache store; ttl_cache takes a thunk (fn) and lazily recomputes on expiry."
+    },
+    {
+      "id": "function:macro/cache.py:ttl_cache",
+      "type": "function",
+      "name": "ttl_cache",
+      "filePath": "macro/cache.py",
+      "lineRange": [
+        7,
+        16
+      ],
+      "summary": "Returns a cached value for a key if it is still within its TTL window, otherwise invokes the provided thunk to recompute and store the fresh result.",
+      "tags": [
+        "cache",
+        "memoization",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:macro/cache.py:invalidate",
+      "type": "function",
+      "name": "invalidate",
+      "filePath": "macro/cache.py",
+      "lineRange": [
+        19,
+        24
+      ],
+      "summary": "Evicts a single cache entry by key, or clears the entire cache when no key is given.",
+      "tags": [
+        "cache",
+        "utility",
+        "invalidation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:macro/liquidity_service.py",
+      "type": "file",
+      "name": "liquidity_service.py",
+      "filePath": "macro/liquidity_service.py",
+      "summary": "Service layer for the global liquidity dashboard, computing regime classification, layer scores, asset overlays, and transmission-break diagnostics, then shaping them into Plotly-ready trace/response payloads for the macro blueprint.",
+      "tags": [
+        "service",
+        "api-handler",
+        "data-pipeline",
+        "liquidity",
+        "serialization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Heavy use of pandas resampling (W-FRI weekly) and ttl_cache wrappers around compute thunks to memoize expensive liquidity calculations."
+    },
+    {
+      "id": "function:macro/liquidity_service.py:get_dashboard_data",
+      "type": "function",
+      "name": "get_dashboard_data",
+      "filePath": "macro/liquidity_service.py",
+      "lineRange": [
+        70,
+        100
+      ],
+      "summary": "Computes and caches the core liquidity dashboard dataset, deriving continuous totals, weekly history, latest metrics, and regime classification from the raw cached data.",
+      "tags": [
+        "service",
+        "data-pipeline",
+        "cache",
+        "liquidity"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:macro/liquidity_service.py:build_dashboard_response",
+      "type": "function",
+      "name": "build_dashboard_response",
+      "filePath": "macro/liquidity_service.py",
+      "lineRange": [
+        103,
+        197
+      ],
+      "summary": "Assembles the main dashboard JSON response, formatting regime bias and building Plotly traces for liquidity history and metric series.",
+      "tags": [
+        "api-handler",
+        "serialization",
+        "service",
+        "liquidity"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:macro/liquidity_service.py:build_layer_detail_response",
+      "type": "function",
+      "name": "build_layer_detail_response",
+      "filePath": "macro/liquidity_service.py",
+      "lineRange": [
+        204,
+        267
+      ],
+      "summary": "Builds the per-layer detail response for a given layer id, computing continuous layer scores, weekly traces, and per-indicator metadata from configuration.",
+      "tags": [
+        "api-handler",
+        "serialization",
+        "service",
+        "liquidity"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:macro/liquidity_service.py:build_overlay_response",
+      "type": "function",
+      "name": "build_overlay_response",
+      "filePath": "macro/liquidity_service.py",
+      "lineRange": [
+        274,
+        340
+      ],
+      "summary": "Overlays a tradable asset's price (fetched via yfinance) against the liquidity composite on a shared weekly index and serializes both as Plotly traces.",
+      "tags": [
+        "api-handler",
+        "serialization",
+        "service",
+        "market-data"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:macro/liquidity_service.py:build_transmission_response",
+      "type": "function",
+      "name": "build_transmission_response",
+      "filePath": "macro/liquidity_service.py",
+      "lineRange": [
+        347,
+        427
+      ],
+      "summary": "Computes liquidity transmission stage scores, current stage state, and detected transmission breaks, then serializes weekly stage series into a response payload.",
+      "tags": [
+        "api-handler",
+        "serialization",
+        "service",
+        "liquidity"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:macro/rrg_service.py",
+      "type": "file",
+      "name": "rrg_service.py",
+      "filePath": "macro/rrg_service.py",
+      "summary": "Relative Rotation Graph (RRG) service that fetches ETF and futures price data, computes RS-ratio/RS-momentum tails, and builds Plotly traces, position tables, and drill-down responses for the macro blueprint.",
+      "tags": [
+        "service",
+        "api-handler",
+        "data-pipeline",
+        "rrg",
+        "serialization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Uses colorsys HSV manipulation to derive intra-group color gradients; ttl_cache wraps the ETF/futures fetch thunks to limit repeated downloads."
+    },
+    {
+      "id": "function:macro/rrg_service.py:get_intra_group_name_color_map",
+      "type": "function",
+      "name": "get_intra_group_name_color_map",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        94,
+        110
+      ],
+      "summary": "Builds a name-to-color map for contracts within a futures group, generating an HSV lightness gradient so each contract gets a distinct shade of the group color.",
+      "tags": [
+        "utility",
+        "rrg",
+        "visualization",
+        "color"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:macro/rrg_service.py:build_rrg_traces",
+      "type": "function",
+      "name": "build_rrg_traces",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        117,
+        185
+      ],
+      "summary": "Converts RRG tail data into Plotly scatter traces with quadrant-based styling, optional trails, and computed axis ranges for the rotation graph.",
+      "tags": [
+        "serialization",
+        "rrg",
+        "visualization",
+        "service"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:macro/rrg_service.py:build_positions_table",
+      "type": "function",
+      "name": "build_positions_table",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        188,
+        211
+      ],
+      "summary": "Renders an HTML positions table summarizing each symbol's current RRG quadrant and coordinates, colored by quadrant.",
+      "tags": [
+        "serialization",
+        "rrg",
+        "visualization",
+        "service"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:macro/rrg_service.py:_serialize_full_data",
+      "type": "function",
+      "name": "_serialize_full_data",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        218,
+        230
+      ],
+      "summary": "Serializes the full RRG time-series per symbol into date-keyed coordinate records with associated color metadata.",
+      "tags": [
+        "serialization",
+        "rrg",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:macro/rrg_service.py:build_rrg_response",
+      "type": "function",
+      "name": "build_rrg_response",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        233,
+        273
+      ],
+      "summary": "Top-level RRG response builder that resolves the requested dataset, computes ETF or futures-group RRG tails, and assembles traces, positions table, and serialized data.",
+      "tags": [
+        "api-handler",
+        "service",
+        "rrg",
+        "serialization"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:macro/rrg_service.py:_build_futures_group_response",
+      "type": "function",
+      "name": "_build_futures_group_response",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        276,
+        301
+      ],
+      "summary": "Builds the futures-group RRG response by fetching futures prices, computing group-level RRG tails, and serializing traces and positions.",
+      "tags": [
+        "api-handler",
+        "service",
+        "rrg",
+        "serialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:macro/rrg_service.py:build_rrg_drill_response",
+      "type": "function",
+      "name": "build_rrg_drill_response",
+      "filePath": "macro/rrg_service.py",
+      "lineRange": [
+        304,
+        333
+      ],
+      "summary": "Builds the intra-group drill-down RRG response for a single futures group, computing per-contract RRG tails with gradient coloring.",
+      "tags": [
+        "api-handler",
+        "service",
+        "rrg",
+        "serialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:templates/base.html",
+      "type": "file",
+      "name": "base.html",
+      "filePath": "templates/base.html",
+      "summary": "Root Jinja2 layout that every page extends. Renders the top navigation bar (Screener/Liquidity/RRG/Options/Watchlist tabs), the slide-in data-freshness panel (fetches /api/freshness), footer, and the shared client-side watchlist state managed in localStorage with a right-click context menu.",
+      "tags": [
+        "entry-point",
+        "layout",
+        "template",
+        "navigation",
+        "component"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Defines the Jinja blocks (title_suffix, head, content, scripts) that all child templates override; bundles cross-page JS for watchlist persistence and freshness polling."
+    },
+    {
+      "id": "file:templates/chart.html",
+      "type": "file",
+      "name": "chart.html",
+      "filePath": "templates/chart.html",
+      "summary": "Per-symbol price chart page that renders a Lightweight Charts candlestick view with MA50/MA150/MA200 overlays for a single ticker.",
+      "tags": [
+        "template",
+        "chart",
+        "visualization",
+        "view"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Uses the lightweight-charts library loaded in base.html to draw candlesticks and moving-average line series."
+    },
+    {
+      "id": "file:templates/liquidity.html",
+      "type": "file",
+      "name": "liquidity.html",
+      "filePath": "templates/liquidity.html",
+      "summary": "Global-liquidity dashboard page that composes the liquidity, layer-detail, overlay, and transmission macro partials into a single section view.",
+      "tags": [
+        "template",
+        "macro",
+        "liquidity",
+        "view",
+        "barrel"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:templates/macro.html",
+      "type": "file",
+      "name": "macro.html",
+      "filePath": "templates/macro.html",
+      "summary": "Combined macro overview page that includes all macro partials (liquidity, layer detail, overlay, transmission, RRG) on one screen.",
+      "tags": [
+        "template",
+        "macro",
+        "view",
+        "barrel",
+        "dashboard"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:templates/options.html",
+      "type": "file",
+      "name": "options.html",
+      "filePath": "templates/options.html",
+      "summary": "Options GEX (gamma exposure) page rendering expiration pickers, summary cards, a strike-level GEX table, and drilldown controls driven by the /api/options GEX endpoints.",
+      "tags": [
+        "template",
+        "options",
+        "gex",
+        "view",
+        "data-visualization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Heavily styled inline GEX controls/cards/table; consumes the options_gex and options_drilldown APIs."
+    },
+    {
+      "id": "file:templates/rrg.html",
+      "type": "file",
+      "name": "rrg.html",
+      "filePath": "templates/rrg.html",
+      "summary": "Relative Rotation Graph (RRG) page that wraps the shared macro/_rrg partial as a standalone tab.",
+      "tags": [
+        "template",
+        "rrg",
+        "macro",
+        "view"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:templates/screener.html",
+      "type": "file",
+      "name": "screener.html",
+      "filePath": "templates/screener.html",
+      "summary": "Main market-screener UI (the largest template) rendering the results table, advanced filter form (region, turnover, presets, sorting), and inline expandable per-stock charts. Serves as the application's default landing page.",
+      "tags": [
+        "template",
+        "screener",
+        "entry-point",
+        "view",
+        "data-table"
+      ],
+      "complexity": "complex",
+      "languageNotes": "1461-line template combining a server-rendered results table with an advanced-filters form and client-side row chart toggling (toggleStockChart)."
+    },
+    {
+      "id": "file:templates/stages.html",
+      "type": "file",
+      "name": "stages.html",
+      "filePath": "templates/stages.html",
+      "summary": "Stage-classifier page presenting a configuration form (region, turnover, max stocks, sort) and a color-coded per-stage results table produced by the stage classifier.",
+      "tags": [
+        "template",
+        "stage-classifier",
+        "view",
+        "form",
+        "data-table"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:templates/watchlist.html",
+      "type": "file",
+      "name": "watchlist.html",
+      "filePath": "templates/watchlist.html",
+      "summary": "Watchlist page rendering long/short sections from the localStorage-backed watchlist, enriching each symbol via fetch and supporting clear/remove actions.",
+      "tags": [
+        "template",
+        "watchlist",
+        "view",
+        "data-table"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:templates/macro/_layer_detail.html",
+      "type": "file",
+      "name": "_layer_detail.html",
+      "filePath": "templates/macro/_layer_detail.html",
+      "summary": "Jinja2 partial rendering the liquidity layer-detail panel: a layer selector dropdown (Layer 1 CB, 2a Private, 2b Economy) plus indicator and chart containers wired to loadLayerDetail().",
+      "tags": [
+        "jinja2-partial",
+        "component",
+        "liquidity",
+        "macro",
+        "template-include"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Static HTML fragment with no Jinja control flow; behavior driven by inline onchange handler loadLayerDetail() defined in the page's JS."
+    },
+    {
+      "id": "file:templates/macro/_liquidity.html",
+      "type": "file",
+      "name": "_liquidity.html",
+      "filePath": "templates/macro/_liquidity.html",
+      "summary": "Jinja2 partial for the global liquidity overview header: a regime badge plus score cards for Layer 1 (CB), Layer 2a (Private), Layer 2b (Economy) and Composite, above the main liquidity chart container.",
+      "tags": [
+        "jinja2-partial",
+        "component",
+        "liquidity",
+        "macro",
+        "template-include"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Static fragment; placeholder elements (l1-score, composite-score, liquidity-chart) populated client-side via JS fetch."
+    },
+    {
+      "id": "file:templates/macro/_overlay.html",
+      "type": "file",
+      "name": "_overlay.html",
+      "filePath": "templates/macro/_overlay.html",
+      "summary": "Jinja2 partial providing the liquidity-vs-asset overlay controls: an asset selector (SPY, QQQ, IWM, HYG, LQD, TLT, GLD, UUP, DBC, USO) wired to loadOverlay(), plus the overlay chart container.",
+      "tags": [
+        "jinja2-partial",
+        "component",
+        "overlay",
+        "macro",
+        "template-include"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:templates/macro/_rrg.html",
+      "type": "file",
+      "name": "_rrg.html",
+      "filePath": "templates/macro/_rrg.html",
+      "summary": "Jinja2 partial for the Relative Rotation Graph (RRG) view: dataset/period/window/trail selectors, drill-into group controls, an as-of-date slider, per-asset show/hide checkboxes, and side-by-side chart and table containers.",
+      "tags": [
+        "jinja2-partial",
+        "component",
+        "rrg",
+        "macro",
+        "template-include"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "Largest partial in the batch; rich inline-styled control panel driving multiple JS handlers (onRRGDatasetChange, loadRRG, loadRRGDrill, onRRGDateSlider, rrgSelectAll)."
+    },
+    {
+      "id": "file:templates/macro/_transmission.html",
+      "type": "file",
+      "name": "_transmission.html",
+      "filePath": "templates/macro/_transmission.html",
+      "summary": "Minimal Jinja2 partial holding the transmission-flow diagram strip and the transmission chart container, both populated client-side.",
+      "tags": [
+        "jinja2-partial",
+        "component",
+        "transmission",
+        "macro",
+        "template-include"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:data_freshness.py",
+      "type": "file",
+      "name": "data_freshness.py",
+      "filePath": "data_freshness.py",
+      "summary": "Data staleness auditing module that inspects on-disk price parquet, Refinitiv pickle, universe, and classification metadata files to report freshness, coverage, and recommended refresh actions.",
+      "tags": [
+        "monitoring",
+        "data-pipeline",
+        "validation",
+        "utility",
+        "data-freshness"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Reads cached parquet/pickle/JSON artifacts and uses pandas date math plus mtime checks to derive staleness; includes a recursive _jsonable coercion helper for serialization."
+    },
+    {
+      "id": "function:data_freshness.py:_jsonable",
+      "type": "function",
+      "name": "_jsonable",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        19,
+        33
+      ],
+      "summary": "Recursively coerces nested dicts/lists and numpy/pandas scalar types into plain JSON-serializable Python primitives.",
+      "tags": [
+        "serialization",
+        "utility",
+        "recursion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_freshness.py:check_prices",
+      "type": "function",
+      "name": "check_prices",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        38,
+        77
+      ],
+      "summary": "Checks the close-price parquet for existence, last trading date, file mtime, and per-day non-null coverage to assess price-data staleness.",
+      "tags": [
+        "data-freshness",
+        "validation",
+        "pandas",
+        "monitoring"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:data_freshness.py:check_refinitiv",
+      "type": "function",
+      "name": "check_refinitiv",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        80,
+        181
+      ],
+      "summary": "Loads the Refinitiv pickle and audits its snapshot, quarterly, annual, and EPS sub-datasets for freshness, symbol coverage, and missing-value ratios.",
+      "tags": [
+        "data-freshness",
+        "validation",
+        "refinitiv",
+        "monitoring"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:data_freshness.py:check_universe",
+      "type": "function",
+      "name": "check_universe",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        184,
+        199
+      ],
+      "summary": "Inspects the universe parquet for existence, mtime, ticker count, and per-exchange breakdown.",
+      "tags": [
+        "data-freshness",
+        "validation",
+        "universe",
+        "monitoring"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_freshness.py:check_classifications",
+      "type": "function",
+      "name": "check_classifications",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        202,
+        223
+      ],
+      "summary": "Reads classification metadata JSON to report generation date, age in days, and classified-ticker statistics.",
+      "tags": [
+        "data-freshness",
+        "validation",
+        "classification",
+        "monitoring"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:data_freshness.py:full_report",
+      "type": "function",
+      "name": "full_report",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        226,
+        253
+      ],
+      "summary": "Aggregates all individual freshness checks into a single report dict, computes an overall status, and returns a JSON-serializable structure.",
+      "tags": [
+        "aggregation",
+        "data-freshness",
+        "monitoring",
+        "orchestration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:data_freshness.py:print_report",
+      "type": "function",
+      "name": "print_report",
+      "filePath": "data_freshness.py",
+      "lineRange": [
+        256,
+        337
+      ],
+      "summary": "Renders a freshness report to the console with color-coded status indicators and per-dataset details plus recommended refresh actions.",
+      "tags": [
+        "reporting",
+        "cli",
+        "monitoring",
+        "formatting"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/conftest.py",
+      "type": "file",
+      "name": "conftest.py",
+      "filePath": "tests/conftest.py",
+      "summary": "Pytest conftest that inserts the mktt package directory onto sys.path so bare imports like gex_engine and app resolve during test collection.",
+      "tags": [
+        "test",
+        "configuration",
+        "pytest",
+        "test-setup"
+      ],
+      "complexity": "simple",
+      "languageNotes": "Module-level sys.path manipulation executed at pytest collection time; defines no fixtures despite the conftest convention."
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:app.py",
+      "target": "file:macro/__init__.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:app.py",
+      "target": "file:screener.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:app.py",
+      "target": "file:stage_classifier.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:macro/__init__.py",
+      "target": "file:macro/routes.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:load_classification_lookups",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:load_refinitiv_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:screener_page",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_rolling_12m_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_sales_ttm_forward_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:options_gex_api",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:options_drilldown_api",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_watchlist_api_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_sector_map_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:chart_page",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_chart_api_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_fundamentals_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_eps_ttm_forward_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:_revisions_impl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:load_classification_lookups",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:load_refinitiv_snapshot",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:screener_page",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:options_gex_api",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:app.py",
+      "target": "function:app.py:options_drilldown_api",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:app.py:screener_page",
+      "target": "function:screener.py:get_available_sectors",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:app.py:screener_page",
+      "target": "function:app.py:load_refinitiv_snapshot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:app.py:screener_page",
+      "target": "function:stage_classifier.py:run_stage_from_local_db",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:app.py:screener_page",
+      "target": "function:stage_classifier.py:get_stage_distribution",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/__init__.py",
+      "target": "function:macro/routes.py:macro_page",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:macro_page",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:section_page",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:api_liquidity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:api_layer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:api_rrg",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:api_rrg_drill",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:macro_page",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:api_liquidity",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/routes.py",
+      "target": "function:macro/routes.py:api_rrg",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:screener.py",
+      "target": "function:screener.py:fetch_exchange_quotes",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:screener.py",
+      "target": "function:screener.py:screen_stocks",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:screener.py",
+      "target": "function:screener.py:get_available_sectors",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:screener.py",
+      "target": "function:screener.py:fetch_exchange_quotes",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:screener.py",
+      "target": "function:screener.py:screen_stocks",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:screener.py",
+      "target": "function:screener.py:get_available_sectors",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:screener.py:screen_stocks",
+      "target": "function:screener.py:fetch_exchange_quotes",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:app.py",
+      "target": "file:tests/test_gex_api.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:bs_gamma",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:contract_gex",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:aggregate_by_strike",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:filter_band",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:compute_flip",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:find_walls",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:compute_profile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:strike_breakdown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:bs_gamma",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:contract_gex",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:aggregate_by_strike",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:filter_band",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:compute_flip",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:find_walls",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:compute_profile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "function:gex_engine.py:strike_breakdown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:aggregate_by_strike",
+      "target": "function:gex_engine.py:bs_gamma",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:aggregate_by_strike",
+      "target": "function:gex_engine.py:contract_gex",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:compute_profile",
+      "target": "function:gex_engine.py:aggregate_by_strike",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:compute_profile",
+      "target": "function:gex_engine.py:filter_band",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:compute_profile",
+      "target": "function:gex_engine.py:compute_flip",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:compute_profile",
+      "target": "function:gex_engine.py:find_walls",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:strike_breakdown",
+      "target": "function:gex_engine.py:bs_gamma",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:gex_engine.py:strike_breakdown",
+      "target": "function:gex_engine.py:contract_gex",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "file:gex_engine.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:_fetch_with_backoff",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:_resolve_spot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:_normalize_side",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:get_expirations",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:_get_one_chain",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:get_next_chains",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:_assemble_from_cache",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:gex_profile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:drilldown",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:get_expirations",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:get_next_chains",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:gex_profile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "function:options_service.py:drilldown",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:get_expirations",
+      "target": "function:options_service.py:_fetch_with_backoff",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:_get_one_chain",
+      "target": "function:options_service.py:_fetch_with_backoff",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:_get_one_chain",
+      "target": "function:options_service.py:_normalize_side",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:get_next_chains",
+      "target": "function:options_service.py:get_expirations",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:get_next_chains",
+      "target": "function:options_service.py:_resolve_spot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:get_next_chains",
+      "target": "function:options_service.py:_get_one_chain",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:get_next_chains",
+      "target": "function:options_service.py:_assemble_from_cache",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:gex_profile",
+      "target": "function:options_service.py:get_next_chains",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:gex_profile",
+      "target": "function:gex_engine.py:compute_profile",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:drilldown",
+      "target": "function:options_service.py:get_next_chains",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:options_service.py:drilldown",
+      "target": "function:gex_engine.py:strike_breakdown",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:tests/test_gex_api.py",
+      "target": "file:app.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/test_gex_api.py",
+      "target": "file:options_service.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:options_service.py",
+      "target": "file:tests/test_gex_api.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:tests/test_gex_engine.py",
+      "target": "file:gex_engine.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:gex_engine.py",
+      "target": "file:tests/test_gex_engine.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:fetch_liquid_universe",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:fetch_prices_batch",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:save_prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:build_sector_map",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:_load_parquet_cached",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:build_industry_map",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:load_prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:load_universe",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:load_spy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:load_universe",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:load_spy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:get_db_status",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:build_database",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:update_prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:auto_update_if_stale",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:refresh_universe",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:fetch_liquid_universe",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:fetch_prices_batch",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:save_prices",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:build_sector_map",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:build_industry_map",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:load_prices",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:get_db_status",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:build_database",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:update_prices",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:auto_update_if_stale",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_manager.py",
+      "target": "function:data_manager.py:refresh_universe",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:build_database",
+      "target": "function:data_manager.py:fetch_liquid_universe",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:build_database",
+      "target": "function:data_manager.py:fetch_prices_batch",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:build_database",
+      "target": "function:data_manager.py:save_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:update_prices",
+      "target": "function:data_manager.py:load_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:auto_update_if_stale",
+      "target": "function:data_manager.py:update_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:refresh_universe",
+      "target": "function:data_manager.py:fetch_liquid_universe",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:refresh_universe",
+      "target": "function:data_manager.py:fetch_prices_batch",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:refresh_universe",
+      "target": "function:data_manager.py:load_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_manager.py:load_prices",
+      "target": "function:data_manager.py:_load_parquet_cached",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:compute_all_derived_vectorized",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:classify_all_stages",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:build_results",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:run_stage_from_local_db",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:get_stage_distribution",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:compute_all_derived_vectorized",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:classify_all_stages",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:build_results",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:run_stage_from_local_db",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "function:stage_classifier.py:get_stage_distribution",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:stage_classifier.py:run_stage_from_local_db",
+      "target": "function:stage_classifier.py:compute_all_derived_vectorized",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:stage_classifier.py:run_stage_from_local_db",
+      "target": "function:stage_classifier.py:classify_all_stages",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:stage_classifier.py:run_stage_from_local_db",
+      "target": "function:stage_classifier.py:build_results",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:stage_classifier.py:run_stage_from_local_db",
+      "target": "function:data_manager.py:load_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:stage_classifier.py:run_stage_from_local_db",
+      "target": "function:data_manager.py:load_universe",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:stage_classifier.py:run_stage_from_local_db",
+      "target": "function:data_manager.py:load_spy",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:stage_classifier.py",
+      "target": "file:data_manager.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:update_classifications.py",
+      "target": "file:data_manager.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:update_classifications.py",
+      "target": "file:stage_classifier.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:update_classifications.py",
+      "target": "function:data_manager.py:load_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:update_classifications.py",
+      "target": "function:data_manager.py:load_spy",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:update_classifications.py",
+      "target": "function:stage_classifier.py:compute_all_derived_vectorized",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:update_classifications.py",
+      "target": "function:stage_classifier.py:classify_all_stages",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/cache.py",
+      "target": "function:macro/cache.py:ttl_cache",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/cache.py",
+      "target": "function:macro/cache.py:invalidate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/cache.py",
+      "target": "function:macro/cache.py:ttl_cache",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/cache.py",
+      "target": "function:macro/cache.py:invalidate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "file:macro/cache.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "function:macro/liquidity_service.py:get_dashboard_data",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "function:macro/liquidity_service.py:build_dashboard_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "function:macro/liquidity_service.py:build_layer_detail_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "function:macro/liquidity_service.py:build_overlay_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "function:macro/liquidity_service.py:build_transmission_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/liquidity_service.py",
+      "target": "function:macro/cache.py:ttl_cache",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "file:macro/cache.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:get_intra_group_name_color_map",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:build_rrg_traces",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:build_positions_table",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:_serialize_full_data",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:build_rrg_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:_build_futures_group_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/rrg_service.py:build_rrg_drill_response",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:macro/rrg_service.py",
+      "target": "function:macro/cache.py:ttl_cache",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:build_rrg_response",
+      "target": "function:macro/rrg_service.py:build_rrg_traces",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:build_rrg_response",
+      "target": "function:macro/rrg_service.py:build_positions_table",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:build_rrg_response",
+      "target": "function:macro/rrg_service.py:_serialize_full_data",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:build_rrg_response",
+      "target": "function:macro/rrg_service.py:_build_futures_group_response",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:_build_futures_group_response",
+      "target": "function:macro/rrg_service.py:build_rrg_traces",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:build_rrg_drill_response",
+      "target": "function:macro/rrg_service.py:get_intra_group_name_color_map",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/rrg_service.py:build_rrg_drill_response",
+      "target": "function:macro/rrg_service.py:build_rrg_traces",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:macro/liquidity_service.py:build_dashboard_response",
+      "target": "function:macro/liquidity_service.py:get_dashboard_data",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:templates/chart.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/liquidity.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/options.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/rrg.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/screener.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/stages.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/watchlist.html",
+      "target": "file:templates/base.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/liquidity.html",
+      "target": "file:templates/macro/_liquidity.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/liquidity.html",
+      "target": "file:templates/macro/_layer_detail.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/liquidity.html",
+      "target": "file:templates/macro/_overlay.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/liquidity.html",
+      "target": "file:templates/macro/_transmission.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro.html",
+      "target": "file:templates/macro/_liquidity.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro.html",
+      "target": "file:templates/macro/_layer_detail.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro.html",
+      "target": "file:templates/macro/_overlay.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro.html",
+      "target": "file:templates/macro/_transmission.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro.html",
+      "target": "file:templates/macro/_rrg.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/rrg.html",
+      "target": "file:templates/macro/_rrg.html",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:templates/macro/_layer_detail.html",
+      "target": "file:templates/macro.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_layer_detail.html",
+      "target": "file:templates/liquidity.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_liquidity.html",
+      "target": "file:templates/macro.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_liquidity.html",
+      "target": "file:templates/liquidity.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_overlay.html",
+      "target": "file:templates/macro.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_overlay.html",
+      "target": "file:templates/liquidity.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_transmission.html",
+      "target": "file:templates/macro.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_transmission.html",
+      "target": "file:templates/liquidity.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_rrg.html",
+      "target": "file:templates/macro.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:templates/macro/_rrg.html",
+      "target": "file:templates/rrg.html",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:_jsonable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_refinitiv",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_universe",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_classifications",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:full_report",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:print_report",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:_jsonable",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_prices",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_refinitiv",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_universe",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:check_classifications",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:full_report",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:data_freshness.py",
+      "target": "function:data_freshness.py:print_report",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_freshness.py:full_report",
+      "target": "function:data_freshness.py:check_prices",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_freshness.py:full_report",
+      "target": "function:data_freshness.py:check_universe",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_freshness.py:full_report",
+      "target": "function:data_freshness.py:check_classifications",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_freshness.py:full_report",
+      "target": "function:data_freshness.py:check_refinitiv",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:data_freshness.py:full_report",
+      "target": "function:data_freshness.py:_jsonable",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:controllers",
+      "name": "Controllers & Routes",
+      "description": "Flask HTTP layer: app.py defines top-level page routes and JSON APIs (screener, options/GEX, watchlist, charts, fundamentals) and registers the macro blueprint, which exposes liquidity and sector-RRG endpoints.",
+      "nodeIds": [
+        "file:app.py",
+        "file:macro/__init__.py",
+        "file:macro/routes.py"
+      ]
+    },
+    {
+      "id": "layer:service",
+      "name": "Domain & Business Logic",
+      "description": "Core analytics engines orchestrated by the controllers: stock screening, Weinstein stage classification, gamma-exposure math, options-chain orchestration, and the macro liquidity and relative-rotation-graph services.",
+      "nodeIds": [
+        "file:screener.py",
+        "file:stage_classifier.py",
+        "file:gex_engine.py",
+        "file:options_service.py",
+        "file:macro/liquidity_service.py",
+        "file:macro/rrg_service.py"
+      ]
+    },
+    {
+      "id": "layer:data",
+      "name": "Data Access & Pipelines",
+      "description": "Market-data persistence and batch jobs: yfinance price/universe loading and parquet caching, on-disk data-staleness auditing, and the nightly script that regenerates classification artifacts.",
+      "nodeIds": [
+        "file:data_manager.py",
+        "file:data_freshness.py",
+        "file:update_classifications.py"
+      ]
+    },
+    {
+      "id": "layer:utility",
+      "name": "Shared Utilities",
+      "description": "Cross-cutting infrastructure helper: the in-memory TTL cache used by both macro services to memoize expensive liquidity and RRG computations.",
+      "nodeIds": [
+        "file:macro/cache.py"
+      ]
+    },
+    {
+      "id": "layer:ui",
+      "name": "View Templates",
+      "description": "Jinja2 presentation layer: the shared base layout, full-page templates (screener, stages, options, watchlist, chart, liquidity, macro, rrg), and the reusable macro include partials.",
+      "nodeIds": [
+        "file:templates/base.html",
+        "file:templates/chart.html",
+        "file:templates/liquidity.html",
+        "file:templates/macro.html",
+        "file:templates/options.html",
+        "file:templates/rrg.html",
+        "file:templates/screener.html",
+        "file:templates/stages.html",
+        "file:templates/watchlist.html",
+        "file:templates/macro/_layer_detail.html",
+        "file:templates/macro/_liquidity.html",
+        "file:templates/macro/_overlay.html",
+        "file:templates/macro/_rrg.html",
+        "file:templates/macro/_transmission.html"
+      ]
+    },
+    {
+      "id": "layer:test",
+      "name": "Tests",
+      "description": "Pytest suite covering the GEX engine unit math and the GEX API integration endpoints, plus the conftest that wires the package onto sys.path.",
+      "nodeIds": [
+        "file:tests/conftest.py",
+        "file:tests/test_gex_api.py",
+        "file:tests/test_gex_engine.py"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "The Monolithic Entry Point",
+      "description": "Start at app.py, the Flask application factory and the single biggest refactor target in the codebase. This one 2090-line file constructs the app, registers the macro blueprint, and defines every top-level page route and JSON API (screener, options/GEX, watchlist, charts, fundamentals, EPS/revisions) while also loading PCA/stage/Refinitiv classification lookups. Understanding everything it currently does is the prerequisite for splitting it into focused, testable modules.",
+      "nodeIds": [
+        "file:app.py"
+      ],
+      "languageLesson": "Flask routes here already follow a useful pattern for refactoring: each API route is a thin handler that delegates to a private _impl function holding the logic. That separation is the seam to exploit \u2014 the _impl bodies can be lifted into dedicated service/controller modules and the thin handlers reduced to a registration-only blueprint."
+    },
+    {
+      "order": 2,
+      "title": "The Stock Screener Engine",
+      "description": "screener.py is the first domain service app.py imports. It fetches exchange quotes from the Yahoo Finance screener API with on-disk caching, screens stocks across configured exchanges, and exposes the available-sectors helper consumed by the screener route. For the refactor, note that the heavy screener_page logic still lives inside app.py \u2014 this module is where that orchestration should eventually move so the controller only wires HTTP to a clean service boundary.",
+      "nodeIds": [
+        "file:screener.py"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Weinstein Stage Classification",
+      "description": "stage_classifier.py is the second engine wired into the screener route. It runs vectorized Weinstein stage analysis \u2014 moving averages, RS-line, and distribution-day features across the entire price panel \u2014 to classify every ticker into Stage 1-4. It already exposes a clean top-level entry (run_stage_from_local_db) with a module-level TTL cache, making it a good model for how the other tangled-up analytics in app.py should be packaged.",
+      "nodeIds": [
+        "file:stage_classifier.py"
+      ],
+      "languageLesson": "This module leans on heavily vectorized pandas (rolling windows, div/pct_change over a wide DataFrame) instead of per-ticker Python loops. When refactoring, preserve the whole-panel vectorization \u2014 it is the performance contract, and breaking it into row-wise calls would be a major regression."
+    },
+    {
+      "order": 4,
+      "title": "Options Orchestration vs Pure Math",
+      "description": "The options feature is the cleanest example of the layering the rest of the app should aspire to. options_service.py handles all the messy I/O \u2014 fetching option chains and spot via yfinance with caching, rate-limit backoff, and cache-fallback \u2014 then delegates the actual computation to gex_engine.py, a stateless pure-math module (Black-Scholes gamma, per-strike aggregation, gamma-flip, call/put walls). This service-orchestrates-engine split is exactly the seam to replicate when carving logic out of app.py.",
+      "nodeIds": [
+        "file:options_service.py",
+        "file:gex_engine.py"
+      ],
+      "languageLesson": "gex_engine has no dependencies beyond math and operates entirely on plain dicts, which is why it is trivially unit-testable. The lesson for the refactor: push pure transforms into dependency-free modules and keep network/cache concerns in a separate orchestration layer (options_service)."
+    },
+    {
+      "order": 5,
+      "title": "The Core Market-Data Layer",
+      "description": "data_manager.py is the most widely depended-upon module in the codebase (highest fan-out): it fetches the liquid equity universe and OHLCV prices from yfinance, persists them as parquet, and provides cached loaders plus incremental update routines used by the screener, stage classifier, and macro services alike. Because so much depends on it, its public loader API (load_prices, load_universe, load_spy) is a stable contract you must preserve carefully through any refactor.",
+      "nodeIds": [
+        "file:data_manager.py"
+      ],
+      "languageLesson": "Persistence here is parquet-on-disk with an in-process _mem_cache keyed by path+mtime, not a database. yfinance downloads arrive as multi-index DataFrames that get sliced into per-field frames \u2014 keep that reshape centralized in this module so callers never touch the raw multi-index shape."
+    },
+    {
+      "order": 6,
+      "title": "Data Freshness Auditing",
+      "description": "data_freshness.py inspects the on-disk price parquet, Refinitiv pickle, universe, and classification metadata to report staleness, coverage, and recommended refresh actions \u2014 it powers the /api/freshness panel surfaced in the UI. For a debuggability-focused refactor this is your observability layer: a strong place to extend with structured/debug logging so data-staleness bugs become visible instead of silently producing stale screener results.",
+      "nodeIds": [
+        "file:data_freshness.py"
+      ]
+    },
+    {
+      "order": 7,
+      "title": "Daily Classification Batch Job",
+      "description": "update_classifications.py is the offline batch script that regenerates all classification JSON artifacts (Weinstein stages, PCA 5-cluster regimes, MA-position screener, EPS-growth acceleration) which app.py later loads at request time. Understanding this producer/consumer split matters for the refactor: the web layer reads precomputed JSON, so request-path performance depends on this job, not on live computation.",
+      "nodeIds": [
+        "file:update_classifications.py"
+      ],
+      "languageLesson": "This is a top-to-bottom procedural script with no function definitions that mutates sys.path to import from the sandbox stage_pca package. That implicit path manipulation is fragile \u2014 a refactor candidate is to convert it into importable functions with explicit dependencies so it can be tested and scheduled reliably."
+    },
+    {
+      "order": 8,
+      "title": "The Macro Blueprint Boundary",
+      "description": "The macro feature shows the modular structure the rest of the app should follow: macro/__init__.py defines a Flask Blueprint (url_prefix /macro) and imports macro/routes.py, which holds thin handlers for the liquidity dashboard and sector-RRG endpoints that delegate to services. This blueprint is the template for breaking app.py apart \u2014 each cohesive feature (screener, options, watchlist) could become its own blueprint registered the same way.",
+      "nodeIds": [
+        "file:macro/__init__.py",
+        "file:macro/routes.py"
+      ],
+      "languageLesson": "A Flask Blueprint groups routes under a url_prefix and is registered onto the app at startup. Modeling each feature as a blueprint turns app.py from a 2090-line god-object into a slim factory that just imports and registers blueprints \u2014 the central move of this refactor."
+    },
+    {
+      "order": 9,
+      "title": "Macro Services and Shared Cache",
+      "description": "Behind the macro routes sit two service modules \u2014 liquidity_service.py (regime classification, layer scores, overlays, transmission diagnostics shaped into Plotly traces) and rrg_service.py (Relative Rotation Graph tails, traces, and drilldowns) \u2014 both memoizing expensive work through the shared macro/cache.py TTL cache. This trio (routes \u2192 service \u2192 cache) is the clean controller/service/utility separation the screener and options code inside app.py still lack.",
+      "nodeIds": [
+        "file:macro/liquidity_service.py",
+        "file:macro/rrg_service.py",
+        "file:macro/cache.py"
+      ],
+      "languageLesson": "macro/cache.py's ttl_cache takes a thunk (a zero-arg function) and lazily recomputes on expiry, with a process-wide dict as the store. Passing computation as a thunk lets the cache wrap any expensive call uniformly \u2014 a reusable pattern worth extracting app-wide rather than re-implementing per module."
+    },
+    {
+      "order": 10,
+      "title": "The View Layer and Shared Layout",
+      "description": "templates/base.html is the root Jinja2 layout every page extends (fan-in 8, the most-included file): it renders the nav bar, the slide-in data-freshness panel that calls /api/freshness, and the localStorage-backed watchlist state shared across pages. The feature pages \u2014 screener.html, options.html, stages.html \u2014 fill its content/scripts blocks. When refactoring routes into blueprints, these template-to-route couplings (and cross-page JS in base.html) are the implicit contracts you must keep intact.",
+      "nodeIds": [
+        "file:templates/base.html",
+        "file:templates/screener.html",
+        "file:templates/options.html",
+        "file:templates/stages.html"
+      ],
+      "languageLesson": "Jinja2 template inheritance works through blocks: base.html declares blocks (title_suffix, head, content, scripts) that child templates override. Shared client state (watchlist, freshness polling) currently lives as inline JS in base.html \u2014 splitting that into static JS modules would improve debuggability alongside the Python refactor."
+    },
+    {
+      "order": 11,
+      "title": "The Test Safety Net",
+      "description": "The tests cover only the cleanest corner of the app: test_gex_engine.py unit-tests the pure GEX math, while test_gex_api.py integration-tests the Flask GEX endpoints by stubbing options_service.get_next_chains; tests/conftest.py wires the package onto sys.path so bare imports resolve during collection. This is your refactor safety net \u2014 and a gap to close: as you extract screener, stage, and macro logic into services, mirror the gex_engine pattern (pure module + stubbed-service API test) to gain regression coverage before moving code.",
+      "nodeIds": [
+        "file:tests/conftest.py",
+        "file:tests/test_gex_engine.py",
+        "file:tests/test_gex_api.py"
+      ],
+      "languageLesson": "pytest auto-discovers conftest.py for collection-time setup; here it only manipulates sys.path. The integration test stubs the service boundary (get_next_chains) rather than hitting yfinance \u2014 the same boundary-stubbing technique lets you test newly extracted services without live network calls."
+    }
+  ]
+}

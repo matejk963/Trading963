@@ -50,3 +50,6 @@ Thumbs.db
 # Logs
 *.log
 nohup.out
+
+# understand-anything generated analysis (knowledge graph + dashboard data)
+.understand-anything/
