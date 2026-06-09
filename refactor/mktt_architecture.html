@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>MKTT — Module Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#c9d1d9;--mut:#8b949e;}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);}
+  h1{margin:0;font-size:18px;}
+  h1 small{color:var(--mut);font-weight:400;font-size:13px;}
+  .wrap{padding:20px 24px;}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin:8px 0 18px;color:var(--mut);font-size:12.5px;align-items:center;}
+  .legend b{color:var(--txt);}
+  .sw{display:inline-block;width:26px;height:0;border-top:2px solid var(--mut);vertical-align:middle;margin-right:6px;}
+  .sw.dash{border-top-style:dashed;}
+  .chip{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:middle;margin-right:6px;}
+  .mermaid{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .note{color:var(--mut);font-size:12.5px;margin-top:14px;max-width:880px;}
+  .note b{color:var(--txt);}
+  code{background:#1f2630;padding:1px 5px;border-radius:4px;color:#e6edf3;}
+</style>
+</head>
+<body>
+<header>
+  <h1>MKTT — Module Architecture <small>&nbsp;src/mktt/ · 6 layers · simplified from the 110-node graph</small></h1>
+</header>
+<div class="wrap">
+  <div class="legend">
+    <span><span class="sw"></span> <b>solid</b> = confirmed <code>import</code></span>
+    <span><span class="sw dash"></span> <b>dashed</b> = runtime orchestration (HTTP route → service)</span>
+    <span><span class="chip" style="background:#b1361e"></span> refactor target</span>
+    <span><span class="chip" style="background:#1f6f43"></span> clean pattern to copy</span>
+    <span><span class="chip" style="background:#3b4754"></span> stable contract — don't break</span>
+  </div>
+
+  <div class="mermaid">
+flowchart TB
+
+subgraph CTRL["🎛️ Controllers &amp; Routes — HTTP layer"]
+  direction TB
+  APP["app.py<br/><i>2090 lines · monolith</i><br/>all page routes + JSON APIs"]:::target
+  MBP["macro/__init__.py<br/><i>Blueprint /macro</i>"]:::clean
+  MRT["macro/routes.py<br/><i>thin handlers → services</i>"]:::clean
+end
+
+subgraph DOM["🧠 Domain &amp; Business Logic — analytics engines"]
+  direction TB
+  SCR["screener.py<br/><i>Yahoo screen + cache</i>"]
+  STG["stage_classifier.py<br/><i>Weinstein stages</i>"]:::contract
+  OSV["options_service.py<br/><i>I/O + caching</i>"]:::clean
+  GEX["gex_engine.py<br/><i>pure-math GEX</i>"]:::contract
+  LIQ["macro/liquidity_service.py"]
+  RRG["macro/rrg_service.py"]
+end
+
+subgraph DATA["💾 Data Access &amp; Pipelines"]
+  direction TB
+  DMG["data_manager.py<br/><i>yfinance → parquet · fan-in 7</i>"]:::contract
+  DFR["data_freshness.py<br/><i>staleness audit · /api/freshness</i>"]
+  UPD["update_classifications.py<br/><i>offline batch → JSON</i>"]
+end
+
+subgraph UTIL["🔧 Shared Utilities"]
+  CACHE["macro/cache.py<br/><i>TTL cache</i>"]:::contract
+end
+
+subgraph VIEW["🖼️ View Templates (Jinja2)"]
+  BASE["base.html<br/><i>nav + freshness + watchlist · fan-in 8</i>"]:::contract
+  PAGES["14 page/partial templates<br/><i>all extend base.html</i>"]
+end
+
+%% confirmed imports (solid)
+APP ==> SCR
+APP ==> STG
+APP ==> MBP
+MBP ==> MRT
+OSV ==> GEX
+LIQ ==> CACHE
+RRG ==> CACHE
+UPD ==> DMG
+UPD ==> STG
+PAGES ==> BASE
+
+%% runtime orchestration (dashed)
+APP -.-> OSV
+APP -.-> DMG
+APP -.-> DFR
+MRT -.-> LIQ
+MRT -.-> RRG
+SCR -.-> DMG
+STG -.-> DMG
+OSV -.-> DMG
+
+classDef target fill:#b1361e,stroke:#e5533d,color:#fff;
+classDef clean fill:#1f6f43,stroke:#3fb950,color:#fff;
+classDef contract fill:#3b4754,stroke:#6e7b8a,color:#fff;
+  </div>
+
+  <p class="note">
+    <b>The one move that unlocks everything:</b> <code>app.py</code> (red) holds 7 feature areas + screener orchestration + classification loading.
+    The <b>green</b> nodes are the patterns already done right — copy them: <code>macro/__init__→routes→service→cache</code> (blueprint split)
+    and <code>options_service→gex_engine</code> (messy I/O vs. stateless math). Blueprint-ize each feature the same way and
+    <code>app.py</code> shrinks to app-factory + registration. <b>Grey</b> = high fan-in contracts to preserve while cutting:
+    <code>data_manager</code> loaders, <code>base.html</code>, <code>macro/cache</code>, the <code>update_classifications</code> JSON schema.
+  </p>
+</div>
+
+<script>
+  mermaid.initialize({startOnLoad:true,theme:"dark",flowchart:{curve:"basis",nodeSpacing:55,rankSpacing:70},securityLevel:"loose"});
+</script>
+</body>
+</html>

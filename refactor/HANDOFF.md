@@ -8,7 +8,7 @@ Refactor the MKTT Flask app (`src/mktt/`) into **clearer, more modular infrastru
 ## Understand-anything context (the app)
 - **`refactor/MKTT_DASHBOARD.md`** — bulleted architecture map: 6 layers, every file, refactor hotspots, stable contracts, "change X → go here" index, 11-step reading order, suggested refactor sequence.
 - **`refactor/mktt-knowledge-graph.json`** — full graph (110 nodes / 80 functions / 233 edges, 6 layers, 11-step tour). Mirror lives in `src/mktt/.understand-anything/` (gitignored).
-- **Interactive dashboard:** from the plugin dashboard dir, `GRAPH_DIR=<repo>/src/mktt npx vite --host 127.0.0.1 --port 5173` → open `http://127.0.0.1:5173/?token=<token-from-stdout>`. (Was running this session on 5173.)
+- **Interactive dashboard:** from the plugin dashboard dir (`~/.claude/plugins/cache/understand-anything/understand-anything/2.7.5/packages/dashboard`), run `GRAPH_DIR=<repo>/src/mktt UNDERSTAND_ACCESS_TOKEN=mktt-refactor npx vite --host 127.0.0.1 --port 5173` → open **`http://127.0.0.1:5173/?token=mktt-refactor`**. The token is a per-launch random hex unless you pin it via `UNDERSTAND_ACCESS_TOKEN` (we pin it to `mktt-refactor` for a stable URL).
 
 ## Branch state
 - Branch: **`refactor/mktt-app`** (off `main` @ `4a58835`), tracks `origin/refactor/mktt-app`.
