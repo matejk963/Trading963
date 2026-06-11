@@ -107,3 +107,11 @@ MKCompStore 40 current / 52837 history (parity sample via Writer); MKLists empty
 Adjustments (faithful, not redesigns): Slice 4 aligned to existing real DDL column names (eps_smart, num_analysts,
 mean_val…) + truncated DATE PKs. Slice 5 Writer ranks rs_rank by 6m returns (perf-style RS rank) rather than the
 kernel default mansfield_rs — note for final report. Sections 7/8/11/12 now unblocked (4,5,6,9 done). Next: Wave 3 = 7,8,11,12 then 13.
+
+## 2026-06-11 · orchestrator · REPORT (Wave 3 integrated)
+Wave 3 DONE — sections 7,8,11,12 built+committed (6260362,071a86a,5f43489,6013c48). Suite **263 passed** (+67).
+All 5 sections exist (screener/monitor/options/rrg/macro). streamlit leak VERIFIED killed (6 hits = relocation
+comments only; no import/sys.path; cores import standalone). Macro/RRG compute relocated read-copy (originals untouched).
+Slice-7 FLAG for Slice 13: build_default_datasource must receive fund_conn_factory for the live screener API.
+Gaps for Slice 13: Options has service.py but no routes.py (needs options_bp); old per-symbol endpoints
+(rolling_12m/sales_ttm/eps_ttm/revisions/sector_map/freshness) not yet ported — keep as legacy blueprint, no functionality loss.
