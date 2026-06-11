@@ -115,3 +115,49 @@ comments only; no import/sys.path; cores import standalone). Macro/RRG compute r
 Slice-7 FLAG for Slice 13: build_default_datasource must receive fund_conn_factory for the live screener API.
 Gaps for Slice 13: Options has service.py but no routes.py (needs options_bp); old per-symbol endpoints
 (rolling_12m/sales_ttm/eps_ttm/revisions/sector_map/freshness) not yet ported — keep as legacy blueprint, no functionality loss.
+
+## 2026-06-11 · dev/slice-13 (app-factory) · REPORT
+Built Slice #13 — turned `app.py` into an app-factory. Commit `d147da2`. Suite **275 passed**
+(263 baseline + 12 new boot tests; 7 gex_api tests re-pointed to the new contract). app.py: **2090 → 149 lines**.
+
+- **`create_app()`** builds Flask, wires a shared fund-wired DataSource
+  (`build_default_datasource(fund_conn_factory=build_conn_factory(MKTT_PG_DSN|DEFAULT))` — Slice-7 FLAG
+  resolved), injects it into every section's lazy `_PROVIDERS["data"]`, registers all 6 blueprints,
+  re-adds the `fmt_number` jinja global + `now` context processor. `__main__` keeps the
+  `auto_update_if_stale` daemon thread + `app.run(debug, port=5001, reloader=stat)` verbatim.
+- **`sections/options/routes.py`** (new) — thin `options_bp`: GET `/options` page +
+  `/api/options/gex/<sym>` and `/api/options/drilldown/<sym>` -> `options.handle` (lazy provider).
+  `templates/options.html` shell using `renderViewModel` (figure `gex_profile`, tables
+  `gex_strikes`/`gex_walls`).
+- **`legacy_routes.py`** (new, `legacy_bp`) — ported VERBATIM the endpoints no section owns:
+  `/api/rolling_12m`, `/api/sales_ttm_forward`, `/api/eps_ttm_forward`, `/api/revisions`,
+  `/api/sector_map`, `/api/freshness` + their private helpers (load_classification_lookups,
+  load_refinitiv_snapshot, _safe_num/_safe_val/fmt_number, the _impl fns). Fixed a latent NameError
+  in `_eps_ttm_forward_impl`'s fallback path (init `all_trend_dates=[]`/`fy1=DataFrame()`) — happy
+  path unchanged.
+- **Blueprint URL ownership** (verified, no conflicts): screener `/ /screener /api/screener`;
+  monitor `/chart /api/chart /api/monitor* /api/fundamentals /watchlist /api/watchlist`;
+  options `/options /api/options/*`; rrg `/rrg /api/rrg /api/rrg/drill`;
+  macro `/macro /macro/api/*`; legacy the 6 above. Old `macro/` blueprint NO LONGER registered
+  (new section supersedes it); files kept on disk.
+- **Template shadowing fix** (in app.py only): the new section shells (`sections/*/templates/*.html`)
+  were shadowed by the pre-refactor app-level `templates/*.html` of the same name (Flask searches the
+  app folder first). `create_app()` installs a `ChoiceLoader` putting the section folders ahead of the
+  app loader — section shells now render; monolith templates stay on disk untouched.
+- **FLAG (follow-up):** `/api/options/*` contract CHANGED by design — old raw GEX dict → ViewModel
+  envelope (mandated `options_bp -> options.handle`). `test_gex_api.py` was re-pointed to the new
+  envelope (stub DataSource injected into the blueprint); the old raw-dict route is fully retired.
+  This was the one endpoint whose response shape I could not keep byte-identical (intentional per the
+  refactor). New section coverage also in `test_options_section.py`.
+- **Boot smoke test** `tests/test_app_factory.py`: `create_app()` + Flask test client GETs
+  `/ /screener /api/screener /options /chart/AAPL /macro /rrg /watchlist` (+ legacy + options API) —
+  all assert no 500 / no 404 / no import error. 12 tests, green (DB-backed via MKTT_PG_DSN → etc_db).
+
+## 2026-06-11 · orchestrator · DEBRIEF (effort complete)
+All build slices done (1,2a,3,4,5,6,7,8,9,10,11,12,13). 2b (GPU) deferred by adr/0001. **275 tests pass.**
+app.py 2090 → 149 lines (app-factory). App boots vs real etc_db; all routes 200. 6 blueprints registered.
+Plan vs reality: 10 planned slices → 13 after reviewer pass (added parity harness, ViewModel renderer, MKLists;
+split kernel pandas/GPU; screener sub-split). All 8 FLAGs resolved (FLAG-7 creds found autonomously in db_migration).
+Adjustments (all faithful, logged per slice): MKFund column names aligned to existing DDL; rs_rank by 6m-return;
+/api/options now returns ViewModel envelope; legacy endpoints parked in legacy_bp; template ChoiceLoader for section shells.
+As-built recorded in docs/product/mktt-architecture.md. Effort folder frozen (Done).

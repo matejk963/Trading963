@@ -1,5 +1,5 @@
 # Plan: MKTT refactor — dev
-Status: Active
+Status: Done (2026-06-11) — 12/13 slices built; 2b GPU deferred by adr/0001
 Derived from: prd.md   Respects: `refactor/TARGET_ARCHITECTURE.md` (locked contracts §5, §8)
 Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 10 → 13 slices.
 
@@ -38,7 +38,7 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
 - [x] ▶ **12. Macro** — private layer-scoring core + macro `TimeSeries` submodule; **relocate** liquidity compute (FLAG-5); `macro/` dissolves. Blocked-by: 1, 6.
 
 **Wave 5 — cleanup:**
-- [ ] ▶ **13. app.py → app-factory + blueprint registration** (`<~80 lines`). Blocked-by: 7–12.
+- [x] ▶ **13. app.py → app-factory + blueprint registration** (`<~80 lines`). Blocked-by: 7–12.
 
 ## Change log
 - 2026-06-11 — Plan derived from prd.md + spec §11 (10 slices, first = Kernel).
