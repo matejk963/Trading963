@@ -8,8 +8,8 @@ Dependency injection (spec §8): the provider **receives** its registry (and
 submodules through it) as constructor args, so tests pass fakes — there are no
 module-global provider imports inside the logic.
 
-Only `time_series` is implemented in this slice (Slice #1). `option_chain` and
-`fundamentals` (spec §5.3) are later slices and intentionally absent here.
+`time_series` (Slice #1), `fundamentals` (Slice #4) and `option_chain` (Slice #10)
+are implemented; each routes through the `(form, id)` registry to its submodule.
 """
 from __future__ import annotations
 
@@ -117,6 +117,22 @@ class DataSource:
         # one submodule serves all fundamentals ids; resolve via the first id.
         submodule = self._registry.resolve("fundamentals", ids[0])
         return submodule.fundamentals(ids, fields=fields, estimates=estimates)
+
+    # ------------------------------------------------------------------ #
+    # option_chain (spec §5.3) — routes through the (option_chain, *) row
+    # ------------------------------------------------------------------ #
+    def option_chain(self, symbol, n_exp=4, expirations=None, force_refresh=False):
+        """symbol + params -> `OptionChain` (spec §3, §5.3).
+
+        Routes through the `(option_chain, *)` registry row to the options
+        submodule (asset-class blind — every symbol's chain comes from one source).
+        The submodule owns fetch/normalize/cache/backoff and the stale-cache
+        fallback; this provider method is the thin form-shaped seam sections call.
+        """
+        submodule = self._registry.resolve("option_chain", symbol)
+        return submodule.option_chain(
+            symbol, n_exp=n_exp, expirations=expirations, force_refresh=force_refresh
+        )
 
     # ------------------------------------------------------------------ #
     # universe fetch — delegates to the single equity implementation
