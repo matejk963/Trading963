@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+{#
+  options.html — the Options (GEX) section shell (spec §4.1, §5.1).
+
+  The page holds NO render logic: placeholder divs keyed by the ids the section
+  emits + a fetch->renderViewModel call. The generic renderer
+  (static/js/viewmodel.js) consumes the ViewModel envelope `/api/options/gex/<sym>`
+  returns.
+
+  Section figure/table ids (must match service.py):
+    figures[0].id == "gex_profile"   -> #gex_profile
+    tables[0].id  == "gex_strikes"   -> #gex_strikes
+    tables[1].id  == "gex_walls"     -> #gex_walls
+  meta sinks: title, status banner, readout badges
+    (gamma_flip / total_gex / call_wall / put_wall / regime / spot).
+
+  Input controls (symbol/band/n_exp/exps) build the typed request as a query
+  string and reload; they are NOT renderer consumers (spec §5.1) — they bind
+  handlers / build the URL.
+#}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MKTT Options — GEX</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+</head>
+<body>
+  <h2 id="vm-title">Options — GEX</h2>
+  <div id="vm-status" class="vm-banner" style="display:none"></div>
+  <div id="vm-readouts" class="vm-readouts"></div>
+
+  {# Controls build the query string; submitting reloads with the params. #}
+  <form id="gex-controls" onsubmit="return false;">
+    <label>Symbol <input name="symbol" value="{{ default_sym or 'SPY' }}" size="6"></label>
+    <label>Band
+      <select name="band">
+        <option value="5">5%</option>
+        <option value="10">10%</option>
+        <option value="15" selected>15%</option>
+        <option value="25">25%</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+    <label># Exp <input name="n_exp" value="4" size="2"></label>
+    <label>Exps <input name="exps" value="" size="14" placeholder="comma-sep dates"></label>
+    <button id="apply-gex" type="button">Apply</button>
+  </form>
+
+  {# Host divs per figure/table id the section emits. #}
+  <div id="gex_profile" class="vm-figure-host"></div>
+  <div id="gex_strikes" class="vm-table-host"></div>
+  <div id="gex_walls" class="vm-table-host"></div>
+
+  <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
+  <script>
+    (function () {
+      function buildUrl() {
+        var form = document.getElementById('gex-controls');
+        var fd = new FormData(form);
+        var sym = (fd.get('symbol') || 'SPY').trim().toUpperCase() || 'SPY';
+        fd.delete('symbol');
+        var params = new URLSearchParams(fd);
+        return '/api/options/gex/' + encodeURIComponent(sym) + '?' + params.toString();
+      }
+      function load() { ViewModel.fetchAndRender(buildUrl()); }
+      document.getElementById('apply-gex').addEventListener('click', load);
+      document.addEventListener('DOMContentLoaded', load);
+    })();
+  </script>
+</body>
+</html>
