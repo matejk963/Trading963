@@ -169,3 +169,10 @@ BUG surfaced only by real-data migration (FLAG, fixed): regime came back 0/4835 
 Fix 7f4df7e: min_periods on the MA/vol/adr rolling calls. After re-run: regime 4501/4835 (334 null = insufficient
 history; dist 0:247 1:1359 2:437 3:2120 4:338). All signals now populated; full suite green. Screener now backed by
 the whole universe, not the 40-sample.
+
+## 2026-06-11 · orchestrator · REPORT (refetch bad date + re-analysis)
+Found the glitch date: 2026-06-09 had 1/4835 symbols in close.parquet (failed fetch). Re-fetched all symbols
+for that date via yfinance (4794 returned; rest genuinely delisted), patched close/high/low/volume parquets
+(backed up as *.bak_0609). Then re-ran the full Writer on corrected prices: 2026-06-09 history row 1→4794;
+classification_history 6,501,397; current regime 4503 / stage 4835. Prices and computed analysis now consistent
+and clean across 2020-04-24 → 2026-06-11.
