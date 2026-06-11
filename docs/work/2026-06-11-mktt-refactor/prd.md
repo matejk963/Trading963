@@ -40,3 +40,7 @@ Background: `refactor/MKTT_DASHBOARD.md` (current-state analysis), `refactor/mkt
 
 ## Changelog
 - 2026-06-11 — Accepted. Derived from a grill-me session + `refactor/TARGET_ARCHITECTURE.md`.
+- 2026-06-11 — Scope widened (FLAG-5, adr/0001 context): killing the RRG/Macro `streamlit_app` leak
+  requires **relocating** the ETF/futures/liquidity `compute_*` functions out of the sibling Streamlit
+  apps (`src/analysis/sector_rrg`, `src/analysis/liquidity_monitoring`) into section-private cores under
+  `src/mktt/`. IN scope now includes vendoring that compute code (read-copy, originals untouched).

@@ -25,3 +25,54 @@ Effort opened. PRD `Accepted` (strategy over `refactor/TARGET_ARCHITECTURE.md`, 
   path works (`rs_rank` null when 1 symbol); device auto-select with CPU fallback.
 - **Definition of done:** signatures match §5.2; pure pytest green (no DB/net/Flask); behavior parity
   with `src/mktt/stage_classifier.py` on a sample; REPORT here + task 2 ticked.
+
+## 2026-06-11 · reviewer (slice review) · REPORT
+Reviewed prd + plan + spec against live `src/mktt/`. Reformulated 10 → 13 slices (added parity
+harness, ViewModel renderer, MKLists; split Kernel into pandas/GPU; Screener sub-split 7a/7b/7c;
+corrected dep graph). Plan-dev.md updated. 8 FLAGs raised (below). Evidence cited file:line in the
+review. Recommended first dispatch: **2a (Kernel pandas) + 3 (parity harness)** in parallel — both AFK.
+
+## 2026-06-11 · reviewer · FLAGs (open)
+- **FLAG-1** [tactics] RelativeStrength `benchmark` has no provider; today SPY is hard-wired
+  (`stage_classifier.py:79`, `data_manager.load_spy`). → add benchmark acquisition to Slice 1. Resolved-by: (plan, done) — Slice 1 now includes it.
+- **FLAG-2** [decision] Kernel "GPU-tensorized" is greenfield — no torch/cuda in repo. → split 2a(pandas)/2b(GPU); is GPU in scope for parity or deferred? Resolved-by: ___ (USER decision pending).
+- **FLAG-3** [decision] Screener classification cols (`PCA_Regime`/`EPS_Accel`/`MA_Screen`) come from a
+  PCA+KMeans pipeline (`update_classifications.py:142`, `pca_stage_classifier.py`), NOT the Weinstein
+  kernel `stage`. Store §6 carries `regime` but no slice produces it; spec says kernel is the store's
+  only writer (§4.5). → ADR clarifying "kernel (3 primitives)" vs "additional Writer-fed classifiers". Resolved-by: ___ (USER/ADR pending).
+- **FLAG-4** [tactics] Slice 7 (Screener) hides ≥3 sub-slices (live technicals + Refinitiv enrich +
+  full-universe median PE + 40 filters, `app.py:214–880`). → 7a/7b/7c. Resolved-by: (plan, done).
+- **FLAG-5** [strategy/scope] RRG + Macro import `compute_*` from sibling Streamlit apps via sys.path +
+  a mocked `streamlit` (`rrg_service.py:13`, `liquidity_service.py:14`). Killing the leak = RELOCATING
+  that code into private cores → widens IN scope beyond `src/mktt/**` (PRD). Resolved-by: ___ (USER scope call pending).
+- **FLAG-6** [tactics] Dep graph wrong: generic renderer (6) blocks all sections; Options is parallel
+  to Screener, not after it. Resolved-by: (plan, done).
+- **FLAG-7** [operations] App-level Postgres creds (Prefect config, `10.123.0.9`) not retrieved.
+  Slices 4/5/9 (DB integration) HITL-gated until creds confirmed. db-tools has `etc_db` write access
+  (schemas were created via it) but app/test code needs raw creds. Resolved-by: ___ (orchestrator/USER pending).
+- **FLAG-8** [operations] `screener.py` (`screen_stocks`) is dead vs the live route; the `/screener`
+  route uses parquet+Refinitiv inline. Parity target = the route, not `screener.py`. Resolved-by: noted for Slices 1/7.
+
+## 2026-06-11 · orchestrator · HANDOFF
+Plan reformulated to 13 slices; tactical FLAGs (1,4,6,8) resolved in-plan. **4 FLAGs need the user:**
+FLAG-2 (GPU scope), FLAG-3 (PCA-regime ADR), FLAG-5 (scope-widening), FLAG-7 (DB creds). None of these
+block the AFK first wave — **2a (Kernel pandas), 3 (parity harness), 1 (DataSource), 6 (renderer)** are
+unblocked and creds-free. Next: get user calls on the 4 FLAGs, then dispatch Wave 1.
+
+## 2026-06-11 · orchestrator · REPORT (decisions — user said "go with recommended", proceed autonomously)
+The 4 escalated FLAGs resolved:
+- **FLAG-2 (GPU):** DEFERRED. Build pandas kernel (2a); GPU (2b) later behind same interface. → adr/0001.
+- **FLAG-3 (PCA-regime):** KEEP as Writer-fed classifiers; kernel stays 3 primitives. → adr/0001. Slice 5 gains classifier sub-steps.
+- **FLAG-5 (scope):** WIDEN — vendor RRG/liquidity `compute_*` out of the sibling Streamlit apps into
+  section-private cores under `src/mktt/`. → prd changelog. Slices 11/12 include relocation.
+- **FLAG-7 (creds):** App DB connection parameterized via env `MKTT_PG_DSN`; schema verified via db-tools
+  (`etc_db` — orchestrator has write access). DB-integration slices (4/5/9) BUILT with env DSN;
+  live-runtime connection is deploy-config (user supplies DSN later). Not a code blocker.
+- **Dev location:** to keep autonomous orchestration simple, dev happens in the PRIMARY checkout on
+  branch `chore/agents-workflow-port` (carries spec + plan + data/cache); sequential commits per slice.
+  The `refactor/mktt-impl` worktree stays for old-vs-new comparison. (Plan Parameters adjusted.)
+
+## 2026-06-11 · orchestrator · HANDOFF (dispatching Wave 1)
+Dispatching Wave 1 (AFK, creds-free): Slice 3 (parity harness) → Slice 1 (DataSource) → Slice 2a
+(Kernel pandas) → Slice 6 (ViewModel renderer), sequential to avoid git races. Each: TDD, tests green,
+commit, REPORT. Then integrate + Wave 3 (DB, env-DSN) + Wave 4 (sections).
