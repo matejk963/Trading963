@@ -161,3 +161,11 @@ split kernel pandas/GPU; screener sub-split). All 8 FLAGs resolved (FLAG-7 creds
 Adjustments (all faithful, logged per slice): MKFund column names aligned to existing DDL; rs_rank by 6m-return;
 /api/options now returns ViewModel envelope; legacy endpoints parked in legacy_bp; template ChoiceLoader for section shells.
 As-built recorded in docs/product/mktt-architecture.md. Effort folder frozen (Done).
+
+## 2026-06-11 · orchestrator · REPORT (full-universe migration + regime bugfix)
+Ran the Writer over the full 4835-symbol universe → MKCompStore.classification_current 4835 / history 6,496,604.
+BUG surfaced only by real-data migration (FLAG, fixed): regime came back 0/4835 — a corrupt date in close.parquet
+(~1 symbol present) NaN-poisoned every strict rolling window in pca_regime → dropna wiped the cross-section.
+Fix 7f4df7e: min_periods on the MA/vol/adr rolling calls. After re-run: regime 4501/4835 (334 null = insufficient
+history; dist 0:247 1:1359 2:437 3:2120 4:338). All signals now populated; full suite green. Screener now backed by
+the whole universe, not the 40-sample.
