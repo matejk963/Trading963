@@ -58,15 +58,24 @@ class Registry:
         self._submodules[(form, asset_class)] = submodule
 
     def resolve(self, form: str, id: str):
-        """Resolve a `(form, id)` to its submodule (via the id's asset class)."""
+        """Resolve a `(form, id)` to its submodule (via the id's asset class).
+
+        Resolution order: exact `(form, asset_class)`, then a form-wide wildcard
+        `(form, "*")`. The wildcard serves forms where asset class is irrelevant —
+        e.g. fundamentals live in one `MKFund` table for every symbol, so the
+        registry holds a single `(fundamentals, "*")` row instead of one per class.
+        """
         ac = self.asset_class_of(id)
-        try:
-            return self._submodules[(form, ac)]
-        except KeyError as exc:
-            raise KeyError(
-                f"no submodule registered for form={form!r} asset_class={ac!r} "
-                f"(id={id!r})"
-            ) from exc
+        sub = self._submodules.get((form, ac))
+        if sub is not None:
+            return sub
+        sub = self._submodules.get((form, "*"))
+        if sub is not None:
+            return sub
+        raise KeyError(
+            f"no submodule registered for form={form!r} asset_class={ac!r} "
+            f"(id={id!r})"
+        )
 
     def group_by_submodule(self, form: str, ids):
         """Group ids by their resolved submodule, preserving order within groups.

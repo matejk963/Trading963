@@ -96,6 +96,29 @@ class DataSource:
         return panel
 
     # ------------------------------------------------------------------ #
+    # fundamentals (spec §5.3) — reads MKFund via the registered submodule
+    # ------------------------------------------------------------------ #
+    def fundamentals(self, ids, fields=None, estimates: bool = False):
+        """ids + optional field projection -> `Fundamentals` (symbol × attributes).
+
+        Routes every id through the `(fundamentals, *)` registry row to the MKFund
+        submodule (asset class is irrelevant — one fundamentals table per symbol).
+        `fields=None` returns all columns; `estimates=True` attaches FY1/FY2 curves.
+        """
+        ids = _normalize_ids(ids)
+        if not ids:
+            sub = self._registry._submodules.get(("fundamentals", "*"))
+            if sub is None:
+                import pandas as _pd
+                df = _pd.DataFrame()
+                df.index.name = "symbol"
+                return df
+            return sub.fundamentals([], fields=fields, estimates=estimates)
+        # one submodule serves all fundamentals ids; resolve via the first id.
+        submodule = self._registry.resolve("fundamentals", ids[0])
+        return submodule.fundamentals(ids, fields=fields, estimates=estimates)
+
+    # ------------------------------------------------------------------ #
     # universe fetch — delegates to the single equity implementation
     # ------------------------------------------------------------------ #
     def fetch_universe(self, *args, **kwargs):
