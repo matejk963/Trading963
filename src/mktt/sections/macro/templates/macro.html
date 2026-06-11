@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+{#
+  macro.html — the Macro section shell (spec §4.1, §5.1).
+
+  The page holds NO render logic: placeholder divs keyed by the figure/table ids
+  the section emits + a fetch->renderViewModel call. The generic renderer
+  (static/js/viewmodel.js) consumes the ViewModel envelope the /macro/api/* routes
+  return.
+
+  Section figure/table ids by view (must match service.py):
+    liquidity     -> figures[0].id == "liquidity_composite"
+    layer         -> figures[0].id == "layer_detail"   tables[0].id == "layer_indicators"
+    overlay       -> figures[0].id == "overlay"
+    transmission  -> figures[0].id == "transmission_chain"  tables[0].id == "transmission_stages"
+  meta sinks: title, status banner, readout badges (l1/l2a/l2b/composite/regime/bias).
+
+  The view switcher rebuilds the API URL and refetches; it is NOT a renderer
+  consumer (spec §5.1) — it binds a handler and re-runs the fetch.
+#}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MKTT Macro — Global Liquidity</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+  <script src="/static/js/viewmodel.js"></script>
+</head>
+<body>
+  <h2 id="vm-title">Global Liquidity</h2>
+  <div id="vm-status" class="vm-banner" style="display:none"></div>
+  <div id="vm-readouts" class="vm-readouts"></div>
+
+  {# View switcher builds the API URL; selecting refetches. #}
+  <form id="macro-controls" onsubmit="return false;">
+    <label>View
+      <select name="view">
+        <option value="liquidity" {% if active_view == 'liquidity' %}selected{% endif %}>Liquidity Dashboard</option>
+        <option value="layer" {% if active_view == 'layer' %}selected{% endif %}>Layer Detail</option>
+        <option value="overlay" {% if active_view == 'overlay' %}selected{% endif %}>Asset Overlay</option>
+        <option value="transmission" {% if active_view == 'transmission' %}selected{% endif %}>Transmission Chain</option>
+      </select>
+    </label>
+    <label>Layer
+      <select name="layer">
+        <option value="1">L1 — CB</option>
+        <option value="2a">L2a — Private</option>
+        <option value="2b">L2b — Economy</option>
+      </select>
+    </label>
+    <label>Overlay asset <input name="asset" value="SPY" size="6"></label>
+  </form>
+
+  {# Placeholder divs — the renderer fills the one matching the active view. #}
+  <div id="liquidity_composite"></div>
+  <div id="layer_detail"></div>
+  <div id="layer_indicators"></div>
+  <div id="overlay"></div>
+  <div id="transmission_chain"></div>
+  <div id="transmission_stages"></div>
+
+  <script>
+    // Map the selected view to its API endpoint.
+    function macroApiUrl() {
+      const form = document.getElementById('macro-controls');
+      const view = form.view.value;
+      if (view === 'layer') return '/macro/api/layer/' + encodeURIComponent(form.layer.value);
+      if (view === 'overlay') return '/macro/api/overlay?asset=' + encodeURIComponent(form.asset.value);
+      if (view === 'transmission') return '/macro/api/transmission';
+      return '/macro/api/liquidity';
+    }
+
+    function loadMacro() {
+      fetch(macroApiUrl())
+        .then(r => r.json())
+        .then(renderViewModel)
+        .catch(err => console.error('macro fetch failed', err));
+    }
+
+    document.getElementById('macro-controls').addEventListener('change', loadMacro);
+    loadMacro();
+  </script>
+</body>
+</html>

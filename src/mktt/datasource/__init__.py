@@ -16,6 +16,7 @@ from .provider import DataSource
 from .registry import Registry
 from .submodules.equity import EquitySubmodule, US_EXCHANGES
 from .submodules.fundamentals import FundamentalsSubmodule
+from .submodules.macro import MacroSubmodule
 from .submodules.options import OptionsSubmodule, OptionChainError
 from .submodules.rrg_yf import EtfSubmodule, FuturesSubmodule
 
@@ -24,6 +25,7 @@ __all__ = [
     "Registry",
     "EquitySubmodule",
     "FundamentalsSubmodule",
+    "MacroSubmodule",
     "OptionsSubmodule",
     "EtfSubmodule",
     "FuturesSubmodule",
@@ -31,6 +33,7 @@ __all__ = [
     "OptionChainError",
     "build_default_datasource",
     "rrg_asset_class_tags",
+    "macro_asset_class_tags",
 ]
 
 # Asset-class tags that are NOT the default. The bulk equity universe needs no
@@ -61,6 +64,19 @@ def rrg_asset_class_tags() -> dict:
     return tags
 
 
+def macro_asset_class_tags() -> dict:
+    """`id -> "macro"` rows for every FRED code the Macro section reads (FLAG-5).
+
+    Derived from the Macro section's private scoring config (`FRED_SERIES`) so
+    adding an indicator there flows through to routing without a second edit
+    (spec §4.4 — "adding an asset type = a registry row"). Imported lazily to keep
+    the DataSource package free of any section import at module load.
+    """
+    from sections.macro.scoring import FRED_SERIES
+
+    return {code: "macro" for code in FRED_SERIES}
+
+
 def build_default_datasource(
     data_dir: Optional[Path] = None,
     screen=None,
@@ -70,6 +86,7 @@ def build_default_datasource(
     ticker_factory=None,
     etf_download=None,
     futures_download=None,
+    macro_reader=None,
 ) -> DataSource:
     """Build the production DataSource: one equity submodule serving both the
     universe (`equity`) and the benchmark (`benchmark`) asset classes off local
@@ -91,6 +108,8 @@ def build_default_datasource(
         # RRG ETF/futures via yfinance (FLAG-5 — replaces the streamlit_app leak).
         ("time_series", "etf"): EtfSubmodule(download=etf_download),
         ("time_series", "futures"): FuturesSubmodule(download=futures_download),
+        # Macro FRED series from the cached CSV (FLAG-5 — replaces the liquidity_service leak).
+        ("time_series", "macro"): MacroSubmodule(reader=macro_reader),
         # Asset-class blind: every symbol's option chain comes from one source.
         ("option_chain", "*"): OptionsSubmodule(ticker_factory=ticker_factory),
     }
@@ -104,6 +123,10 @@ def build_default_datasource(
     # ETF/futures id -> asset_class rows (FLAG-5). Benchmark tag wins on collision
     # (e.g. SPY is the equity benchmark, not an RRG ETF leaf).
     for _id, _ac in rrg_asset_class_tags().items():
+        asset_class.setdefault(_id, _ac)
+    # Macro FRED-code -> "macro" rows (FLAG-5). FRED codes (WALCL, DGS10, ...) do
+    # not collide with equity tickers, so a plain setdefault is safe.
+    for _id, _ac in macro_asset_class_tags().items():
         asset_class.setdefault(_id, _ac)
 
     registry = Registry(
