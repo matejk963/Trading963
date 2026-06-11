@@ -1,0 +1,48 @@
+{#
+  _viewmodel_shell.html — the thin-blueprint render pattern (spec §4.1, §5.1).
+
+  A section page is just: placeholder divs keyed by id + a fetch-then-render call.
+  The page holds NO render logic — the generic renderer (static/js/viewmodel.js)
+  consumes the ViewModel envelope the section's API returns. To make a real page,
+  `{% extends "base.html" %}`, drop these placeholders into the content block,
+  point `VM_API_URL` at the section route, and add the input controls that build
+  the request (they are NOT renderer consumers — they bind handlers / build the URL).
+
+  Required upstream: Plotly is loaded (base templates already pull
+  `cdn.plot.ly/plotly-2.35.0.min.js`). This partial only adds viewmodel.js.
+
+  Expected envelope (spec §5.1):
+    { figures:[{id,traces,layout}], tables:[{id,columns,rows}],
+      meta:{ status, message, asof, title, context, readouts } }
+#}
+
+{# --- meta sinks: title, status banner, readout badges --------------------- #}
+<h2 id="vm-title"></h2>
+<div id="vm-status" class="vm-banner" style="display:none"></div>
+<div id="vm-readouts" class="vm-readouts"></div>
+
+{# --- element placeholders: one div per figure/table id the section emits --- #}
+{#
+  These ids MUST match the `id` fields the section puts in figures[]/tables[].
+  A one-figure section needs just `#main-figure`; Monitor returns several, so it
+  declares several. Example for a single-figure + single-table section:
+#}
+<div id="main-figure" class="vm-figure" style="width:100%;height:480px"></div>
+<div id="main-table" class="vm-table-host"></div>
+
+{# --- the fetch-then-render call (the whole client "logic") ----------------- #}
+<script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
+<script>
+  (function () {
+    // Point this at the section route; build the query string from page inputs.
+    var VM_API_URL = "{{ vm_api_url | default('/api/section') }}";
+
+    function load() {
+      // Input controls build the typed request here (querystring or POST body),
+      // then hand the response envelope to the generic renderer.
+      ViewModel.fetchAndRender(VM_API_URL);
+    }
+
+    document.addEventListener('DOMContentLoaded', load);
+  })();
+</script>
