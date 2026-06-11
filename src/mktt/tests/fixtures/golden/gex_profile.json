@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "source": "src/mktt/gex_engine.py (compute_profile)",
+    "basis": "deterministic synthetic chain (live option data is intraday-variable; pure GEX math frozen instead)",
+    "spot": 100.0,
+    "band_pct": 0.15,
+    "input_chains": [
+      {
+        "expiration": "2026-06-19",
+        "dte": 7,
+        "calls": [
+          {
+            "strike": 95,
+            "oi": 1200,
+            "iv": 0.18
+          },
+          {
+            "strike": 100,
+            "oi": 5000,
+            "iv": 0.16
+          },
+          {
+            "strike": 105,
+            "oi": 3000,
+            "iv": 0.17
+          },
+          {
+            "strike": 110,
+            "oi": 1500,
+            "iv": 0.19
+          }
+        ],
+        "puts": [
+          {
+            "strike": 90,
+            "oi": 2200,
+            "iv": 0.22
+          },
+          {
+            "strike": 95,
+            "oi": 1800,
+            "iv": 0.2
+          },
+          {
+            "strike": 100,
+            "oi": 4000,
+            "iv": 0.18
+          }
+        ]
+      },
+      {
+        "expiration": "2026-06-26",
+        "dte": 14,
+        "calls": [
+          {
+            "strike": 100,
+            "oi": 2500,
+            "iv": 0.17
+          },
+          {
+            "strike": 105,
+            "oi": 2000,
+            "iv": 0.18
+          }
+        ],
+        "puts": [
+          {
+            "strike": 95,
+            "oi": 1500,
+            "iv": 0.21
+          },
+          {
+            "strike": 100,
+            "oi": 2800,
+            "iv": 0.19
+          }
+        ]
+      }
+    ]
+  },
+  "profile": {
+    "spot": 100.0,
+    "strikes": [
+      {
+        "strike": 90,
+        "call_gex": 0,
+        "put_gex": -6262,
+        "net_gex": -6262,
+        "oi": 2200
+      },
+      {
+        "strike": 95,
+        "call_gex": 209611,
+        "put_gex": -1046056,
+        "net_gex": -836445,
+        "oi": 4500
+      },
+      {
+        "strike": 100,
+        "call_gex": 11979706,
+        "put_gex": -9390174,
+        "net_gex": 2589531,
+        "oi": 14300
+      },
+      {
+        "strike": 105,
+        "call_gex": 1605870,
+        "put_gex": 0,
+        "net_gex": 1605870,
+        "oi": 5000
+      },
+      {
+        "strike": 110,
+        "call_gex": 3797,
+        "put_gex": 0,
+        "net_gex": 3797,
+        "oi": 1500
+      }
+    ],
+    "flip": 96.22,
+    "call_wall": 100,
+    "put_wall": 95,
+    "total_gex": 3356491,
+    "regime": "positive",
+    "assumptions": {
+      "risk_free": 0.045,
+      "dividend_yield": 0.0,
+      "dealer_positioning": "naive (dealers long calls, short puts)",
+      "oi_basis": "prior-session end-of-day",
+      "units": "$ notional gamma per +1% move"
+    }
+  }
+}
