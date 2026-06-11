@@ -26,16 +26,16 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
 - [ ] ⏸ **2b. Kernel GPU backend** — tensor/device-auto behind the same interface, equivalence-tested vs 2a. Blocked-by: 2a + GPU-scope decision (FLAG-2).
 
 **Wave 3 — DB integration (creds-gated, FLAG-7):**
-- [ ] ▶ **4. MKFund loader** — pkl → `MKFund` tables + `data.fundamentals`; collapse the 7 raw pkl reads. Blocked-by: creds.
-- [ ] ▶ **5. ComputedStore + Writer** — `time_series`→kernel→upsert `classification_*`; `cross_section`/`history`/`ensure_fresh`. **+ PCA-regime/EPS-accel/MA-screen producers** as Writer-fed classifiers (FLAG-3, pending ADR). Blocked-by: 1, 2a, creds.
-- [ ] ▶ **9. MKLists access layer** — `lists.add/remove/members` over `MKLists.list_member`. Blocked-by: creds.
+- [x] ▶ **4. MKFund loader** — pkl → `MKFund` tables + `data.fundamentals`; collapse the 7 raw pkl reads. Blocked-by: creds.
+- [x] ▶ **5. ComputedStore + Writer** — `time_series`→kernel→upsert `classification_*`; `cross_section`/`history`/`ensure_fresh`. **+ PCA-regime/EPS-accel/MA-screen producers** as Writer-fed classifiers (FLAG-3, pending ADR). Blocked-by: 1, 2a, creds.
+- [x] ▶ **9. MKLists access layer** — `lists.add/remove/members` over `MKLists.list_member`. Blocked-by: creds.
 
 **Wave 4 — sections (each needs renderer #6):**
-- [ ] ⏸ **7. Screener** — sub-split: **7a** `ScreenRequest.from_query` + filter→column map · **7b** `screener.handle` (cross_section + fundamentals + sector-median PE) · **7c** thin blueprint + landing page. The tracer bullet. Blocked-by: 4, 5, 6 (FLAG-4).
-- [ ] ⏸ **8. Monitor** — live kernel + `classification_history` + Lists read. Blocked-by: 5, 6, 9.
-- [ ] ▶ **10. Options** — port `gex_engine` as private core + `data.option_chain`; keep existing GEX tests green. Blocked-by: 1, 6 (**parallel to Screener** — FLAG-6).
-- [ ] ⏸ **11. RRG** — section + **relocate** `compute_*` out of `streamlit_app` into a private core + etf/futures submodules (FLAG-5). Blocked-by: 1, 6.
-- [ ] ⏸ **12. Macro** — private layer-scoring core + macro `TimeSeries` submodule; **relocate** liquidity compute (FLAG-5); `macro/` dissolves. Blocked-by: 1, 6.
+- [ ] ▶ **7. Screener** — sub-split: **7a** `ScreenRequest.from_query` + filter→column map · **7b** `screener.handle` (cross_section + fundamentals + sector-median PE) · **7c** thin blueprint + landing page. The tracer bullet. Blocked-by: 4, 5, 6 (FLAG-4).
+- [ ] ▶ **8. Monitor** — live kernel + `classification_history` + Lists read. Blocked-by: 5, 6, 9.
+- [x] ▶ **10. Options** — port `gex_engine` as private core + `data.option_chain`; keep existing GEX tests green. Blocked-by: 1, 6 (**parallel to Screener** — FLAG-6).
+- [ ] ▶ **11. RRG** — section + **relocate** `compute_*` out of `streamlit_app` into a private core + etf/futures submodules (FLAG-5). Blocked-by: 1, 6.
+- [ ] ▶ **12. Macro** — private layer-scoring core + macro `TimeSeries` submodule; **relocate** liquidity compute (FLAG-5); `macro/` dissolves. Blocked-by: 1, 6.
 
 **Wave 5 — cleanup:**
 - [ ] ⏸ **13. app.py → app-factory + blueprint registration** (`<~80 lines`). Blocked-by: 7–12.

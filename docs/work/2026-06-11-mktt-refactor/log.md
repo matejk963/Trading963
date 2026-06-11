@@ -99,3 +99,11 @@ Wave 1 DONE — slices 3,1,2a,6 built, committed (cd88331,78f992f,53894ce,11be55
   touch the real MKCompStore/MKFund/MKLists destructively; loaders may populate the real tables (upsert, idempotent).
 - Options (10) unblocked (1+6 done) — parallel, not DB-gated.
 - Next: Wave 2 = slices 9, 4, 5, 10 (sequential).
+
+## 2026-06-11 · orchestrator · REPORT (Wave 2 integrated)
+Wave 2 DONE — slices 9,4,5,10 built+committed (f38f2c6,0121f81,46dcc09,3b547f7). Suite **196 passed** (+76).
+REAL DB POPULATED: MKFund fully loaded (4835 fundamentals_current; 9670/91203/280640 estimates/quarterly/revisions);
+MKCompStore 40 current / 52837 history (parity sample via Writer); MKLists empty (correct).
+Adjustments (faithful, not redesigns): Slice 4 aligned to existing real DDL column names (eps_smart, num_analysts,
+mean_val…) + truncated DATE PKs. Slice 5 Writer ranks rs_rank by 6m returns (perf-style RS rank) rather than the
+kernel default mansfield_rs — note for final report. Sections 7/8/11/12 now unblocked (4,5,6,9 done). Next: Wave 3 = 7,8,11,12 then 13.
