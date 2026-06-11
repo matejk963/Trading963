@@ -5,73 +5,94 @@
 <title>MKTT — Module Architecture</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <style>
-  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#c9d1d9;--mut:#8b949e;}
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#c9d1d9;--mut:#8b949e;--acc:#58a6ff;}
   html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
   header{padding:18px 24px;border-bottom:1px solid var(--line);}
   h1{margin:0;font-size:18px;}
   h1 small{color:var(--mut);font-weight:400;font-size:13px;}
   .wrap{padding:20px 24px;}
-  .legend{display:flex;gap:20px;flex-wrap:wrap;margin:8px 0 18px;color:var(--mut);font-size:12.5px;align-items:center;}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin:8px 0 8px;color:var(--mut);font-size:12.5px;align-items:center;}
   .legend b{color:var(--txt);}
+  .hint{color:var(--acc);font-size:12.5px;margin:0 0 16px;}
   .sw{display:inline-block;width:26px;height:0;border-top:2px solid var(--mut);vertical-align:middle;margin-right:6px;}
   .sw.dash{border-top-style:dashed;}
   .chip{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:middle;margin-right:6px;}
   .mermaid{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  /* make nodes + clusters look clickable */
+  .mermaid .node, .mermaid .cluster{cursor:pointer;}
+  .mermaid .cluster:hover rect{filter:brightness(1.25);}
+  .mermaid .node:hover{filter:brightness(1.2);}
   .note{color:var(--mut);font-size:12.5px;margin-top:14px;max-width:880px;}
   .note b{color:var(--txt);}
   code{background:#1f2630;padding:1px 5px;border-radius:4px;color:#e6edf3;}
+
+  /* slide-in info panel */
+  #panel{position:fixed;top:0;right:0;height:100%;width:380px;max-width:88vw;background:#11161d;
+    border-left:1px solid var(--line);box-shadow:-12px 0 30px rgba(0,0,0,.5);
+    transform:translateX(105%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;}
+  #panel.open{transform:translateX(0);}
+  #panel .ph{padding:18px 20px;border-bottom:1px solid var(--line);}
+  #panel .kind{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--acc);}
+  #panel h2{margin:6px 0 0;font-size:17px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#e6edf3;}
+  #panel .pb{padding:18px 20px;overflow:auto;font-size:13.5px;color:var(--txt);}
+  #panel .meta{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);}
+  #panel .meta span{display:inline-block;background:#1f2630;border-radius:4px;padding:2px 7px;margin:0 4px 4px 0;}
+  #panel .x{position:absolute;top:14px;right:16px;cursor:pointer;color:var(--mut);font-size:20px;line-height:1;}
+  #panel .x:hover{color:#fff;}
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;}
+  #scrim.open{opacity:1;pointer-events:auto;}
 </style>
 </head>
 <body>
 <header>
-  <h1>MKTT — Module Architecture <small>&nbsp;src/mktt/ · 6 layers · simplified from the 110-node graph</small></h1>
+  <h1>MKTT — Module Architecture <small>&nbsp;src/mktt/ · 6 layers · click any module or group</small></h1>
 </header>
 <div class="wrap">
   <div class="legend">
     <span><span class="sw"></span> <b>solid</b> = confirmed <code>import</code></span>
-    <span><span class="sw dash"></span> <b>dashed</b> = runtime orchestration (HTTP route → service)</span>
+    <span><span class="sw dash"></span> <b>dashed</b> = runtime orchestration</span>
     <span><span class="chip" style="background:#b1361e"></span> refactor target</span>
-    <span><span class="chip" style="background:#1f6f43"></span> clean pattern to copy</span>
-    <span><span class="chip" style="background:#3b4754"></span> stable contract — don't break</span>
+    <span><span class="chip" style="background:#1f6f43"></span> clean pattern</span>
+    <span><span class="chip" style="background:#3b4754"></span> stable contract</span>
   </div>
+  <p class="hint">▸ Click a <b>module box</b> or a <b>group label</b> to see its description.</p>
 
   <div class="mermaid">
 flowchart TB
 
 subgraph CTRL["🎛️ Controllers &amp; Routes — HTTP layer"]
   direction TB
-  APP["app.py<br/><i>2090 lines · monolith</i><br/>all page routes + JSON APIs"]:::target
+  APP["app.py<br/><i>2090 lines · monolith</i>"]:::target
   MBP["macro/__init__.py<br/><i>Blueprint /macro</i>"]:::clean
-  MRT["macro/routes.py<br/><i>thin handlers → services</i>"]:::clean
+  MRT["macro/routes.py<br/><i>thin handlers</i>"]:::clean
 end
 
 subgraph DOM["🧠 Domain &amp; Business Logic — analytics engines"]
   direction TB
-  SCR["screener.py<br/><i>Yahoo screen + cache</i>"]
-  STG["stage_classifier.py<br/><i>Weinstein stages</i>"]:::contract
-  OSV["options_service.py<br/><i>I/O + caching</i>"]:::clean
-  GEX["gex_engine.py<br/><i>pure-math GEX</i>"]:::contract
+  SCR["screener.py"]
+  STG["stage_classifier.py"]:::contract
+  OSV["options_service.py"]:::clean
+  GEX["gex_engine.py<br/><i>pure-math</i>"]:::contract
   LIQ["macro/liquidity_service.py"]
   RRG["macro/rrg_service.py"]
 end
 
 subgraph DATA["💾 Data Access &amp; Pipelines"]
   direction TB
-  DMG["data_manager.py<br/><i>yfinance → parquet · fan-in 7</i>"]:::contract
-  DFR["data_freshness.py<br/><i>staleness audit · /api/freshness</i>"]
-  UPD["update_classifications.py<br/><i>offline batch → JSON</i>"]
+  DMG["data_manager.py<br/><i>fan-in 7</i>"]:::contract
+  DFR["data_freshness.py"]
+  UPD["update_classifications.py"]
 end
 
 subgraph UTIL["🔧 Shared Utilities"]
-  CACHE["macro/cache.py<br/><i>TTL cache</i>"]:::contract
+  CACHE["macro/cache.py"]:::contract
 end
 
 subgraph VIEW["🖼️ View Templates (Jinja2)"]
-  BASE["base.html<br/><i>nav + freshness + watchlist · fan-in 8</i>"]:::contract
-  PAGES["14 page/partial templates<br/><i>all extend base.html</i>"]
+  BASE["base.html<br/><i>fan-in 8</i>"]:::contract
+  PAGES["14 templates<br/><i>extend base.html</i>"]
 end
 
-%% confirmed imports (solid)
 APP ==> SCR
 APP ==> STG
 APP ==> MBP
@@ -83,32 +104,102 @@ UPD ==> DMG
 UPD ==> STG
 PAGES ==> BASE
 
-%% runtime orchestration (dashed)
 APP -.-> OSV
 APP -.-> DMG
 APP -.-> DFR
 MRT -.-> LIQ
 MRT -.-> RRG
-SCR -.-> DMG
 STG -.-> DMG
-OSV -.-> DMG
+
+click APP call showInfo("app")
+click MBP call showInfo("mbp")
+click MRT call showInfo("mrt")
+click SCR call showInfo("scr")
+click STG call showInfo("stg")
+click OSV call showInfo("osv")
+click GEX call showInfo("gex")
+click LIQ call showInfo("liq")
+click RRG call showInfo("rrg")
+click DMG call showInfo("dmg")
+click DFR call showInfo("dfr")
+click UPD call showInfo("upd")
+click CACHE call showInfo("cache")
+click BASE call showInfo("base")
+click PAGES call showInfo("pages")
 
 classDef target fill:#b1361e,stroke:#e5533d,color:#fff;
 classDef clean fill:#1f6f43,stroke:#3fb950,color:#fff;
 classDef contract fill:#3b4754,stroke:#6e7b8a,color:#fff;
   </div>
 
-  <p class="note">
-    <b>The one move that unlocks everything:</b> <code>app.py</code> (red) holds 7 feature areas + screener orchestration + classification loading.
-    The <b>green</b> nodes are the patterns already done right — copy them: <code>macro/__init__→routes→service→cache</code> (blueprint split)
-    and <code>options_service→gex_engine</code> (messy I/O vs. stateless math). Blueprint-ize each feature the same way and
-    <code>app.py</code> shrinks to app-factory + registration. <b>Grey</b> = high fan-in contracts to preserve while cutting:
-    <code>data_manager</code> loaders, <code>base.html</code>, <code>macro/cache</code>, the <code>update_classifications</code> JSON schema.
-  </p>
+  <p class="note"><b>The one move that unlocks everything:</b> <code>app.py</code> (red) holds 7 feature areas. The <b>green</b> nodes are the patterns to copy (<code>macro</code> blueprint chain, <code>options_service→gex_engine</code>). <b>Grey</b> = high fan-in contracts to preserve.</p>
 </div>
 
+<div id="scrim" onclick="closePanel()"></div>
+<aside id="panel">
+  <span class="x" onclick="closePanel()">✕</span>
+  <div class="ph"><div class="kind" id="p-kind"></div><h2 id="p-title"></h2></div>
+  <div class="pb"><div id="p-desc"></div><div class="meta" id="p-meta"></div></div>
+</aside>
+
 <script>
-  mermaid.initialize({startOnLoad:true,theme:"dark",flowchart:{curve:"basis",nodeSpacing:55,rankSpacing:70},securityLevel:"loose"});
+const INFO = {
+  // ---- GROUPS (layers) ----
+  "grp:ctrl":{kind:"Group · Layer",title:"🎛️ Controllers & Routes",desc:"Flask HTTP layer: <code>app.py</code> defines top-level page routes and JSON APIs (screener, options/GEX, watchlist, charts, fundamentals) and registers the macro blueprint, which exposes liquidity and sector-RRG endpoints.",meta:["3 modules","the HTTP surface"]},
+  "grp:dom":{kind:"Group · Layer",title:"🧠 Domain & Business Logic",desc:"Core analytics engines orchestrated by the controllers: stock screening, Weinstein stage classification, gamma-exposure math, options-chain orchestration, and the macro liquidity and relative-rotation-graph services.",meta:["6 modules","the engines"]},
+  "grp:data":{kind:"Group · Layer",title:"💾 Data Access & Pipelines",desc:"Market-data persistence and batch jobs: yfinance price/universe loading and parquet caching, on-disk data-staleness auditing, and the nightly script that regenerates classification artifacts.",meta:["3 modules","market data + jobs"]},
+  "grp:util":{kind:"Group · Layer",title:"🔧 Shared Utilities",desc:"Cross-cutting infrastructure helper: the in-memory TTL cache used by both macro services to memoize expensive liquidity and RRG computations.",meta:["1 module"]},
+  "grp:view":{kind:"Group · Layer",title:"🖼️ View Templates",desc:"Jinja2 presentation layer: the shared base layout, full-page templates (screener, stages, options, watchlist, chart, liquidity, macro, rrg), and the reusable macro include partials.",meta:["14 templates"]},
+  // ---- MODULES ----
+  app:{kind:"Module · Controller",title:"app.py",desc:"Main Flask application entry point that constructs the app, registers the macro blueprint, and defines all top-level page routes and JSON API endpoints (screener, options/GEX, watchlist, charts, fundamentals, EPS/revisions). It wires the screener and stage-classifier engines into the HTTP layer and loads PCA/stage/Refinitiv classification lookups.",meta:["2090 lines","refactor target","fan-out 7"]},
+  mbp:{kind:"Module · Controller",title:"macro/__init__.py",desc:"Macro package initializer that defines the macro Flask Blueprint (url_prefix /macro) for the liquidity dashboard and sector RRG, then imports its routes module to register endpoints.",meta:["clean pattern","the blueprint seam"]},
+  mrt:{kind:"Module · Controller",title:"macro/routes.py",desc:"Defines the macro blueprint routes: the macro landing page, section sub-pages, and JSON APIs for liquidity, layer detail, overlay, transmission, and sector RRG (plus RRG drilldown). Handlers delegate to the liquidity and RRG services.",meta:["clean pattern","thin → services"]},
+  scr:{kind:"Module · Domain",title:"screener.py",desc:"Screener engine that fetches exchange quotes from the Yahoo Finance screener API with on-disk caching, screens stocks across configured exchanges, and exposes the available-sectors helper consumed by the Flask screener route.",meta:["leaf — imports nothing internal"]},
+  stg:{kind:"Module · Domain",title:"stage_classifier.py",desc:"Implements vectorized Weinstein stage analysis: computes moving-average, RS-line, and distribution-day features across the full price panel and classifies every ticker into Stage 1-4.",meta:["stable contract","fan-in 6"]},
+  gex:{kind:"Module · Domain",title:"gex_engine.py",desc:"Pure-math gamma exposure (GEX) engine: Black-Scholes gamma, per-contract GEX, strike aggregation, gamma-flip detection, call/put wall identification, and full profile/drilldown computation from option chains.",meta:["stable contract","stateless · pure math"]},
+  osv:{kind:"Module · Domain",title:"options_service.py",desc:"Options-data orchestration layer: fetches option chains and spot via yfinance with caching and rate-limit backoff, normalizes chains, and delegates GEX profile/drilldown computation to gex_engine.",meta:["clean pattern","I/O vs. math seam"]},
+  liq:{kind:"Module · Domain",title:"macro/liquidity_service.py",desc:"Service layer for the global liquidity dashboard, computing regime classification, layer scores, asset overlays, and transmission-break diagnostics, then shaping them into Plotly-ready trace/response payloads for the macro blueprint.",meta:["Plotly payloads"]},
+  rrg:{kind:"Module · Domain",title:"macro/rrg_service.py",desc:"Relative Rotation Graph (RRG) service that fetches ETF and futures price data, computes RS-ratio/RS-momentum tails, and builds Plotly traces, position tables, and drill-down responses for the macro blueprint.",meta:["Plotly payloads"]},
+  dmg:{kind:"Module · Data",title:"data_manager.py",desc:"Core market-data layer that fetches the liquid equity universe and OHLCV prices from yfinance, persists them as parquet files, and provides cached loaders plus incremental update routines used across the MKTT app.",meta:["stable contract","fan-in 7 (mostly lazy)","leaf"]},
+  dfr:{kind:"Module · Data",title:"data_freshness.py",desc:"Data staleness auditing module that inspects on-disk price parquet, Refinitiv pickle, universe, and classification metadata files to report freshness, coverage, and recommended refresh actions.",meta:["powers /api/freshness"]},
+  upd:{kind:"Module · Data",title:"update_classifications.py",desc:"Daily batch script that recomputes all classification JSON artifacts (Weinstein stages, PCA 5-cluster regimes, MA-position screener, EPS-growth acceleration) from current price data and writes them to the stage_pca output directory.",meta:["offline producer"]},
+  cache:{kind:"Module · Utility",title:"macro/cache.py",desc:"Lightweight in-memory TTL cache helper used across the macro service layer to memoize expensive data computations with time-based expiry and manual invalidation.",meta:["stable contract","fan-in 4"]},
+  base:{kind:"Module · View",title:"templates/base.html",desc:"Root Jinja2 layout that every page extends. Renders the top navigation bar (Screener/Liquidity/RRG/Options/Watchlist tabs), the slide-in data-freshness panel (fetches /api/freshness), footer, and the shared client-side watchlist state managed in localStorage with a right-click context menu.",meta:["stable contract","fan-in 8 — most included"]},
+  pages:{kind:"Module · View",title:"14 page / partial templates",desc:"The full-page templates (screener — default landing, stages, options/GEX, watchlist, chart, liquidity, macro, rrg) plus the reusable macro include partials. Every one extends base.html.",meta:["all extend base.html"]},
+};
+
+function showInfo(key){
+  const d = INFO[key]; if(!d) return;
+  document.getElementById('p-kind').textContent = d.kind;
+  document.getElementById('p-title').textContent = d.title;
+  document.getElementById('p-desc').innerHTML = d.desc;
+  document.getElementById('p-meta').innerHTML = (d.meta||[]).map(m=>'<span>'+m+'</span>').join('');
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+}
+function closePanel(){
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('scrim').classList.remove('open');
+}
+window.showInfo = showInfo; window.closePanel = closePanel;
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closePanel(); });
+
+mermaid.initialize({startOnLoad:true,theme:"dark",flowchart:{curve:"basis",nodeSpacing:55,rankSpacing:70},securityLevel:"loose"});
+
+// Bind group (subgraph cluster) clicks after render — Mermaid `click` only covers nodes.
+const GROUP_MATCH = [
+  [/Controllers/i,"grp:ctrl"],[/Domain/i,"grp:dom"],[/Data Access/i,"grp:data"],
+  [/Shared/i,"grp:util"],[/View Templates/i,"grp:view"],
+];
+window.addEventListener('load', ()=>{
+  setTimeout(()=>{
+    document.querySelectorAll('.mermaid .cluster').forEach(c=>{
+      const label = (c.textContent||'').trim();
+      const hit = GROUP_MATCH.find(([re])=>re.test(label));
+      if(hit){ c.style.cursor='pointer'; c.addEventListener('click',ev=>{ ev.stopPropagation(); showInfo(hit[1]); }); }
+    });
+  }, 400);
+});
 </script>
 </body>
 </html>

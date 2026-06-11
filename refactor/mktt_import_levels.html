@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>MKTT — Import Levels</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#c9d1d9;--mut:#8b949e;--acc:#58a6ff;}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);}
+  h1{margin:0;font-size:18px;}
+  h1 small{color:var(--mut);font-weight:400;font-size:13px;}
+  .wrap{padding:20px 24px;}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;margin:6px 0 8px;color:var(--mut);font-size:12.5px;align-items:center;}
+  .legend b{color:var(--txt);}
+  .hint{color:var(--acc);font-size:12.5px;margin:0 0 16px;}
+  .sw{display:inline-block;width:28px;height:0;border-top:2px solid var(--mut);vertical-align:middle;margin-right:6px;}
+  .sw.dash{border-top-style:dashed;}
+  .chip{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:middle;margin-right:6px;}
+  .mermaid{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .mermaid .node, .mermaid .cluster{cursor:pointer;}
+  .mermaid .cluster:hover rect{filter:brightness(1.25);}
+  .mermaid .node:hover{filter:brightness(1.2);}
+  .note{color:var(--mut);font-size:12.5px;margin-top:14px;max-width:900px;}
+  .note b{color:var(--txt);}
+  code{background:#1f2630;padding:1px 5px;border-radius:4px;color:#e6edf3;}
+  table{border-collapse:collapse;margin-top:14px;font-size:12.5px;}
+  td,th{border:1px solid var(--line);padding:4px 10px;text-align:left;}
+  th{color:var(--txt);} td{color:var(--mut);}
+
+  #panel{position:fixed;top:0;right:0;height:100%;width:380px;max-width:88vw;background:#11161d;
+    border-left:1px solid var(--line);box-shadow:-12px 0 30px rgba(0,0,0,.5);
+    transform:translateX(105%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;}
+  #panel.open{transform:translateX(0);}
+  #panel .ph{padding:18px 20px;border-bottom:1px solid var(--line);}
+  #panel .kind{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--acc);}
+  #panel h2{margin:6px 0 0;font-size:17px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#e6edf3;}
+  #panel .pb{padding:18px 20px;overflow:auto;font-size:13.5px;color:var(--txt);}
+  #panel .meta{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);}
+  #panel .meta span{display:inline-block;background:#1f2630;border-radius:4px;padding:2px 7px;margin:0 4px 4px 0;}
+  #panel .x{position:absolute;top:14px;right:16px;cursor:pointer;color:var(--mut);font-size:20px;line-height:1;}
+  #panel .x:hover{color:#fff;}
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;}
+  #scrim.open{opacity:1;pointer-events:auto;}
+</style>
+</head>
+<body>
+<header>
+  <h1>MKTT — Import Levels <small>&nbsp;who imports whom · ranked by dependency depth · click any module or level</small></h1>
+</header>
+<div class="wrap">
+  <div class="legend">
+    <span><span class="sw"></span> <b>solid</b> = import at module load</span>
+    <span><span class="sw dash"></span> <b>dashed</b> = lazy (in-function) import</span>
+    <span><span class="chip" style="background:#b1361e"></span> entry point</span>
+    <span><span class="chip" style="background:#3b4754"></span> leaf — imports nothing internal</span>
+    <span>arrow A→B means <b>A imports B</b></span>
+  </div>
+  <p class="hint">▸ Click a <b>module box</b> or a <b>level label</b> to see its description &amp; import relationships.</p>
+
+  <div class="mermaid">
+flowchart TB
+
+subgraph LT["⬛ Tests"]
+  direction LR
+  T1["test_gex_api"]:::test
+  T2["test_gex_engine"]:::test
+end
+
+subgraph L3["③ Entry / Controllers"]
+  APP["app.py"]:::entry
+end
+
+subgraph L2["② Orchestration"]
+  direction LR
+  MINIT["macro/__init__<br/><i>macro_bp</i>"]
+  MROUTES["macro/routes"]
+  UPD["update_classifications<br/><i>offline batch</i>"]
+end
+
+subgraph L1["① Services"]
+  direction LR
+  STG["stage_classifier"]
+  OSV["options_service"]
+  LIQ["macro/liquidity_service"]
+  RRG["macro/rrg_service"]
+end
+
+subgraph L0["⓪ Leaves — import nothing internal"]
+  direction LR
+  DM["data_manager"]:::leaf
+  GEX["gex_engine"]:::leaf
+  SCR["screener"]:::leaf
+  DFR["data_freshness"]:::leaf
+  CACHE["macro/cache"]:::leaf
+  CFG["config.indicators"]:::leaf
+end
+
+APP --> SCR
+APP --> STG
+APP --> MINIT
+MINIT --> MROUTES
+OSV --> GEX
+LIQ --> CACHE
+LIQ --> CFG
+RRG --> CACHE
+UPD --> DM
+UPD --> STG
+
+APP -. "×8" .-> DM
+APP -. "×2" .-> OSV
+APP -. "×1" .-> DFR
+STG -. lazy .-> DM
+MROUTES -. "×4" .-> LIQ
+MROUTES -. "×2" .-> RRG
+
+T1 --> APP
+T1 --> OSV
+T2 --> GEX
+
+click APP call showInfo("app")
+click MINIT call showInfo("mbp")
+click MROUTES call showInfo("mrt")
+click UPD call showInfo("upd")
+click STG call showInfo("stg")
+click OSV call showInfo("osv")
+click LIQ call showInfo("liq")
+click RRG call showInfo("rrg")
+click DM call showInfo("dmg")
+click GEX call showInfo("gex")
+click SCR call showInfo("scr")
+click DFR call showInfo("dfr")
+click CACHE call showInfo("cache")
+click CFG call showInfo("cfg")
+click T1 call showInfo("t1")
+click T2 call showInfo("t2")
+
+classDef entry fill:#b1361e,stroke:#e5533d,color:#fff;
+classDef leaf fill:#3b4754,stroke:#6e7b8a,color:#fff;
+classDef test fill:#222a33,stroke:#3b4754,color:#8b949e;
+  </div>
+
+  <p class="note">
+    <b>The levels are topological:</b> a module sits one rank above the deepest thing it imports. Read top-down — <code>app.py</code> sits on everything; the <b>leaves</b> import nothing internal and anchor the graph. <i>(Click any box for its exact imports / importers.)</i>
+  </p>
+  <p class="note">
+    <b>Two things this view exposes:</b> <code>screener</code> is a <b>true leaf</b> — <code>app.py</code> loads prices and passes them in. And <code>data_manager</code>'s "fan-in 7" is almost entirely <b>lazy</b>: <code>app.py</code> imports it inside 8 separate functions; the only load-time importer is <code>update_classifications</code>.
+  </p>
+
+  <table>
+    <tr><th>Module</th><th>Imports (internal)</th><th>Imported by</th></tr>
+    <tr><td><code>app.py</code></td><td>screener, stage_classifier, macro_bp <i>(load)</i>; data_manager×8, options_service×2, data_freshness <i>(lazy)</i></td><td>tests</td></tr>
+    <tr><td><code>macro/__init__</code></td><td>macro/routes</td><td>app.py</td></tr>
+    <tr><td><code>macro/routes</code></td><td>macro_bp <i>(load)</i>; liquidity_service×4, rrg_service×2 <i>(lazy)</i></td><td>macro/__init__</td></tr>
+    <tr><td><code>update_classifications</code></td><td>data_manager, stage_classifier <i>(load)</i></td><td>—</td></tr>
+    <tr><td><code>stage_classifier</code></td><td>data_manager <i>(lazy)</i></td><td>app.py, update_classifications</td></tr>
+    <tr><td><code>options_service</code></td><td>gex_engine</td><td>app.py <i>(lazy)</i>, tests</td></tr>
+    <tr><td><code>macro/liquidity_service</code></td><td>macro/cache, config.indicators</td><td>macro/routes <i>(lazy)</i></td></tr>
+    <tr><td><code>macro/rrg_service</code></td><td>macro/cache</td><td>macro/routes <i>(lazy)</i></td></tr>
+    <tr><td><code>data_manager</code> · <code>gex_engine</code> · <code>screener</code> · <code>data_freshness</code> · <code>macro/cache</code></td><td><i>none</i> (leaves)</td><td>see above</td></tr>
+  </table>
+</div>
+
+<div id="scrim" onclick="closePanel()"></div>
+<aside id="panel">
+  <span class="x" onclick="closePanel()">✕</span>
+  <div class="ph"><div class="kind" id="p-kind"></div><h2 id="p-title"></h2></div>
+  <div class="pb"><div id="p-desc"></div><div class="meta" id="p-meta"></div></div>
+</aside>
+
+<script>
+const INFO = {
+  // ---- LEVELS (groups) ----
+  "lvl:tests":{kind:"Level · Tests",title:"⬛ Tests",desc:"Pytest suite, the top of the graph — it imports <code>app.py</code> and the options modules to drive them. Covers the GEX engine math (<code>test_gex_engine</code>) and the GEX API endpoints (<code>test_gex_api</code>).",meta:["above app.py","only the GEX corner is covered"]},
+  "lvl:l3":{kind:"Level ③ · Entry",title:"③ Entry / Controllers",desc:"The single top-level entry: <code>app.py</code>. It sits above every other module — importing screener, stage_classifier, and the macro blueprint at load, and data_manager / options_service / data_freshness lazily.",meta:["1 module","imports everything below"]},
+  "lvl:l2":{kind:"Level ② · Orchestration",title:"② Orchestration",desc:"Modules that compose services and sit one rank above them: the macro package (<code>__init__</code> → <code>routes</code>) and the offline <code>update_classifications</code> batch.",meta:["3 modules","compose the services"]},
+  "lvl:l1":{kind:"Level ① · Services",title:"① Services",desc:"Analytics engines that depend only on leaves: <code>stage_classifier</code>, <code>options_service</code>, and the two macro services. Each imports one or two level-0 modules and nothing higher.",meta:["4 modules","depend only on leaves"]},
+  "lvl:l0":{kind:"Level ⓪ · Leaves",title:"⓪ Leaves",desc:"The foundation: modules that import <b>nothing internal</b>. They can never participate in a cycle, so anything above them is safe to import at load time.",meta:["6 modules","anchor the graph"]},
+  // ---- MODULES (import-focused) ----
+  app:{kind:"Module · Entry",title:"app.py",desc:"The Flask entry point and the only level-③ module. <b>Imports at load:</b> screener, stage_classifier, macro_bp. <b>Imports lazily (in-function):</b> data_manager (×8 sites), options_service (×2), data_freshness (×1). No cycle exists with any of them — the lazy imports are habit, not necessity, so they're safe to hoist to the top.",meta:["fan-out: 6 modules","8 lazy data_manager imports"]},
+  mbp:{kind:"Module · Orchestration",title:"macro/__init__.py",desc:"Defines the macro Flask Blueprint (<code>macro_bp</code>, url_prefix /macro) and imports <code>routes</code> at load to register the endpoints. <b>Imported by:</b> app.py.",meta:["imports: macro/routes","the blueprint seam"]},
+  mrt:{kind:"Module · Orchestration",title:"macro/routes.py",desc:"The macro route handlers. Imports <code>macro_bp</code> from the package at load; reaches <code>liquidity_service</code> (×4) and <code>rrg_service</code> (×2) <b>lazily</b> inside handlers. <b>Imported by:</b> macro/__init__.",meta:["lazy → 2 services","thin handlers"]},
+  upd:{kind:"Module · Orchestration",title:"update_classifications.py",desc:"Offline batch entry — nothing imports it. The <b>only load-time importer</b> of <code>data_manager</code>, and also imports <code>stage_classifier</code> at load to recompute classification JSON.",meta:["imports: data_manager, stage_classifier","offline producer"]},
+  stg:{kind:"Module · Service",title:"stage_classifier.py",desc:"Weinstein stage engine. Imports <code>data_manager</code> <b>lazily</b> (l.306) to load the price panel. <b>Imported by:</b> app.py and update_classifications.",meta:["lazy → data_manager","fan-in 2"]},
+  osv:{kind:"Module · Service",title:"options_service.py",desc:"Options-data orchestration. Imports <code>gex_engine</code> at load and delegates the math to it — the clean I/O-vs-pure-math seam. <b>Imported by:</b> app.py (lazy) and tests.",meta:["imports: gex_engine","clean seam"]},
+  liq:{kind:"Module · Service",title:"macro/liquidity_service.py",desc:"Liquidity dashboard service. Imports <code>macro/cache</code> and <code>config.indicators</code> at load. <b>Imported by:</b> macro/routes (lazy).",meta:["imports: cache, config.indicators"]},
+  rrg:{kind:"Module · Service",title:"macro/rrg_service.py",desc:"Relative Rotation Graph service. Imports <code>macro/cache</code> at load. <b>Imported by:</b> macro/routes (lazy).",meta:["imports: macro/cache"]},
+  dmg:{kind:"Module · Leaf",title:"data_manager.py",desc:"Core market-data layer — yfinance → parquet, cached loaders. <b>Imports nothing internal</b> (a true leaf). <b>Imported by:</b> app.py (×8 lazy), stage_classifier (lazy), update_classifications (load). No path leads back to app.py, so there's no cycle.",meta:["leaf","fan-in 7, mostly lazy"]},
+  gex:{kind:"Module · Leaf",title:"gex_engine.py",desc:"Pure-math gamma-exposure engine — stateless, imports nothing internal. <b>Imported by:</b> options_service and test_gex_engine.",meta:["leaf","stateless"]},
+  scr:{kind:"Module · Leaf",title:"screener.py",desc:"Yahoo screener engine. <b>Imports nothing internal</b> — notably <i>not</i> data_manager. It doesn't fetch the price panel; app.py loads prices and passes them in. <b>Imported by:</b> app.py (load).",meta:["leaf","data is passed in, not pulled"]},
+  dfr:{kind:"Module · Leaf",title:"data_freshness.py",desc:"Staleness auditor for on-disk price/Refinitiv/universe/classification files. Imports nothing internal. <b>Imported by:</b> app.py (lazy), powering /api/freshness.",meta:["leaf"]},
+  cache:{kind:"Module · Leaf",title:"macro/cache.py",desc:"In-memory TTL cache helper. Imports nothing internal. <b>Imported by:</b> liquidity_service and rrg_service.",meta:["leaf","fan-in 2"]},
+  cfg:{kind:"Module · Leaf",title:"config.indicators",desc:"Indicator configuration consumed by the liquidity service. Imports nothing internal. <b>Imported by:</b> macro/liquidity_service.",meta:["leaf · config"]},
+  t1:{kind:"Test",title:"tests/test_gex_api.py",desc:"Flask integration test for the GEX API endpoints. Imports <code>app.py</code> and <code>options_service</code> (which it stubs).",meta:["imports: app, options_service"]},
+  t2:{kind:"Test",title:"tests/test_gex_engine.py",desc:"Unit test for the pure-math GEX engine. Imports <code>gex_engine</code> directly.",meta:["imports: gex_engine"]},
+};
+
+function showInfo(key){
+  const d = INFO[key]; if(!d) return;
+  document.getElementById('p-kind').textContent = d.kind;
+  document.getElementById('p-title').textContent = d.title;
+  document.getElementById('p-desc').innerHTML = d.desc;
+  document.getElementById('p-meta').innerHTML = (d.meta||[]).map(m=>'<span>'+m+'</span>').join('');
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+}
+function closePanel(){
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('scrim').classList.remove('open');
+}
+window.showInfo = showInfo; window.closePanel = closePanel;
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closePanel(); });
+
+mermaid.initialize({startOnLoad:true,theme:"dark",flowchart:{curve:"basis",nodeSpacing:45,rankSpacing:60},securityLevel:"loose"});
+
+const GROUP_MATCH = [
+  [/Tests/i,"lvl:tests"],[/Entry/i,"lvl:l3"],[/Orchestration/i,"lvl:l2"],
+  [/Services/i,"lvl:l1"],[/Leaves/i,"lvl:l0"],
+];
+window.addEventListener('load', ()=>{
+  setTimeout(()=>{
+    document.querySelectorAll('.mermaid .cluster').forEach(c=>{
+      const label = (c.textContent||'').trim();
+      const hit = GROUP_MATCH.find(([re])=>re.test(label));
+      if(hit){ c.style.cursor='pointer'; c.addEventListener('click',ev=>{ ev.stopPropagation(); showInfo(hit[1]); }); }
+    });
+  }, 400);
+});
+</script>
+</body>
+</html>

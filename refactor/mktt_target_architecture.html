@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>MKTT — Target Architecture (data communication)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#c9d1d9;--mut:#8b949e;--acc:#58a6ff;}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);}
+  h1{margin:0;font-size:18px;}
+  h1 small{color:var(--mut);font-weight:400;font-size:13px;}
+  .wrap{padding:20px 24px;display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap;}
+  .diagram{flex:1;min-width:540px;}
+  .side{width:300px;flex-shrink:0;}
+  .hint{color:var(--acc);font-size:12.5px;margin:0 0 14px;}
+  .mermaid{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .mermaid .node, .mermaid .cluster{cursor:pointer;}
+  .mermaid .cluster:hover rect{filter:brightness(1.22);}
+  .mermaid .node:hover{filter:brightness(1.18);}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+  .card h3{margin:0 0 8px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);}
+  .form{display:flex;gap:8px;align-items:baseline;font-size:12.5px;margin:6px 0;}
+  .form code{background:#1f2630;padding:1px 6px;border-radius:4px;color:#e6edf3;font-weight:600;white-space:nowrap;}
+  .form span{color:var(--mut);}
+  .leg{font-size:12px;color:var(--mut);margin:5px 0;}
+  .leg b{color:var(--txt);}
+  .ar{font-family:monospace;color:var(--acc);}
+  code{background:#1f2630;padding:1px 5px;border-radius:4px;color:#e6edf3;}
+
+  #panel{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#11161d;
+    border-left:1px solid var(--line);box-shadow:-12px 0 30px rgba(0,0,0,.5);
+    transform:translateX(105%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;}
+  #panel.open{transform:translateX(0);}
+  #panel .ph{padding:18px 20px;border-bottom:1px solid var(--line);}
+  #panel .kind{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--acc);}
+  #panel h2{margin:6px 0 0;font-size:17px;font-family:ui-monospace,Menlo,monospace;color:#e6edf3;}
+  #panel .pb{padding:18px 20px;overflow:auto;font-size:13.5px;}
+  #panel .io{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;}
+  #panel .io div{margin:4px 0;}
+  #panel .io b{color:var(--acc);}
+  #panel .x{position:absolute;top:14px;right:16px;cursor:pointer;color:var(--mut);font-size:20px;}
+  #panel .x:hover{color:#fff;}
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;}
+  #scrim.open{opacity:1;pointer-events:auto;}
+</style>
+</head>
+<body>
+<header>
+  <h1>MKTT — Target Architecture <small>&nbsp;module map + data communication · raw vs computed stores · GPU kernel</small></h1>
+</header>
+<div class="wrap">
+  <div class="diagram">
+    <p class="hint">▸ Click any module or layer for its <b>I/O contract</b>. Edge labels show the <b>data form</b> that flows.</p>
+    <div class="mermaid">
+flowchart TB
+
+CLIENT["🌐 Client browser<br/><i>Plotly.js renders the ViewModel</i>"]:::client
+
+subgraph HTTP["① HTTP — thin per-section blueprints"]
+  HB["route = parse(request) → section.handle() → jsonify / render"]:::http
+end
+
+subgraph SEC["② Sections — thin compositions (+ private deep core)"]
+  direction LR
+  SCR["Screener"]:::sec
+  MON["Monitor<br/><i>owns lists</i>"]:::sec
+  RRGN["RRG<br/><i>+quadrant</i>"]:::sec
+  OPTN["Options<br/><i>+GEX engine</i>"]:::sec
+  MACN["Macro<br/><i>+layer-scoring</i>"]:::sec
+end
+
+subgraph KER["③ Kernel — GPU-tensorized · source-blind (≥2 consumers)"]
+  direction LR
+  IND["Indicators"]:::ker
+  RSN["RelativeStrength"]:::ker
+  STGN["StageClassification"]:::ker
+end
+
+subgraph DS["④a DataSource — RAW · source-resolution · cache"]
+  direction LR
+  DSI["forms: time_series · option_chain · fundamentals"]:::ds
+  REG["(form,id)<br/>registry"]:::ds
+end
+
+subgraph CS["④b ComputedStore — DERIVED · DB (custom schema)"]
+  direction LR
+  CSI["forms: cross_section · classification history<br/><i>stage · RS · indicators, per symbol per date</i>"]:::cs
+  WR["Writer<br/><i>incremental GPU recompute</i>"]:::wr
+end
+
+subgraph SRC["⑤ Sources (external)"]
+  direction LR
+  YF["yfinance<br/>OHLCV · screen · options"]:::src
+  RF["Refinitiv<br/>pkl"]:::src
+  LQ["calculations<br/>liquidity"]:::src
+end
+
+CLIENT -->|"GET / POST"| HB
+HB -->|"typed request"| SCR
+SCR -->|"ViewModel"| HB
+HB -->|"ViewModel JSON"| CLIENT
+
+SEC ==>|"request(ids)"| DSI
+DSI ==>|"raw form"| SEC
+SCR ==>|"cross_section"| CSI
+CSI ==>|"computed form"| SCR
+MON ==>|"history"| CSI
+
+SEC -.->|"form (live, 1 symbol)"| KER
+KER -.->|"+ computed cols"| SEC
+
+WR ==>|"read TimeSeries"| DSI
+WR -.->|"run kernel (GPU, universe)"| KER
+WR ==>|"INSERT rows"| CSI
+CSI -.->|"freshness: MAX(date) vs last-bar-date"| WR
+
+DSI -->|"delta fetch / scheduled"| SRC
+
+click CLIENT call showInfo("client")
+click HB call showInfo("http")
+click SCR call showInfo("scr")
+click MON call showInfo("mon")
+click RRGN call showInfo("rrg")
+click OPTN call showInfo("opt")
+click MACN call showInfo("mac")
+click IND call showInfo("ind")
+click RSN call showInfo("rs")
+click STGN call showInfo("stg")
+click DSI call showInfo("ds")
+click REG call showInfo("reg")
+click CSI call showInfo("cs")
+click WR call showInfo("wr")
+click YF call showInfo("yf")
+click RF call showInfo("rf")
+click LQ call showInfo("lq")
+
+classDef client fill:#243b53,stroke:#58a6ff,color:#fff;
+classDef http fill:#3b3450,stroke:#a371f7,color:#fff;
+classDef sec fill:#1f6f43,stroke:#3fb950,color:#fff;
+classDef ker fill:#8a5a1a,stroke:#e3a008,color:#fff;
+classDef ds fill:#11507a,stroke:#58a6ff,color:#fff;
+classDef cs fill:#5a2d6e,stroke:#bc6ff1,color:#fff;
+classDef wr fill:#7a3b11,stroke:#e3a008,color:#fff;
+classDef src fill:#3b4754,stroke:#6e7b8a,color:#fff;
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h3>Raw forms — DataSource</h3>
+      <div class="form"><code>TimeSeries</code><span>stocks · ETFs · macro · spot</span></div>
+      <div class="form"><code>OptionChain</code><span>expiry × strike (OI/IV)</span></div>
+      <div class="form"><code>Fundamentals</code><span>per-symbol fields + curves</span></div>
+    </div>
+    <div class="card">
+      <h3>Derived forms — ComputedStore (DB)</h3>
+      <div class="form"><code>CrossSection</code><span>latest computed row per symbol</span></div>
+      <div class="form"><code>history</code><span>computed values per symbol <i>per date</i></span></div>
+      <p class="leg">Kernel is the <b>only writer</b> of derived data. DB <b>self-describes freshness</b>: <code>MAX(date)</code> per symbol vs price last-bar-date.</p>
+    </div>
+    <div class="card">
+      <h3>ViewModel envelope</h3>
+      <div class="form"><code>{traces}</code><span>Plotly-ready series</span></div>
+      <div class="form"><code>{tables}</code><span>row/column data</span></div>
+      <div class="form"><code>{meta}</code><span>title · asof · units · context</span></div>
+    </div>
+    <div class="card">
+      <h3>Read the edges</h3>
+      <p class="leg"><span class="ar">══►</span> <b>data forms</b> (raw ↔ DataSource, computed ↔ ComputedStore)</p>
+      <p class="leg"><span class="ar">- -►</span> <b>kernel calls</b> (live 1-symbol from sections; GPU universe from the Writer)</p>
+      <p class="leg"><b>Two stores:</b> DataSource = raw fetch; ComputedStore = derived history in a DB.</p>
+      <p class="leg"><b>No batch/cron:</b> the Writer recomputes the stale slice on access, GPU-fast.</p>
+    </div>
+  </div>
+</div>
+
+<div id="scrim" onclick="closePanel()"></div>
+<aside id="panel">
+  <span class="x" onclick="closePanel()">✕</span>
+  <div class="ph"><div class="kind" id="p-kind"></div><h2 id="p-title"></h2></div>
+  <div class="pb"><div id="p-desc"></div><div class="io" id="p-io"></div></div>
+</aside>
+
+<script>
+function io(inp,out){return '<div><b>in ◄</b> '+inp+'</div><div><b>out ►</b> '+out+'</div>';}
+const INFO = {
+  "grp:HTTP":{kind:"Layer ①",title:"HTTP — Blueprints",desc:"One thin blueprint per section: parse(request) → section.handle() → jsonify/render. The only Flask-aware code. GET-default (shareable screener URLs); POST only for large symbol lists.",io:io("GET/POST","typed request → section; ViewModel JSON → client")},
+  "grp:SEC":{kind:"Layer ②",title:"Sections",desc:"Thin compositions: read forms (raw from DataSource, computed from ComputedStore), call the kernel for live single-symbol work, shape a ViewModel. Options & Macro keep a private deep core. No section depends on another section.",io:io("typed request; raw + computed forms; kernel outputs","ViewModel {traces, tables, meta}")},
+  "grp:KER":{kind:"Layer ③",title:"Kernel — GPU",desc:"Shared analytics, source-blind. Tensorized: CPU for one symbol (Monitor), GPU for the universe (the Writer). Same code both ways — one definition of stage/RS. Interface unchanged: form in, form + computed columns out.",io:io("a canonical form (usually TimeSeries)","the form + computed columns")},
+  "grp:DS":{kind:"Layer ④a",title:"DataSource — RAW",desc:"Owns source-resolution for raw external data. Caller asks for a form, never a source; a (form,id) registry picks the submodule, fetches, normalizes, caches. Two refresh regimes: prices = incremental delta-fetch (per-symbol last-bar-date); fundamentals = scheduled job.",io:io("request(ids, params)","raw form { TimeSeries · OptionChain · Fundamentals }")},
+  "grp:CS":{kind:"Layer ④b",title:"ComputedStore — DERIVED",desc:"A database (custom schema) holding kernel outputs per symbol per date — stage, RS, indicators, regime. Serves the latest CrossSection (Screener) and classification history (Monitor evolution). Self-describes freshness; the kernel is its only writer.",io:io("request(universe | symbol, [date range])","cross_section (latest) · classification history")},
+  "grp:SRC":{kind:"Layer ⑤",title:"Sources",desc:"External raw providers, each wrapped by a DataSource submodule that normalizes into a canonical form. The streamlit_app leak and duplicated yf.screen collapse into here.",io:io("network / disk","raw payloads → normalized")},
+
+  client:{kind:"Client",title:"Browser",desc:"Renders the ViewModel with Plotly.js. Holds list/watchlist state in localStorage. GET for pages + per-symbol APIs; POST for large symbol lists.",io:io("ViewModel JSON","GET/POST requests")},
+  http:{kind:"Layer ① · route",title:"Blueprint route",desc:"parse(request) → section.handle(req) → jsonify/render. Method resolved entirely in parse; the section is method-agnostic and Flask-free.",io:io("Flask request","typed request → section; ViewModel → client")},
+
+  scr:{kind:"Section",title:"Screener",desc:"Relative-strength discovery across the universe. Reads the latest CrossSection from ComputedStore (already computed, incrementally fresh) and ranks/filters. Pure composition, no private core. Independent of Monitor.",io:io("CrossSection (from ComputedStore)","ViewModel (ranked table)")},
+  mon:{kind:"Section",title:"Monitor",desc:"Per-security / per-list view + named lists. Reads raw TimeSeries + Fundamentals from DataSource and stage/RS history from ComputedStore for one symbol or a list. Owns lists; does not render. Independent of Screener — shares only kernel + stores.",io:io("TimeSeries + Fundamentals (DataSource) · history (ComputedStore)","ViewModel (chart + fundamentals + stage)")},
+  rrg:{kind:"Section · +core",title:"RRG",desc:"Sector/theme rotation. RelativeStrength (kernel) on an ETF panel, then a PRIVATE quadrant/tail geometry core. One consumer for the geometry → stays private.",io:io("TimeSeries (ETFs + benchmark)","ViewModel (scatter tails + table)")},
+  opt:{kind:"Section · +core",title:"Options",desc:"Positioning / GEX. Takes an OptionChain and runs its PRIVATE deep core — the GEX engine (Black-Scholes gamma, strike aggregation, gamma-flip, walls). One consumer → private, not kernel.",io:io("OptionChain (symbol, n_exp)","ViewModel (GEX profile bars + table)")},
+  mac:{kind:"Section · +core",title:"Macro",desc:"Macroeconomic variables / regime (rename of liquidity). RelativeStrength (kernel) + a PRIVATE layer-scoring core. Macro series arrive as TimeSeries — same form as equities — so the kernel works unchanged.",io:io("TimeSeries (macro series)","ViewModel (lines + overlays)")},
+
+  ind:{kind:"Kernel · GPU",title:"Indicators",desc:"Moving averages, slopes, returns, resampling — tensorized. Consumers: Stage, Screener, Monitor. Replaces rolling()/pct_change duplicated across stage_classifier and app.py.",io:io("TimeSeries","TimeSeries + feature columns (MA, slope, returns)")},
+  rs:{kind:"Kernel · GPU",title:"RelativeStrength",desc:"RS-line, Mansfield RS, RS-ratio/momentum, relative performance — and ranking folded in. The most duplicated concept today (rs_ in 4 files). Consumers: Stage, RRG, Screener, Macro. Where the duplication collapses.",io:io("TimeSeries + benchmark","RS series / RS-ranked values")},
+  stg:{kind:"Kernel · GPU",title:"StageClassification",desc:"Vectorized Weinstein stage from price/MA/RS-line/distribution features. Consumers: Monitor (show), Screener (filter). Distinct from Macro's regime scoring — different algorithm, different consumers, NOT merged.",io:io("TimeSeries","stage labels (1–4) per symbol")},
+
+  ds:{kind:"Layer ④a · interface",title:"DataSource — form interface",desc:"Form-shaped methods: time_series · option_chain · fundamentals. Caller passes ids + params, never a source. Prices fetch only the missing delta (light, managed); fundamentals refresh on a scheduled job. Returns standardized forms with metadata (asset_class, currency, asof).",io:io("request(ids, period/fields/n_exp)","raw canonical form")},
+  reg:{kind:"Layer ④a · config",title:"(form, id) registry",desc:"Data-driven lookup: (form,id) → {submodule, params}. Form-method picks most of the submodule; registry only disambiguates within a form (equity-TimeSeries vs macro-TimeSeries). Config, not control flow.",io:io("(form, id)","{ submodule, fetch params }")},
+
+  cs:{kind:"Layer ④b · interface",title:"ComputedStore — form interface",desc:"Reads derived forms from the DB: cross_section (latest computed row per symbol) and classification history (per date). On access it ensures freshness via the Writer, then serves. Custom schema, recommended wide table keyed (symbol, date).",io:io("request(universe | symbol, [dates])","cross_section · history")},
+  wr:{kind:"Layer ④b · writer",title:"Writer (was update_classifications)",desc:"Keeps the ComputedStore current. On access: diff DB MAX(date) vs price last-bar-date → recompute only the stale symbols via the kernel (GPU, batched) → INSERT rows. Incremental, lazy (no cron), per-symbol keyed. The ONLY writer of derived data — pure glue over DataSource + Kernel + DB.",io:io("stale (symbol, date) gap; TimeSeries from DataSource","INSERT computed rows into the DB")},
+
+  yf:{kind:"Source",title:"yfinance",desc:"OHLCV (download), universe (screen — deduplicated from screener.py), option chains. Wrapped by DataSource submodules → TimeSeries / CrossSection-raw / OptionChain.",io:io("HTTP","raw quotes / chains")},
+  rf:{kind:"Source",title:"Refinitiv pkl",desc:"Fundamentals snapshot on disk. The 7 scattered raw pkl opens collapse into one DataSource submodule emitting Fundamentals — refreshed by a scheduled job.",io:io("disk","fundamental fields / estimate curves")},
+  lq:{kind:"Source",title:"calculations.liquidity",desc:"Macro liquidity indicators + csv cache. Wrapped into a DataSource submodule emitting TimeSeries — identical form to equity prices, so the kernel doesn't care.",io:io("calc pipeline + csv","macro TimeSeries")},
+};
+function showInfo(key){
+  const d=INFO[key]; if(!d) return;
+  document.getElementById('p-kind').textContent=d.kind;
+  document.getElementById('p-title').textContent=d.title;
+  document.getElementById('p-desc').innerHTML=d.desc;
+  document.getElementById('p-io').innerHTML=d.io||'';
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+}
+function closePanel(){document.getElementById('panel').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
+window.showInfo=showInfo;window.closePanel=closePanel;
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePanel();});
+mermaid.initialize({startOnLoad:true,theme:"dark",flowchart:{curve:"basis",nodeSpacing:48,rankSpacing:60},securityLevel:"loose"});
+const GROUP_MATCH=[[/HTTP/i,"grp:HTTP"],[/Sections/i,"grp:SEC"],[/Kernel/i,"grp:KER"],[/DataSource/i,"grp:DS"],[/ComputedStore/i,"grp:CS"],[/Sources/i,"grp:SRC"]];
+window.addEventListener('load',()=>{setTimeout(()=>{
+  document.querySelectorAll('.mermaid .cluster').forEach(c=>{
+    const label=(c.textContent||'').trim();
+    const hit=GROUP_MATCH.find(([re])=>re.test(label));
+    if(hit){c.style.cursor='pointer';c.addEventListener('click',ev=>{ev.stopPropagation();showInfo(hit[1]);});}
+  });
+},400);});
+</script>
+</body>
+</html>

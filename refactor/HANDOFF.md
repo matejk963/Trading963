@@ -5,7 +5,12 @@
 ## Goal
 Refactor the MKTT Flask app (`src/mktt/`) into **clearer, more modular infrastructure** that is easy to **debug, optimize, and extend**. Not a rewrite — restructure around the patterns it already has.
 
-## Understand-anything context (the app)
+## ►► THE TARGET (read this first)
+- **`refactor/TARGET_ARCHITECTURE.md`** — the agreed design the refactor implements (output of a full grill-me). Kernel-centric: thin HTTP blueprints → thin sections → pure GPU kernel (enrichment pipeline) → DataSource(raw) + ComputedStore(derived) + Lists. Contracts (ViewModel / kernel / providers), the Postgres data model (built), freshness model, DI/testing, and current→target migration map + implementation order.
+- **`refactor/mktt_target_architecture.html`** — interactive target map with data-communication edges (clickable I/O contracts).
+- **DB is physically built** (empty): Postgres `etc_db` schemas `MKCompStore` (computed, current/history split), `MKFund` (Refinitiv fundamentals), `MKLists` (shared lists). See `TARGET_ARCHITECTURE.md` §6.
+
+## Understand-anything context (the app, current state)
 - **`refactor/MKTT_DASHBOARD.md`** — bulleted architecture map: 6 layers, every file, refactor hotspots, stable contracts, "change X → go here" index, 11-step reading order, suggested refactor sequence.
 - **`refactor/mktt-knowledge-graph.json`** — full graph (110 nodes / 80 functions / 233 edges, 6 layers, 11-step tour). Mirror lives in `src/mktt/.understand-anything/` (gitignored).
 - **Interactive dashboard:** from the plugin dashboard dir (`~/.claude/plugins/cache/understand-anything/understand-anything/2.7.5/packages/dashboard`), run `GRAPH_DIR=<repo>/src/mktt UNDERSTAND_ACCESS_TOKEN=mktt-refactor npx vite --host 127.0.0.1 --port 5173` → open **`http://127.0.0.1:5173/?token=mktt-refactor`**. The token is a per-launch random hex unless you pin it via `UNDERSTAND_ACCESS_TOKEN` (we pin it to `mktt-refactor` for a stable URL).
