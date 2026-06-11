@@ -76,3 +76,16 @@ The 4 escalated FLAGs resolved:
 Dispatching Wave 1 (AFK, creds-free): Slice 3 (parity harness) → Slice 1 (DataSource) → Slice 2a
 (Kernel pandas) → Slice 6 (ViewModel renderer), sequential to avoid git races. Each: TDD, tests green,
 commit, REPORT. Then integrate + Wave 3 (DB, env-DSN) + Wave 4 (sections).
+
+## 2026-06-11 · dev/slice-1 (DataSource) · REPORT
+Built Slice #1 — DataSource `time_series` + `(form,id)` registry + equity submodule + benchmark. TDD: 21 tests written first (red), implemented to green. Full suite 65 passed (44 pre-existing GEX/parity unaffected). Refs: spec §4.4/§5.3, adr/0001, FLAG-1.
+
+- **New package `src/mktt/datasource/`:**
+  - `registry.py` — `Registry`: `id→asset_class` (with `default_asset_class` fallback) + `(form,asset_class)→submodule`; `group_by_submodule()` batches ids per submodule. Config, not branching.
+  - `submodules/equity.py` — `EquitySubmodule`: reads `data/mktt/{close,high,low,volume}.parquet` (universe) + `spy.parquet` (benchmark, TitleCase OHLCV); mtime-keyed in-mem cache (ported from `data_manager._load_parquet_cached`); `last_bar_date()` exposes the per-symbol incremental-delta-fetch freshness signal (ported concept from `update_prices`); `fetch_universe()` is the SINGLE `yf.screen`/`EquityQuery` pagination loop (DI: injectable `screen`/`equity_query`, lazy yfinance import otherwise).
+  - `provider.py` — `DataSource`: DI facade, constructor takes `registry` (+ optional `_equity` handle). `time_series(ids,start,end,fields)` routes each id via registry, batches per submodule, assembles a sorted `symbol×date` multi-index DataFrame (the TimeSeries form, columns=fields).
+  - `__init__.py` — `build_default_datasource()` wires the real registry; SPY tagged `benchmark`, bulk universe falls back to `equity` default.
+- **FLAG-1 resolved (operations):** benchmark (SPY) is just another `time_series` id with an `asset_class="benchmark"` tag, served by the same equity submodule from `spy.parquet`, returned via the same `time_series()` path. No separate benchmark API.
+- **yf.screen dedup (DoD):** removed the duplicated EquityQuery pagination loops from `screener.py:89-101` (`fetch_exchange_quotes`) and `data_manager.py:54-61` (`fetch_liquid_universe`) + the third copy in `data_manager.build_sector_map` (per-sector, now passes the sector as an `extra_filters` arg). All three delegate to `EquitySubmodule.fetch_universe`. A guard test asserts the loop now lives in exactly one module. Each caller's own `min_avg_vol` default preserved (parity).
+- **Tests:** registry resolution (equity/benchmark/default-fallback); fields subsetting; date-window slicing; multi-id panel assembly; missing-id tolerance (skip); all-missing→empty-but-shaped; single-string id; benchmark series; mixed equity+benchmark routing; real-parquet integration (AAPL panel, date window, missing-ticker, SPY from spy.parquet, end-to-end build_default_datasource); injected-screen universe fetch; dedup guard. 21 passed, 0 skipped (real parquet present).
+- **Not in this slice (later):** `option_chain`/`fundamentals` (spec §5.3) deliberately absent; GPU N/A.

@@ -44,20 +44,10 @@ def fetch_liquid_universe(exchanges=None, min_avg_vol=1000):
     if exchanges is None:
         exchanges = US_EXCHANGES
 
-    q = yf.EquityQuery('and', [
-        yf.EquityQuery('is-in', ['exchange'] + list(exchanges)),
-        yf.EquityQuery('gt', ['avgdailyvol3m', min_avg_vol])
-    ])
-
-    all_quotes = []
-    offset = 0
-    while True:
-        result = yf.screen(q, sortField='intradaymarketcap', sortAsc=False, size=250, offset=offset)
-        quotes = result.get('quotes', [])
-        if not quotes:
-            break
-        all_quotes.extend(quotes)
-        offset += 250
+    # The yf.screen / EquityQuery pagination loop lives in exactly one place now
+    # (DataSource equity submodule). This delegates instead of duplicating it.
+    from datasource.submodules.equity import EquitySubmodule
+    all_quotes = EquitySubmodule().fetch_universe(exchanges, min_avg_vol=min_avg_vol)
 
     if not all_quotes:
         return pd.DataFrame()
@@ -200,23 +190,18 @@ def build_sector_map(exchanges=None):
             return pd.read_parquet(path)
 
     print("Building sector map...")
+    # The yf.screen / EquityQuery pagination loop lives in exactly one place now
+    # (DataSource equity submodule). Per-sector fetch adds an `eq sector` filter.
+    from datasource.submodules.equity import EquitySubmodule
+    equity = EquitySubmodule()
     all_rows = []
     for sector in SECTORS:
         try:
-            q = yf.EquityQuery('and', [
-                yf.EquityQuery('is-in', ['exchange'] + list(exchanges)),
-                yf.EquityQuery('eq', ['sector', sector]),
-                yf.EquityQuery('gt', ['avgdailyvol3m', 500])
-            ])
-            offset = 0
-            while True:
-                result = yf.screen(q, sortField='intradaymarketcap', sortAsc=False, size=250, offset=offset)
-                quotes = result.get('quotes', [])
-                if not quotes:
-                    break
-                for qt in quotes:
-                    all_rows.append({'symbol': qt['symbol'], 'sector': sector})
-                offset += 250
+            sector_filter = yf.EquityQuery('eq', ['sector', sector])
+            quotes = equity.fetch_universe(exchanges, min_avg_vol=500,
+                                           extra_filters=[sector_filter])
+            for qt in quotes:
+                all_rows.append({'symbol': qt['symbol'], 'sector': sector})
             print(f"  {sector}: {sum(1 for r in all_rows if r['sector'] == sector)}")
         except Exception as e:
             print(f"  {sector}: ERROR {e}")

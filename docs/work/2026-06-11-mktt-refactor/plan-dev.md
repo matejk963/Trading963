@@ -17,7 +17,7 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
 ## Tasks  (▶ = ready/AFK now · ⛔ = creds-gated · ⏸ = blocked)
 
 **Wave 1 — unblocked, AFK, parallelizable:**
-- [ ] ▶ **1. DataSource** — `time_series(ids,start,end,fields)` + `(form,id)` registry + equity submodule; dedupe the two `yf.screen` loops; **+ benchmark series acquisition** (FLAG-1). Blocked-by: none.
+- [x] ▶ **1. DataSource** — `time_series(ids,start,end,fields)` + `(form,id)` registry + equity submodule; dedupe the two `yf.screen` loops; **+ benchmark series acquisition** (FLAG-1). Blocked-by: none. **DONE** (21 tests green; log REPORT 2026-06-11 dev/slice-1).
 - [ ] ▶ **2a. Kernel (pandas)** — enrichment pipeline `Indicators→RelativeStrength(.compute/.rank)→StageClassification`, pure pandas, unit-tested + parity vs `stage_classifier`. Blocked-by: 3 (for parity). **← FIRST DISPATCH**
 - [ ] ▶ **3. Parity harness + golden fixtures** — capture current kernel/screener/GEX/RRG outputs (~50 sym# sample) as JSON + `assert_parity`. Blocked-by: none.
 - [ ] ▶ **6. Generic ViewModel renderer** — `renderViewModel(vm)` (figures/tables/readouts/status) + shell + thin-blueprint pattern + the `_n`/`_safe_num` shaping helper. Blocked-by: none.

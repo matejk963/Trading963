@@ -86,20 +86,10 @@ def fetch_exchange_quotes(exchange_codes, min_avg_vol=500):
     if cached:
         return cached
 
-    q = yf.EquityQuery('and', [
-        yf.EquityQuery('is-in', ['exchange'] + list(exchange_codes)),
-        yf.EquityQuery('gt', ['avgdailyvol3m', min_avg_vol])
-    ])
-
-    all_quotes = []
-    offset = 0
-    while True:
-        result = yf.screen(q, sortField='intradaymarketcap', sortAsc=False, size=250, offset=offset)
-        quotes = result.get('quotes', [])
-        if not quotes:
-            break
-        all_quotes.extend(quotes)
-        offset += 250
+    # The yf.screen / EquityQuery pagination loop lives in exactly one place now
+    # (DataSource equity submodule). This delegates instead of duplicating it.
+    from datasource.submodules.equity import EquitySubmodule
+    all_quotes = EquitySubmodule().fetch_universe(exchange_codes, min_avg_vol=min_avg_vol)
 
     _save_cache(cache_key, all_quotes)
     return all_quotes
