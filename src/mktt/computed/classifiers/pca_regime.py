@@ -60,10 +60,12 @@ def compute_features(close, high, low, volume, spy_close):
     common = list(set(close.columns) & set(high.columns) & set(low.columns) & set(volume.columns))
     close, high, low, volume = close[common], high[common], low[common], volume[common]
 
-    ma20 = close.rolling(20).mean()
-    ma50 = close.rolling(50).mean()
-    ma150 = close.rolling(150).mean()
-    ma200 = close.rolling(200).mean()
+    # min_periods so a single sparse/bad date in the window doesn't NaN-poison the
+    # MA for every symbol (a date with ~1 symbol present occurs in the raw panel).
+    ma20 = close.rolling(20, min_periods=15).mean()
+    ma50 = close.rolling(50, min_periods=40).mean()
+    ma150 = close.rolling(150, min_periods=120).mean()
+    ma200 = close.rolling(200, min_periods=150).mean()
 
     high_52w = close.rolling(252, min_periods=126).max()
     low_52w = close.rolling(252, min_periods=126).min()
@@ -73,15 +75,15 @@ def compute_features(close, high, low, volume, spy_close):
 
     up_day = (close > close.shift(1)).astype(float)
     down_day = (close < close.shift(1)).astype(float)
-    vol_up_50 = (volume * up_day).rolling(50).sum()
-    vol_down_50 = (volume * down_day).rolling(50).sum().clip(lower=1)
+    vol_up_50 = (volume * up_day).rolling(50, min_periods=40).sum()
+    vol_down_50 = (volume * down_day).rolling(50, min_periods=40).sum().clip(lower=1)
 
-    vol_ma_50 = volume.rolling(50).mean()
+    vol_ma_50 = volume.rolling(50, min_periods=40).mean()
     dist_day = ((close < close.shift(1)) & (volume > vol_ma_50)).astype(float)
-    dist_days_25 = dist_day.rolling(25).sum()
+    dist_days_25 = dist_day.rolling(25, min_periods=20).sum()
 
     daily_range_pct = (high / low - 1) * 100
-    adr_20 = daily_range_pct.rolling(20).mean()
+    adr_20 = daily_range_pct.rolling(20, min_periods=15).mean()
     adr_252 = daily_range_pct.rolling(252, min_periods=126).mean()
 
     returns_126d = close.pct_change(126)
@@ -104,7 +106,7 @@ def compute_features(close, high, low, volume, spy_close):
     features["rs_rank_velocity"] = features["rs_rank"].diff(21)
     features["rs_line_slope_63d"] = (rs_line / rs_line.shift(63) - 1)
     features["log_updown_vol"] = np.log(vol_up_50 / vol_down_50)
-    features["log_vol_ratio"] = np.log(volume.rolling(5).mean() / volume.rolling(60).mean().clip(lower=1))
+    features["log_vol_ratio"] = np.log(volume.rolling(5, min_periods=3).mean() / volume.rolling(60, min_periods=40).mean().clip(lower=1))
     features["distribution_ratio"] = dist_days_25 / 25
     features["log_close_ma20"] = np.log(close / ma20)
     features["log_return_21d"] = np.log(close / close.shift(21))
