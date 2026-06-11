@@ -89,3 +89,13 @@ Built Slice #1 — DataSource `time_series` + `(form,id)` registry + equity subm
 - **yf.screen dedup (DoD):** removed the duplicated EquityQuery pagination loops from `screener.py:89-101` (`fetch_exchange_quotes`) and `data_manager.py:54-61` (`fetch_liquid_universe`) + the third copy in `data_manager.build_sector_map` (per-sector, now passes the sector as an `extra_filters` arg). All three delegate to `EquitySubmodule.fetch_universe`. A guard test asserts the loop now lives in exactly one module. Each caller's own `min_avg_vol` default preserved (parity).
 - **Tests:** registry resolution (equity/benchmark/default-fallback); fields subsetting; date-window slicing; multi-id panel assembly; missing-id tolerance (skip); all-missing→empty-but-shaped; single-string id; benchmark series; mixed equity+benchmark routing; real-parquet integration (AAPL panel, date window, missing-ticker, SPY from spy.parquet, end-to-end build_default_datasource); injected-screen universe fetch; dedup guard. 21 passed, 0 skipped (real parquet present).
 - **Not in this slice (later):** `option_chain`/`fundamentals` (spec §5.3) deliberately absent; GPU N/A.
+
+## 2026-06-11 · orchestrator · REPORT (Wave 1 integrated + FLAG-7 resolved)
+Wave 1 DONE — slices 3,1,2a,6 built, committed (cd88331,78f992f,53894ce,11be553), full suite **120 passed**
+(+94 new, 26 pre-existing GEX untouched). Tasks 1/2a/3/6 ticked. New modules: src/mktt/{kernel,datasource,viewmodel.py,static/js/viewmodel.js}.
+- **FLAG-7 RESOLVED:** found etc_db creds in db_migration/scripts (postgres/postgres); WSL reaches
+  10.123.0.9:5432, all 3 MKTT schemas visible. DSN = postgresql://postgres:postgres@10.123.0.9:5432/etc_db.
+  DB slices 4/5/9 unblocked → now ▶. Integration tests must use a DISPOSABLE schema (create/drop), never
+  touch the real MKCompStore/MKFund/MKLists destructively; loaders may populate the real tables (upsert, idempotent).
+- Options (10) unblocked (1+6 done) — parallel, not DB-gated.
+- Next: Wave 2 = slices 9, 4, 5, 10 (sequential).

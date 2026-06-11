@@ -18,17 +18,17 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
 
 **Wave 1 — unblocked, AFK, parallelizable:**
 - [x] ▶ **1. DataSource** — `time_series(ids,start,end,fields)` + `(form,id)` registry + equity submodule; dedupe the two `yf.screen` loops; **+ benchmark series acquisition** (FLAG-1). Blocked-by: none. **DONE** (21 tests green; log REPORT 2026-06-11 dev/slice-1).
-- [ ] ▶ **2a. Kernel (pandas)** — enrichment pipeline `Indicators→RelativeStrength(.compute/.rank)→StageClassification`, pure pandas, unit-tested + parity vs `stage_classifier`. Blocked-by: 3 (for parity). **← FIRST DISPATCH**
-- [ ] ▶ **3. Parity harness + golden fixtures** — capture current kernel/screener/GEX/RRG outputs (~50 sym# sample) as JSON + `assert_parity`. Blocked-by: none.
-- [ ] ▶ **6. Generic ViewModel renderer** — `renderViewModel(vm)` (figures/tables/readouts/status) + shell + thin-blueprint pattern + the `_n`/`_safe_num` shaping helper. Blocked-by: none.
+- [x] ▶ **2a. Kernel (pandas)** — enrichment pipeline `Indicators→RelativeStrength(.compute/.rank)→StageClassification`, pure pandas, unit-tested + parity vs `stage_classifier`. Blocked-by: 3 (for parity). **← FIRST DISPATCH**
+- [x] ▶ **3. Parity harness + golden fixtures** — capture current kernel/screener/GEX/RRG outputs (~50 sym# sample) as JSON + `assert_parity`. Blocked-by: none.
+- [x] ▶ **6. Generic ViewModel renderer** — `renderViewModel(vm)` (figures/tables/readouts/status) + shell + thin-blueprint pattern + the `_n`/`_safe_num` shaping helper. Blocked-by: none.
 
 **Wave 2 — after 2a/3/GPU-decision:**
 - [ ] ⏸ **2b. Kernel GPU backend** — tensor/device-auto behind the same interface, equivalence-tested vs 2a. Blocked-by: 2a + GPU-scope decision (FLAG-2).
 
 **Wave 3 — DB integration (creds-gated, FLAG-7):**
-- [ ] ⛔ **4. MKFund loader** — pkl → `MKFund` tables + `data.fundamentals`; collapse the 7 raw pkl reads. Blocked-by: creds.
-- [ ] ⛔ **5. ComputedStore + Writer** — `time_series`→kernel→upsert `classification_*`; `cross_section`/`history`/`ensure_fresh`. **+ PCA-regime/EPS-accel/MA-screen producers** as Writer-fed classifiers (FLAG-3, pending ADR). Blocked-by: 1, 2a, creds.
-- [ ] ⛔ **9. MKLists access layer** — `lists.add/remove/members` over `MKLists.list_member`. Blocked-by: creds.
+- [ ] ▶ **4. MKFund loader** — pkl → `MKFund` tables + `data.fundamentals`; collapse the 7 raw pkl reads. Blocked-by: creds.
+- [ ] ▶ **5. ComputedStore + Writer** — `time_series`→kernel→upsert `classification_*`; `cross_section`/`history`/`ensure_fresh`. **+ PCA-regime/EPS-accel/MA-screen producers** as Writer-fed classifiers (FLAG-3, pending ADR). Blocked-by: 1, 2a, creds.
+- [ ] ▶ **9. MKLists access layer** — `lists.add/remove/members` over `MKLists.list_member`. Blocked-by: creds.
 
 **Wave 4 — sections (each needs renderer #6):**
 - [ ] ⏸ **7. Screener** — sub-split: **7a** `ScreenRequest.from_query` + filter→column map · **7b** `screener.handle` (cross_section + fundamentals + sector-median PE) · **7c** thin blueprint + landing page. The tracer bullet. Blocked-by: 4, 5, 6 (FLAG-4).
