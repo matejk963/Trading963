@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+{#
+  monitor.html — the Monitor section shell (spec §4.1, §5.1).
+
+  The page holds NO render logic: placeholder divs keyed by the ids the section
+  emits + a fetch->renderViewModel call. The generic renderer
+  (static/js/viewmodel.js) consumes the ViewModel envelope the API returns.
+
+  Section figure/table ids (must match service.py):
+    figures[].id == "monitor_price"        -> #monitor_price   (price + MA overlay)
+    figures[].id == "monitor_history"      -> #monitor_history (stage / RS evolution)
+    tables[].id  == "monitor_fundamentals" -> #monitor_fundamentals
+    tables[].id  == "monitor_list"         -> #monitor_list    (multi-symbol)
+  meta sinks: title, status banner, readout badges (stage / rs_rank / sector).
+#}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MKTT Monitor{% if symbol %} — {{ symbol }}{% endif %}</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+</head>
+<body>
+  <h2 id="vm-title">Monitor</h2>
+  <div id="vm-status" class="vm-banner" style="display:none"></div>
+  <div id="vm-readouts" class="vm-readouts"></div>
+
+  {# Symbol lookup builds the per-symbol API URL and reloads. #}
+  <form id="monitor-lookup" onsubmit="return false;">
+    <label>Symbol
+      <input id="monitor-symbol" name="symbol" value="{{ symbol or '' }}">
+    </label>
+    <button id="monitor-go" type="button">Load</button>
+  </form>
+
+  {# One host div per figure / table id the section emits. #}
+  <div id="monitor_price" class="vm-figure-host"></div>
+  <div id="monitor_history" class="vm-figure-host"></div>
+  <div id="monitor_fundamentals" class="vm-table-host"></div>
+  <div id="monitor_list" class="vm-table-host"></div>
+
+  {# Watchlist controls — read members + add/remove via the shared list store. #}
+  <section id="watchlist-panel">
+    <h3>Watchlist</h3>
+    <div id="watchlist-members"></div>
+    <input id="watchlist-add-symbol" placeholder="symbol">
+    <button id="watchlist-add" type="button">Add</button>
+  </section>
+
+  <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
+  <script>
+    (function () {
+      function currentSymbol() {
+        return (document.getElementById('monitor-symbol').value || '').trim().toUpperCase();
+      }
+      function load() {
+        var sym = currentSymbol();
+        if (sym) { ViewModel.fetchAndRender('/api/chart/' + encodeURIComponent(sym)); }
+      }
+      function loadWatchlist() {
+        ViewModel.fetchAndRender('/api/watchlist?list=default', null,
+          { readoutsTarget: 'watchlist-members' });
+      }
+      function addToWatchlist() {
+        var sym = (document.getElementById('watchlist-add-symbol').value || '').trim().toUpperCase();
+        if (!sym) return;
+        fetch('/api/watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ list: 'default', symbol: sym, action: 'add' }),
+        }).then(loadWatchlist);
+      }
+      document.getElementById('monitor-go').addEventListener('click', load);
+      document.getElementById('watchlist-add').addEventListener('click', addToWatchlist);
+      document.addEventListener('DOMContentLoaded', function () {
+        if (currentSymbol()) { load(); }
+        loadWatchlist();
+      });
+    })();
+  </script>
+</body>
+</html>
