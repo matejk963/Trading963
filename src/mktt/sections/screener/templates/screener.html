@@ -164,17 +164,19 @@
                     </div>
                 </div>
                 {% endmacro %}
+                {# codes MUST match computed.classifiers.pca_regime.LABELS (0=Declining…4=Strong Leader) #}
                 {{ cb_dropdown('pca_regime', 'PCA Regime', [
-                    ('1', 'Strong Leader'), ('2', 'Quiet Uptrend'),
-                    ('5', 'Erupting'), ('3', 'Distributing'), ('4', 'Declining')
+                    ('4', 'Strong Leader'), ('3', 'Quiet Uptrend'),
+                    ('2', 'Erupting'), ('1', 'Distributing'), ('0', 'Declining')
                 ], filters.pca_regime) }}
                 {{ cb_dropdown('stage_class', 'Stage', [
                     ('2', 'S2 Uptrend'), ('1', 'S1 Basing'),
                     ('3', 'S3 Topping'), ('4', 'S4 Declining')
                 ], filters.stage_class) }}
+                {# codes MUST match computed.classifiers.ma_screen.LABELS (0=Above Both…3=Below Both) #}
                 {{ cb_dropdown('ma_screen', 'MA Position', [
-                    ('3', 'Above Both'), ('2', 'Above 200 Below 50'),
-                    ('1', 'Below 200 Above 50'), ('0', 'Below Both')
+                    ('0', 'Above Both'), ('1', 'Above 200 Below 50'),
+                    ('2', 'Below 200 Above 50'), ('3', 'Below Both')
                 ], filters.ma_screen) }}
             </div>
             {# Technical row #}

@@ -968,15 +968,17 @@ _STAGE_LABELS = {
     1: "Stage 1 Basing", 2: "Stage 2 Uptrend",
     3: "Stage 3 Topping", 4: "Stage 4 Declining",
 }
-#: Integer ``ma_screen`` code -> the original display label.
+#: Integer ``ma_screen`` code -> display label. MUST match
+#: ``computed.classifiers.ma_screen.LABELS`` (the producer's encoding).
 _MA_SCREEN_LABELS = {
-    0: "Below Both", 1: "Below 200 Above 50",
-    2: "Above 200 Below 50", 3: "Above Both",
+    0: "Above Both", 1: "Above 200 Below 50",
+    2: "Below 200 Above 50", 3: "Below Both",
 }
-#: Integer ``regime`` code -> the original PCA-regime label.
+#: Integer ``regime`` code -> display label. MUST match
+#: ``computed.classifiers.pca_regime.LABELS`` (0=Declining … 4=Strong Leader).
 _REGIME_LABELS = {
-    1: "Strong Leader", 2: "Quiet Uptrend",
-    3: "Distributing", 4: "Declining", 5: "Erupting",
+    0: "Declining", 1: "Distributing", 2: "Erupting",
+    3: "Quiet Uptrend", 4: "Strong Leader",
 }
 
 
