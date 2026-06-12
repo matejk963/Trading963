@@ -56,6 +56,7 @@ class OptionsRequest:
     expirations: Optional[List[str]] = None
     force_refresh: bool = False
     band_key: str = "15"
+    strike: Optional[float] = None
 
     @classmethod
     def from_query(cls, symbol: str, args) -> "OptionsRequest":
@@ -72,6 +73,7 @@ class OptionsRequest:
             n_exp = DEFAULT_N_EXP
         exps = _parse_exps(args.get("exps", ""))
         refresh = (args.get("refresh", "0") or "0") in ("1", "true", "yes")
+        strike = _parse_strike(args.get("strike", None))
         return cls(
             symbol=str(symbol).upper().strip(),
             band_pct=band_pct,
@@ -79,6 +81,7 @@ class OptionsRequest:
             expirations=exps,
             force_refresh=refresh,
             band_key=band_key,
+            strike=strike,
         )
 
 
@@ -88,6 +91,16 @@ def _parse_exps(raw):
         return None
     exps = [e.strip() for e in str(raw).split(",") if e.strip()]
     return exps or None
+
+
+def _parse_strike(raw):
+    """Parse the requested drilldown strike -> float (or None when absent/garbage)."""
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -136,6 +149,11 @@ def handle(req: OptionsRequest, data) -> dict:
     asof = meta.get("oi_as_of")
     stale = bool(meta.get("stale"))
     strikes = profile["strikes"]
+    # Disclosure footer: the chain freshness (fetched_at/oi_as_of/stale/warning)
+    # PLUS the GEX modeling assumptions (risk-free / dividend yield / dealer
+    # positioning / OI basis / units) so the numbers are never read as exact facts.
+    disclosure = dict(meta)
+    disclosure["assumptions"] = profile.get("assumptions", {})
 
     if not strikes:
         status = "stale" if stale else "empty"
@@ -151,7 +169,7 @@ def handle(req: OptionsRequest, data) -> dict:
             expirations=chain.expirations,
             available_expirations=chain.available_expirations,
             default_expirations=chain.default_expirations,
-            disclosure=meta,
+            disclosure=disclosure,
         )
 
     status = "stale" if stale else "ok"
@@ -169,8 +187,101 @@ def handle(req: OptionsRequest, data) -> dict:
         expirations=chain.expirations,
         available_expirations=chain.available_expirations,
         default_expirations=chain.default_expirations,
+        disclosure=disclosure,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# drilldown — per-contract breakdown behind one strike
+# --------------------------------------------------------------------------- #
+def drilldown(req: OptionsRequest, data) -> dict:
+    """Per-contract rows behind a single strike (spec §5.1 ViewModel).
+
+    Reads the same `OptionChain` form as :func:`handle`, then calls
+    ``gex_engine.strike_breakdown`` for ``req.strike`` to expose the individual
+    contracts (expiration / side / OI / IV / gamma / GEX) whose signed GEX sums to
+    that strike's net GEX in the profile. The result rides the standard envelope so
+    the generic renderer can show it, but the section template renders a richer
+    drilldown table from ``tables[0]`` and ``meta.strike``.
+    """
+    context = {
+        "symbol": req.symbol,
+        "band": req.band_key,
+        "expirations": req.expirations,
+        "strike": req.strike,
+    }
+    logger.debug("options.drilldown symbol=%s strike=%s exps=%s",
+                 req.symbol, req.strike, req.expirations)
+
+    if req.strike is None:
+        return vm(
+            status="error",
+            message="A strike is required for drilldown.",
+            title=f"{req.symbol} — GEX drilldown",
+            context=context,
+        )
+
+    try:
+        chain = data.option_chain(
+            req.symbol,
+            n_exp=req.n_exp,
+            expirations=req.expirations,
+            force_refresh=req.force_refresh,
+        )
+    except Exception as e:  # noqa: BLE001 — provider boundary -> error envelope
+        logger.debug("options.drilldown fetch failed for %s: %s", req.symbol, e)
+        return vm(
+            status="error",
+            message=str(e),
+            title=f"{req.symbol} — GEX drilldown",
+            context=context,
+        )
+
+    meta = dict(chain.meta or {})
+    asof = meta.get("oi_as_of")
+    stale = bool(meta.get("stale"))
+
+    rows = gex_engine.strike_breakdown(chain.chains, chain.spot, req.strike)
+
+    if not rows:
+        status = "stale" if stale else "empty"
+        return vm(
+            tables=[_drilldown_table([])],
+            status=status,
+            message=meta.get("warning")
+            or f"No contracts at strike {req.strike} in the selected expirations.",
+            asof=asof,
+            title=f"{req.symbol} — GEX drilldown",
+            context=context,
+            strike=req.strike,
+            expirations=chain.expirations,
+            disclosure=meta,
+        )
+
+    return vm(
+        tables=[_drilldown_table(rows)],
+        status="stale" if stale else "ok",
+        message=meta.get("warning"),
+        asof=asof,
+        title=f"{req.symbol} — GEX drilldown",
+        context=context,
+        strike=req.strike,
+        contracts=rows,
+        expirations=chain.expirations,
         disclosure=meta,
     )
+
+
+def _drilldown_table(rows) -> dict:
+    """Per-contract drilldown rows -> id-keyed table (spec §5.1)."""
+    return {
+        "id": "gex_drill",
+        "columns": ["expiration", "side", "oi", "iv", "gamma", "gex"],
+        "rows": [
+            [r["expiration"], r["side"], r["oi"], r["iv"], r["gamma"], r["gex"]]
+            for r in rows
+        ],
+    }
 
 
 # --------------------------------------------------------------------------- #

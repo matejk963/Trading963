@@ -2,71 +2,342 @@
 {#
   options.html — the Options (GEX) section shell (spec §4.1, §5.1; adr/0002 chrome).
 
-  Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
-  The page holds NO render logic: placeholder divs keyed by the ids the section
-  emits + a fetch->renderViewModel call. The generic renderer
-  (static/js/viewmodel.js) consumes the ViewModel envelope `/api/options/gex/<sym>`
-  returns.
+  The Options section is intentionally a BESPOKE-render page (not the generic
+  viewmodel.js renderer): the original GEX view carries domain-specific richness the
+  generic renderer cannot express — clickable expiration chips with DTE, $Bn/$M GEX
+  formatting, sign-coloured call/put/net cells, a highlighted spot row, sortable
+  headers, click-to-drill into the per-contract breakdown, and a disclosure footer
+  that spells out the GEX assumptions so the numbers are never read as exact facts.
 
-  Section figure/table ids (must match service.py):
-    figures[0].id == "gex_profile"   -> #gex_profile
-    tables[0].id  == "gex_strikes"   -> #gex_strikes
-    tables[1].id  == "gex_walls"     -> #gex_walls
-  meta sinks: title, status banner, readout badges
-    (gamma_flip / total_gex / call_wall / put_wall / regime / spot).
-
-  Input controls (symbol/band/n_exp/exps) build the typed request as a query
-  string and reload; they are NOT renderer consumers (spec §5.1) — they bind
-  handlers / build the URL.
+  It still consumes the SAME spec §5.1 ViewModel envelope the section emits:
+    figures[0].id == "gex_profile"      -> Plotly bar profile
+    tables[0].id  == "gex_strikes"      -> [strike, call_gex, put_gex, net_gex, oi]
+    meta.readouts                        -> gamma_flip/total_gex/call_wall/put_wall/regime/spot
+    meta.expirations/available_expirations/default_expirations -> chip picker
+    meta.disclosure (+ meta.asof)        -> disclosure footer
+  The drilldown endpoint returns a `gex_drill` table + meta.contracts.
 #}
 {% block title_suffix %}// Options — GEX{% endblock %}
 {% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+  <style>
+    .gex-controls { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+    .gex-controls label { font-size:12px; color:var(--text-dim); }
+    .gex-controls select, .gex-controls input { font-size:12px; padding:3px 8px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; }
+    .gex-btn { font-size:11px; padding:4px 12px; background:var(--bg-card); border:1px solid var(--border); color:var(--text-dim); border-radius:4px; cursor:pointer; }
+    .gex-btn:hover { color:var(--text); }
+    #gex-exp-picker { margin-bottom:10px; display:flex; flex-wrap:wrap; align-items:center; gap:0; max-height:90px; overflow-y:auto; }
+    .exp-chip { display:inline-block; font-size:11px; padding:3px 8px; margin:2px; border:1px solid var(--border); border-radius:4px; color:var(--text-dim); cursor:pointer; background:var(--bg-card); }
+    .exp-chip.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .exp-chip:hover { color:var(--text); }
+    .exp-reset { font-size:11px; color:var(--text-faint); cursor:pointer; margin-left:8px; }
+    .exp-reset:hover { color:var(--text); }
+    .gex-cards { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    .gex-card { background:var(--bg-card); border:1px solid var(--border); border-radius:6px; padding:8px 14px; min-width:120px; }
+    .gex-card .lbl { font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.5px; }
+    .gex-card .val { font-size:16px; font-weight:700; margin-top:2px; }
+    .regime-pos { color:#10b981; }
+    .regime-neg { color:#ef4444; }
+    .gex-table { width:100%; border-collapse:collapse; font-size:11px; }
+    .gex-table th { padding:4px 6px; text-align:right; color:var(--text-faint); border-bottom:1px solid var(--border); font-weight:400; cursor:pointer; user-select:none; }
+    .gex-table th:first-child { text-align:left; }
+    .gex-table td { padding:2px 6px; text-align:right; }
+    .gex-table tr { cursor:pointer; }
+    .gex-table tr:hover { background:rgba(255,255,255,0.04); }
+    .pos { color:#10b981; }
+    .neg { color:#ef4444; }
+    .badge-stale { background:rgba(245,158,11,0.2); color:#f59e0b; padding:2px 8px; border-radius:4px; font-size:11px; }
+    .disclosure { font-size:10px; color:var(--text-faint); margin-top:10px; line-height:1.5; border-top:1px solid var(--border); padding-top:8px; }
+    #gex-drill { margin-top:10px; }
+  </style>
 {% endblock %}
 
 {% block content %}
-  <h2 id="vm-title">Options — GEX</h2>
-  <div id="vm-status" class="vm-banner" style="display:none"></div>
-  <div id="vm-readouts" class="vm-readouts"></div>
-
-  {# Controls build the query string; submitting reloads with the params. #}
-  <form id="gex-controls" onsubmit="return false;">
-    <label>Symbol <input name="symbol" value="{{ default_sym or 'SPY' }}" size="6"></label>
-    <label>Band
-      <select name="band">
-        <option value="5">5%</option>
-        <option value="10">10%</option>
-        <option value="15" selected>15%</option>
-        <option value="25">25%</option>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+    <h2 class="page-title" id="vm-title" style="margin:0;">Options · GEX</h2>
+    <div class="gex-controls">
+      <span style="display:flex;gap:0;">
+        <button class="gex-btn" onclick="selectSym('SPY')" style="border-radius:4px 0 0 4px;">SPY</button>
+        <button class="gex-btn" onclick="selectSym('QQQ')" style="border-radius:0;">QQQ</button>
+        <button class="gex-btn" onclick="selectSym('IWM')" style="border-radius:0;">IWM</button>
+        <button class="gex-btn" onclick="selectSym('^NDX')" style="border-radius:0 4px 4px 0;">NDX</button>
+      </span>
+      <input type="text" id="gex-sym" value="{{ default_sym or 'SPY' }}" style="width:80px;text-transform:uppercase;" onkeydown="if(event.key==='Enter')loadSymbol()">
+      <button class="gex-btn" onclick="loadSymbol()">Go</button>
+      <label>Band:</label>
+      <select id="gex-band" onchange="loadGEX()">
+        <option value="5">±5%</option>
+        <option value="10">±10%</option>
+        <option value="15" selected>±15%</option>
+        <option value="25">±25%</option>
         <option value="all">All</option>
       </select>
-    </label>
-    <label># Exp <input name="n_exp" value="4" size="2"></label>
-    <label>Exps <input name="exps" value="" size="14" placeholder="comma-sep dates"></label>
-    <button id="apply-gex" type="button">Apply</button>
-  </form>
+      <button class="gex-btn" onclick="loadGEX(true)" title="Force refetch">&#8635; Refresh</button>
+      <span id="gex-spot" style="font-size:13px;font-weight:600;color:var(--text);"></span>
+      <span id="gex-stale"></span>
+    </div>
+  </div>
 
-  {# Host divs per figure/table id the section emits. #}
-  <div id="gex_profile" class="vm-figure-host"></div>
-  <div id="gex_strikes" class="vm-table-host"></div>
-  <div id="gex_walls" class="vm-table-host"></div>
+  <div id="vm-status" class="vm-banner" style="display:none"></div>
+
+  <div id="gex-exp-picker"></div>
+
+  <div class="gex-cards" id="gex-cards"></div>
+
+  <div style="display:flex;gap:10px;align-items:flex-start;">
+    <div id="gex_profile" id-legacy="gex-chart" style="flex:2;height:600px;min-width:0;"></div>
+    <div id="gex-table-wrap" style="flex:1;max-height:600px;overflow-y:auto;"></div>
+  </div>
+
+  <div id="gex-drill"></div>
+
+  <div class="disclosure" id="gex-disclosure"></div>
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
     (function () {
-      function buildUrl() {
-        var form = document.getElementById('gex-controls');
-        var fd = new FormData(form);
-        var sym = (fd.get('symbol') || 'SPY').trim().toUpperCase() || 'SPY';
-        fd.delete('symbol');
-        var params = new URLSearchParams(fd);
-        return '/api/options/gex/' + encodeURIComponent(sym) + '?' + params.toString();
+      var _sym = ({{ (default_sym or 'SPY') | tojson }});
+      var _vm = null;                 // last ViewModel envelope
+      var _selectedExps = null;       // null = let backend pick the default first-N
+      var _sortKey = 'strike', _sortDir = 1;
+      var DARK = {paper_bgcolor:'#0a0a0e',plot_bgcolor:'#0a0a0e',font:{color:'#888',family:'JetBrains Mono,monospace',size:11},
+          xaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a',zerolinecolor:'#333'},
+          yaxis:{gridcolor:'#1a1a2a',linecolor:'#1a1a2a'},margin:{l:55,r:20,t:40,b:40}};
+
+      function fmtGex(v) {
+        if (v == null || isNaN(v)) return '—';
+        var a = Math.abs(v), s = v < 0 ? '-' : '';
+        if (a >= 1e9) return s + '$' + (a/1e9).toFixed(2) + 'Bn';
+        if (a >= 1e6) return s + '$' + (a/1e6).toFixed(1) + 'M';
+        if (a >= 1e3) return s + '$' + (a/1e3).toFixed(0) + 'K';
+        return s + '$' + a.toFixed(0);
       }
-      function load() { ViewModel.fetchAndRender(buildUrl()); }
-      document.getElementById('apply-gex').addEventListener('click', load);
-      document.addEventListener('DOMContentLoaded', load);
+
+      // The envelope ships gex_strikes as a positional table; reshape to objects.
+      function strikeRows(vm) {
+        var t = (vm.tables || []).filter(function(x){return x.id==='gex_strikes';})[0];
+        if (!t) return [];
+        return (t.rows || []).map(function(row){
+          var o = {}; (t.columns||[]).forEach(function(c,i){ o[c]=row[i]; }); return o;
+        });
+      }
+      function readouts(vm) { return (vm.meta && vm.meta.readouts) || {}; }
+
+      window.selectSym = function (sym) {
+        document.getElementById('gex-sym').value = sym;
+        loadSymbol();
+      };
+      window.loadSymbol = function () {
+        _selectedExps = null;   // new symbol -> fall back to the default first-N
+        loadGEX();
+      };
+
+      function expsParam() {
+        return (_selectedExps && _selectedExps.length)
+          ? '&exps=' + encodeURIComponent(_selectedExps.join(',')) : '';
+      }
+
+      window.loadGEX = function (refresh) {
+        _sym = document.getElementById('gex-sym').value.toUpperCase().trim();
+        var band = document.getElementById('gex-band').value;
+        var url = '/api/options/gex/' + encodeURIComponent(_sym) + '?band=' + band
+                  + expsParam() + (refresh ? '&refresh=1' : '');
+        document.getElementById('gex-spot').textContent = 'Loading…';
+        document.getElementById('gex_profile').innerHTML = '<span style="color:#666;padding:20px;">Computing GEX…</span>';
+        document.getElementById('gex-drill').innerHTML = '';
+        fetch(url).then(function(r){return r.json();}).then(function(vm){
+          var meta = vm.meta || {};
+          if (meta.status === 'error') {
+            document.getElementById('gex-spot').textContent = '';
+            document.getElementById('gex_profile').innerHTML = '<span style="color:#f33;padding:20px;">' + (meta.message||'Error') + '</span>';
+            document.getElementById('gex-cards').innerHTML = '';
+            document.getElementById('gex-table-wrap').innerHTML = '';
+            showStatus(meta);
+            return;
+          }
+          _vm = vm;
+          if (!_selectedExps) _selectedExps = (meta.expirations || []).slice();
+          var r = readouts(vm);
+          document.getElementById('gex-spot').textContent = _sym + ' $' + (r.spot != null ? r.spot : '?');
+          var stale = document.getElementById('gex-stale');
+          stale.innerHTML = (meta.status === 'stale')
+            ? '<span class="badge-stale">STALE · ' + (meta.message||'') + '</span>' : '';
+          showStatus(meta);
+          renderExpPicker(meta);
+          renderCards(r);
+          renderChart(vm);
+          renderTable(vm);
+          renderDisclosure(meta);
+        }).catch(function(e){
+          document.getElementById('gex_profile').innerHTML = '<span style="color:#f33;padding:20px;">' + e.message + '</span>';
+        });
+      };
+
+      function showStatus(meta) {
+        var n = document.getElementById('vm-status');
+        if (!n) return;
+        if (!meta || meta.status === 'ok' || meta.status === 'stale') { n.style.display='none'; n.textContent=''; return; }
+        n.style.display = '';
+        n.className = 'vm-banner vm-banner-' + meta.status;
+        n.textContent = meta.message || (meta.status === 'empty' ? 'No strikes in band.' : 'Something went wrong.');
+      }
+
+      function renderExpPicker(meta) {
+        var avail = meta.available_expirations || [];
+        var sel = _selectedExps || [];
+        var today = new Date();
+        var h = '<span style="font-size:11px;color:var(--text-faint);margin-right:6px;">Expirations ('+sel.length+'):</span>';
+        avail.forEach(function(e){
+          var on = sel.indexOf(e) >= 0;
+          var dte = Math.max(0, Math.round((new Date(e + 'T00:00:00') - today) / 86400000));
+          h += '<span class="exp-chip' + (on ? ' on' : '') + '" onclick="toggleExp(\'' + e + '\')">'
+               + e.slice(5) + ' <span style="opacity:.6;">' + dte + 'd</span></span>';
+        });
+        h += '<span class="exp-reset" onclick="resetExps()">↺ first 4</span>';
+        document.getElementById('gex-exp-picker').innerHTML = h;
+      }
+
+      window.toggleExp = function (e) {
+        var meta = (_vm && _vm.meta) || {};
+        if (!_selectedExps) _selectedExps = (meta.expirations || []).slice();
+        var i = _selectedExps.indexOf(e);
+        if (i >= 0) {
+          if (_selectedExps.length <= 1) return;   // keep at least one expiration
+          _selectedExps.splice(i, 1);
+        } else {
+          _selectedExps.push(e);
+        }
+        var av = meta.available_expirations || [];
+        _selectedExps.sort(function(a, b){ return av.indexOf(a) - av.indexOf(b); });
+        loadGEX();
+      };
+
+      window.resetExps = function () {
+        var meta = (_vm && _vm.meta) || {};
+        _selectedExps = meta.default_expirations ? meta.default_expirations.slice() : null;
+        loadGEX();
+      };
+
+      function renderCards(r) {
+        var regimeCls = r.regime === 'positive' ? 'regime-pos' : 'regime-neg';
+        var regimeTxt = r.regime === 'positive' ? 'POSITIVE · stabilizing' : 'NEGATIVE · trending';
+        var h = '';
+        h += '<div class="gex-card"><div class="lbl">Total GEX</div><div class="val ' + regimeCls + '">' + fmtGex(r.total_gex) + '</div></div>';
+        h += '<div class="gex-card"><div class="lbl">Regime</div><div class="val ' + regimeCls + '" style="font-size:13px;">' + regimeTxt + '</div></div>';
+        h += '<div class="gex-card"><div class="lbl">Gamma Flip</div><div class="val" style="color:#a78bfa;">' + (r.gamma_flip != null ? '$' + r.gamma_flip : '—') + '</div></div>';
+        h += '<div class="gex-card"><div class="lbl">Call Wall</div><div class="val pos">' + (r.call_wall != null ? '$' + r.call_wall : '—') + '</div></div>';
+        h += '<div class="gex-card"><div class="lbl">Put Wall</div><div class="val neg">' + (r.put_wall != null ? '$' + r.put_wall : '—') + '</div></div>';
+        document.getElementById('gex-cards').innerHTML = h;
+      }
+
+      function renderChart(vm) {
+        var host = document.getElementById('gex_profile');
+        host.innerHTML = '';
+        var r = readouts(vm);
+        var rows = strikeRows(vm);
+        var strikes = rows.map(function(s){return s.strike;});
+        var net = rows.map(function(s){return s.net_gex;});
+        var colors = net.map(function(g){return g >= 0 ? '#10b981' : '#ef4444';});
+        var spot = r.spot, flip = r.gamma_flip;
+
+        var shapes = [{type:'line', xref:'paper', x0:0, x1:1, y0:spot, y1:spot, line:{color:'#f59e0b',dash:'dot',width:1.5}}];
+        var annos = [{xref:'paper', x:1, y:spot, text:'Spot $'+spot, showarrow:false, font:{color:'#f59e0b',size:10}, xanchor:'right', yanchor:'bottom'}];
+        if (flip != null) {
+          shapes.push({type:'line', xref:'paper', x0:0, x1:1, y0:flip, y1:flip, line:{color:'#a78bfa',dash:'dash',width:1.5}});
+          annos.push({xref:'paper', x:0, y:flip, text:'Flip $'+flip, showarrow:false, font:{color:'#a78bfa',size:10}, xanchor:'left', yanchor:'bottom'});
+        }
+        var exps = (vm.meta && vm.meta.expirations) || [];
+        Plotly.newPlot('gex_profile', [{
+          type:'bar', orientation:'h', x:net, y:strikes, marker:{color:colors},
+          customdata: rows.map(function(s){return [s.call_gex, s.put_gex, s.oi];}),
+          hovertemplate:'Strike %{y}<br>Net GEX: %{x:$,.0f}<br>Call: %{customdata[0]:$,.0f} · Put: %{customdata[1]:$,.0f}<br>OI: %{customdata[2]:,}<extra></extra>',
+        }], Object.assign({}, DARK, {
+          title:{text:'Gamma Exposure — ' + _sym + '  (' + exps.join(', ') + ')', font:{size:13,color:'#aaa'}},
+          xaxis:Object.assign({}, DARK.xaxis, {title:'Net GEX ($ / 1% move)'}),
+          yaxis:Object.assign({}, DARK.yaxis, {title:'Strike', autorange:true}),
+          shapes:shapes, annotations:annos, showlegend:false, bargap:0.15,
+        }), {displayModeBar:false, responsive:true});
+
+        document.getElementById('gex_profile').on('plotly_click', function(ev){
+          if (ev.points && ev.points.length) loadDrill(ev.points[0].y);
+        });
+      }
+
+      function renderTable(vm) {
+        var r = readouts(vm);
+        var spot = r.spot;
+        var rows = strikeRows(vm).slice().sort(function(a,b){
+          var av=a[_sortKey], bv=b[_sortKey];
+          return (av<bv?-1:av>bv?1:0) * _sortDir;
+        });
+        var cols = [['strike','Strike'],['call_gex','Call'],['put_gex','Put'],['net_gex','Net'],['oi','OI']];
+        var h = '<table class="gex-table"><thead><tr>';
+        cols.forEach(function(c){ h += '<th onclick="sortGexTable(\''+c[0]+'\')">'+c[1]+(_sortKey===c[0]?(_sortDir>0?' ▲':' ▼'):'')+'</th>'; });
+        h += '</tr></thead><tbody>';
+        rows.forEach(function(s){
+          var isSpot = spot != null && Math.abs(s.strike - spot) < spot*0.005;
+          var bg = isSpot ? 'background:rgba(245,158,11,0.12);' : '';
+          h += '<tr style="'+bg+'" onclick="loadDrill('+s.strike+')">';
+          h += '<td style="text-align:left;font-weight:600;">'+s.strike+'</td>';
+          h += '<td class="pos">'+fmtGex(s.call_gex)+'</td>';
+          h += '<td class="neg">'+fmtGex(s.put_gex)+'</td>';
+          h += '<td class="'+(s.net_gex>=0?'pos':'neg')+'">'+fmtGex(s.net_gex)+'</td>';
+          h += '<td>'+(s.oi!=null?s.oi.toLocaleString():'—')+'</td>';
+          h += '</tr>';
+        });
+        h += '</tbody></table>';
+        document.getElementById('gex-table-wrap').innerHTML = h;
+      }
+
+      window.sortGexTable = function (key) {
+        if (_sortKey === key) _sortDir = -_sortDir; else { _sortKey = key; _sortDir = 1; }
+        if (_vm) renderTable(_vm);
+      };
+
+      window.loadDrill = function (strike) {
+        var wrap = document.getElementById('gex-drill');
+        wrap.innerHTML = '<span style="color:#666;font-size:12px;">Loading contracts at '+strike+'…</span>';
+        fetch('/api/options/drilldown/' + encodeURIComponent(_sym) + '?strike=' + strike + expsParam())
+          .then(function(r){return r.json();}).then(function(vm){
+            var meta = vm.meta || {};
+            if (meta.status === 'error') { wrap.innerHTML = '<span style="color:#f33;">'+(meta.message||'Error')+'</span>'; return; }
+            var contracts = meta.contracts || [];
+            if (!contracts.length) { wrap.innerHTML = '<span style="color:#888;font-size:12px;">No contracts at strike '+strike+' in the selected expirations.</span>'; return; }
+            var h = '<div style="font-size:13px;font-weight:700;margin-bottom:6px;">Contracts behind strike $'+(meta.strike!=null?meta.strike:strike)+'</div>';
+            h += '<table class="gex-table" style="max-width:680px;"><thead><tr>';
+            ['Expiration','Side','OI','IV','Gamma','GEX'].forEach(function(c,i){ h += '<th style="text-align:'+(i<2?'left':'right')+';cursor:default;">'+c+'</th>'; });
+            h += '</tr></thead><tbody>';
+            contracts.forEach(function(c){
+              h += '<tr style="cursor:default;">';
+              h += '<td style="text-align:left;">'+c.expiration+'</td>';
+              h += '<td style="text-align:left;" class="'+(c.side==='call'?'pos':'neg')+'">'+c.side.toUpperCase()+'</td>';
+              h += '<td>'+(c.oi!=null?c.oi.toLocaleString():'—')+'</td>';
+              h += '<td>'+(c.iv!=null?(c.iv*100).toFixed(1)+'%':'—')+'</td>';
+              h += '<td>'+(c.gamma!=null?c.gamma.toFixed(4):'—')+'</td>';
+              h += '<td class="'+(c.gex>=0?'pos':'neg')+'">'+fmtGex(c.gex)+'</td>';
+              h += '</tr>';
+            });
+            h += '</tbody></table>';
+            wrap.innerHTML = h;
+          }).catch(function(e){ wrap.innerHTML = '<span style="color:#f33;">'+e.message+'</span>'; });
+      };
+
+      function renderDisclosure(meta) {
+        var m = meta.disclosure || {};
+        var a = m.assumptions || {};
+        var nexp = (meta.expirations || []).length;
+        var h = '';
+        h += 'Fetched ' + (m.fetched_at||'?') + ' · OI as of ' + (meta.asof || m.oi_as_of || '?') + '. ';
+        h += 'GEX = Γ × OI × 100 × S² × 0.01 × (calls +1 / puts −1), summed over the selected ' + nexp + ' expirations';
+        if (a.units) h += '; units: ' + a.units;
+        h += '. ';
+        h += 'Assumptions (estimates, not exact facts): risk-free ' + (a.risk_free) + ', dividend yield ' + (a.dividend_yield) + ', dealer positioning ' + (a.dealer_positioning) + '. ';
+        h += 'Gamma is Black-Scholes from yfinance implied volatility; open interest is ' + (a.oi_basis||'prior-session EOD') + ' and lags intraday.';
+        document.getElementById('gex-disclosure').textContent = h;
+      }
+
+      document.addEventListener('DOMContentLoaded', function(){ loadGEX(); });
     })();
   </script>
 {% endblock %}

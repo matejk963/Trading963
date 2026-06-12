@@ -130,25 +130,56 @@ def test_gex_invalid_symbol_yields_error_envelope(client):
 
 
 # --------------------------------------------------------------------------- #
-# /api/options/drilldown  (same ViewModel envelope; strikes table carries detail)
+# /api/options/drilldown  (per-contract breakdown behind one strike)
 # --------------------------------------------------------------------------- #
-def test_drilldown_returns_viewmodel(client):
+def _drill_rows(d):
+    t = next(t for t in d["tables"] if t["id"] == "gex_drill")
+    return [dict(zip(t["columns"], row)) for row in t["rows"]]
+
+
+def test_drilldown_returns_per_contract_rows(client):
     resp = client.get("/api/options/drilldown/SPY?strike=100")
     assert resp.status_code == 200
     d = resp.get_json()
     assert set(d.keys()) == {"figures", "tables", "meta"}
-    # the strike requested is echoed in the context for the client
     assert d["meta"]["context"]["symbol"] == "SPY"
-    rows = _strike_rows(d)
-    assert any(s["strike"] == 100 for s in rows)
+    assert d["meta"]["strike"] == 100.0
+    # the per-contract table carries expiration/side/oi/iv/gamma/gex columns
+    rows = _drill_rows(d)
+    assert rows, "drilldown should return contract rows for strike 100"
+    for r in rows:
+        assert {"expiration", "side", "oi", "iv", "gamma", "gex"} <= set(r.keys())
+        assert r["side"] in ("call", "put")
+    # both sides exist at strike 100 in the first 4 default expirations
+    assert {"call", "put"} <= {r["side"] for r in rows}
+    # contracts ride meta.contracts too (for the client renderer)
+    assert d["meta"]["contracts"] == rows
 
 
-def test_drilldown_without_strike_still_resolves(client):
-    # The ViewModel route does not 400 on a missing strike (the strikes table is
-    # always present); it returns the full envelope.
+def test_drilldown_is_strike_specific(client):
+    # strike 100 and strike 95 must return different (strike-specific) contract sets.
+    at_100 = _drill_rows(client.get("/api/options/drilldown/SPY?strike=100").get_json())
+    at_95 = _drill_rows(client.get("/api/options/drilldown/SPY?strike=95").get_json())
+    # strike 95 only has the 2026-06-01 call+put in the default first-4 window
+    assert {r["expiration"] for r in at_95} == {"2026-06-01"}
+    assert {r["expiration"] for r in at_100} != {r["expiration"] for r in at_95}
+
+
+def test_drilldown_without_strike_yields_error(client):
+    # No strike -> the drilldown cannot resolve a contract set -> error envelope.
     resp = client.get("/api/options/drilldown/SPY")
     assert resp.status_code == 200
-    assert "meta" in resp.get_json()
+    d = resp.get_json()
+    assert d["meta"]["status"] == "error"
+    assert "strike" in d["meta"]["message"].lower()
+
+
+def test_drilldown_unknown_strike_yields_empty(client):
+    resp = client.get("/api/options/drilldown/SPY?strike=12345")
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["meta"]["status"] == "empty"
+    assert _drill_rows(d) == []
 
 
 def test_drilldown_honors_expiration_selection(client):
@@ -156,3 +187,5 @@ def test_drilldown_honors_expiration_selection(client):
     assert resp.status_code == 200
     d = resp.get_json()
     assert d["meta"]["expirations"] == ["2026-06-06"]
+    rows = _drill_rows(d)
+    assert {r["expiration"] for r in rows} == {"2026-06-06"}

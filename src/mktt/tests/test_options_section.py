@@ -12,7 +12,7 @@ import pytest
 
 from datasource import OptionChain
 from parity import assert_parity
-from sections.options import handle
+from sections.options import drilldown, handle
 from sections.options.service import OptionsRequest
 
 GOLDEN = os.path.join(os.path.dirname(__file__), "fixtures", "golden", "gex_profile.json")
@@ -54,7 +54,7 @@ def _golden_chain(stale=False, warning=None):
 
 def _req(**kw):
     base = dict(symbol="SPY", band_pct=0.15, n_exp=4, expirations=None,
-                force_refresh=False, band_key="15")
+                force_refresh=False, band_key="15", strike=None)
     base.update(kw)
     return OptionsRequest(**base)
 
@@ -144,6 +144,19 @@ def test_handle_echoes_expiration_lists_in_meta():
         ["2026-06-19", "2026-06-26", "2026-07-03"]
 
 
+def test_handle_disclosure_carries_freshness_and_assumptions():
+    # The disclosure footer needs BOTH the chain freshness and the GEX modeling
+    # assumptions so the numbers are disclosed as estimates, not exact facts.
+    data = _StubData(_golden_chain())
+    vm = handle(_req(), data)
+    disc = vm["meta"]["disclosure"]
+    assert disc["fetched_at"] == "2026-06-11 06:00:00"
+    assert disc["oi_as_of"] == "2026-06-10 close"
+    a = disc["assumptions"]
+    assert {"risk_free", "dividend_yield", "dealer_positioning",
+            "oi_basis", "units"} <= set(a)
+
+
 # --------------------------------------------------------------------------- #
 # Stale-cache + error status
 # --------------------------------------------------------------------------- #
@@ -200,3 +213,70 @@ def test_request_from_query_band_all_is_none():
     req = OptionsRequest.from_query("SPY", {"band": "all"})
     assert req.band_pct is None
     assert req.expirations is None
+
+
+def test_request_from_query_parses_strike():
+    assert OptionsRequest.from_query("SPY", {"strike": "100.5"}).strike == 100.5
+    # absent / garbage -> None (no drilldown target)
+    assert OptionsRequest.from_query("SPY", {}).strike is None
+    assert OptionsRequest.from_query("SPY", {"strike": "abc"}).strike is None
+    assert OptionsRequest.from_query("SPY", {"strike": ""}).strike is None
+
+
+# --------------------------------------------------------------------------- #
+# drilldown — per-contract breakdown behind one strike
+# --------------------------------------------------------------------------- #
+def test_drilldown_returns_per_contract_rows():
+    data = _StubData(_golden_chain())
+    vm = drilldown(_req(strike=100.0), data)
+
+    assert set(vm.keys()) == {"figures", "tables", "meta"}
+    assert vm["meta"]["status"] == "ok"
+    assert vm["meta"]["strike"] == 100.0
+    assert vm["meta"]["title"] == "SPY — GEX drilldown"
+    assert vm["meta"]["asof"] == "2026-06-10 close"
+
+    drill = next(t for t in vm["tables"] if t["id"] == "gex_drill")
+    assert drill["columns"] == ["expiration", "side", "oi", "iv", "gamma", "gex"]
+    rows = [dict(zip(drill["columns"], r)) for r in drill["rows"]]
+    assert rows
+    for r in rows:
+        assert r["side"] in ("call", "put")
+    # contracts also surfaced in meta for the client renderer
+    assert vm["meta"]["contracts"] == rows
+    # the GEX of the contracts at strike 100 sums to that strike's net GEX
+    net = round(sum(r["gex"] for r in rows))
+    gex_strikes = next(t for t in handle(_req(), data)["tables"]
+                       if t["id"] == "gex_strikes")
+    # gex_strikes columns: [strike, call_gex, put_gex, net_gex, oi]
+    net_by_strike = {row[0]: row[3] for row in gex_strikes["rows"]}
+    assert net == pytest.approx(net_by_strike[100], abs=1)
+
+
+def test_drilldown_without_strike_yields_error():
+    data = _StubData(_golden_chain())
+    vm = drilldown(_req(strike=None), data)
+    assert vm["meta"]["status"] == "error"
+    assert "strike" in vm["meta"]["message"].lower()
+    assert vm["tables"] == [] and vm["figures"] == []
+
+
+def test_drilldown_unknown_strike_yields_empty():
+    data = _StubData(_golden_chain())
+    vm = drilldown(_req(strike=99999.0), data)
+    assert vm["meta"]["status"] == "empty"
+    drill = next(t for t in vm["tables"] if t["id"] == "gex_drill")
+    assert drill["rows"] == []
+
+
+def test_drilldown_fetch_error_yields_error_envelope():
+    data = _StubData(RuntimeError("No option expirations available for BADSYM"))
+    vm = drilldown(_req(symbol="BADSYM", strike=100.0), data)
+    assert vm["meta"]["status"] == "error"
+    assert "BADSYM" in vm["meta"]["message"]
+
+
+def test_drilldown_passes_selected_expirations_to_provider():
+    data = _StubData(_golden_chain())
+    drilldown(_req(strike=100.0, expirations=["2026-06-26"], n_exp=2), data)
+    assert data.last_call["expirations"] == ["2026-06-26"]

@@ -11,16 +11,16 @@ The provider (``data``) is built once via the default factory and injected into
 ``handle`` (spec §8) — the section stays method-agnostic and testable with a stub
 ``data.option_chain``; the blueprint is the wiring seam.
 
-``handle`` returns the spec §5.1 ViewModel envelope (figures/tables/meta). The
-GEX profile envelope already carries the per-strike ``gex_strikes`` table, so the
-drilldown route is the same parse/handle/jsonify with the requested ``strike``
-echoed into ``meta.context`` for the client.
+``handle`` returns the spec §5.1 ViewModel envelope (figures/tables/meta). The GEX
+profile envelope carries the per-strike ``gex_strikes`` table; clicking a strike
+row drills in via ``/api/options/drilldown/<symbol>?strike=...`` which returns the
+per-contract breakdown (expiration / side / OI / IV / gamma / GEX) behind it.
 """
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, render_template, request
 
-from .service import OptionsRequest, handle
+from .service import OptionsRequest, drilldown, handle
 
 options_bp = Blueprint("options", __name__, template_folder="templates")
 
@@ -56,7 +56,7 @@ def options_gex_api(symbol):
 
 @options_bp.route("/api/options/drilldown/<symbol>")
 def options_drilldown_api(symbol):
-    """Per-strike drilldown — same parse/handle/jsonify; the GEX envelope carries
-    the ``gex_strikes`` table, ``strike`` is echoed in ``meta.context``."""
+    """Per-strike drilldown — parse the ``strike``, return the per-contract rows
+    (expiration / side / OI / IV / gamma / GEX) behind it (spec §4.1)."""
     req = OptionsRequest.from_query(symbol, request.args)
-    return jsonify(handle(req, _providers()))
+    return jsonify(drilldown(req, _providers()))

@@ -5,6 +5,6 @@ Public surface: ``handle(req, data) -> ViewModel`` and the typed ``OptionsReques
 """
 from __future__ import annotations
 
-from .service import DEFAULT_N_EXP, OptionsRequest, handle
+from .service import DEFAULT_N_EXP, OptionsRequest, drilldown, handle
 
-__all__ = ["handle", "OptionsRequest", "DEFAULT_N_EXP"]
+__all__ = ["handle", "drilldown", "OptionsRequest", "DEFAULT_N_EXP"]
