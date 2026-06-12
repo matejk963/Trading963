@@ -176,3 +176,12 @@ for that date via yfinance (4794 returned; rest genuinely delisted), patched clo
 (backed up as *.bak_0609). Then re-ran the full Writer on corrected prices: 2026-06-09 history row 1→4794;
 classification_history 6,501,397; current regime 4503 / stage 4835. Prices and computed analysis now consistent
 and clean across 2020-04-24 → 2026-06-11.
+
+## 2026-06-12 · orchestrator · REPORT (grill on Option C → Wave 4 Frontend)
+Running the app revealed bare placeholder templates (backend works, UI is skeletal). /grill-me on the
+fix (Option C) resolved: revive original base.html chrome (sections extend it); revive original rich
+section templates; SERVER-RENDER tables (reuse Jinja) + CLIENT-RENDER charts (deviation from §4.1 →
+adr/0002); watchlist on MKLists + connection pooling; screener technicals computed live in handle().
+Also found while running: (1) /static/viewmodel.js 404 (path), (2) screener empty by default (turnover
+not materialized — now computed live). Wave 4 = slices 14 (chrome) → 15 (screener) → 16 (monitor+watchlist)
+→ 17 (options/rrg/macro). Dispatching.

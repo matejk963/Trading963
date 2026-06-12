@@ -1,5 +1,5 @@
 # Plan: MKTT refactor — dev
-Status: Done (2026-06-11) — 12/13 slices built; 2b GPU deferred by adr/0001
+Status: Active (Wave 4 — Frontend, 2026-06-12) — backend done (12/13); reviving UI per adr/0002
 Derived from: prd.md   Respects: `refactor/TARGET_ARCHITECTURE.md` (locked contracts §5, §8)
 Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 10 → 13 slices.
 
@@ -40,6 +40,14 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
 **Wave 5 — cleanup:**
 - [x] ▶ **13. app.py → app-factory + blueprint registration** (`<~80 lines`). Blocked-by: 7–12.
 
+## Wave 4 — Frontend (adr/0002: revive originals, server-render tables, client-render charts)
+- [ ] ▶ **14. Chrome & plumbing** — revive `templates/base.html` (remap stale `url_for` → new blueprint endpoints); section pages `{% extends base %}`; add a **connection pool** in the app-factory injected into ListStore/ComputedStore/DataSource; fix the `/static/viewmodel.js` 404. Verify all pages 200 + show nav/chrome. Blocked-by: none.
+- [ ] ▶ **15. Screener page** (tracer) — revive the rich `screener.html` filter form (extends base); `screener.handle` = `cross_section ⨝ MKFund ⨝ live time_series` (turnover/price/change/%-from-high) → filter → **server-render** the table; `/api/screener` still returns ViewModel. Browser-verify a populated, styled table on default filters. Blocked-by: 14.
+- [ ] ▶ **16. Monitor + Watchlist pages** — revive chart/fundamentals + watchlist pages (extends base); **client-render** charts (Plotly via renderViewModel); watchlist read/write on **MKLists** via Monitor endpoints (side→note). Browser-verify. Blocked-by: 14.
+- [ ] ▶ **17. Options + RRG + Macro pages** — revive their pages (extends base); client-render their charts (GEX profile / RRG scatter / liquidity lines). Browser-verify. Blocked-by: 14.
+
+## Change log (cont.)
+
 ## Change log
 - 2026-06-11 — Plan derived from prd.md + spec §11 (10 slices, first = Kernel).
 - 2026-06-11 — Reformulated to 13 slices after reviewer pass. Added: #3 parity harness, #6 ViewModel
@@ -48,3 +56,5 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
   sub-split 7a/7b/7c (FLAG-4). Flagged DB-creds gate on 4/5/9 (FLAG-7) and PCA-regime producer gap (FLAG-3).
   **First dispatch: 2a + 3 (parallel, AFK).** Open decisions for the user: FLAG-2 (GPU scope),
   FLAG-3 (PCA-regime ADR), FLAG-5 (scope-widening vendoring), FLAG-7 (creds).
+
+- 2026-06-12 — Wave 4 (Frontend) added after /grill-me on Option C. adr/0002: revive original templates, server-render tables / client-render charts, watchlist on MKLists, live screener technicals. Slices 14-17; first = 14 (chrome).
