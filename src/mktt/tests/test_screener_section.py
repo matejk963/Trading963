@@ -527,3 +527,58 @@ def test_handle_page_emits_sector_stats_and_stage_banner():
     assert ctx["stage_dist"] is not None
     assert ctx["market_regime"] in {
         "Healthy Bull", "Late Bull", "Bear", "Bottoming", "Mixed"}
+
+
+def test_sector_stats_medians_over_passed_not_full_universe():
+    """Sector/industry medians must be computed over the PASSED (filtered) stocks,
+    matching the original (app.py @9631169 groups the already-filtered results_df).
+
+    RS_Rank is a global 0-100 percentile, so a full-universe sector median sits ~50
+    regardless of the active filter — the original instead reports the median of the
+    stocks that survived the filter. Regression guard for that parity.
+    """
+    from sections.screener.service import _sector_stats
+
+    def _row(sym, rs, pe, ind="SoftwareCo"):
+        return {"Symbol": sym, "Sector": "Tech", "Industry": ind,
+                "RS_Rank": rs, "PE": pe}
+
+    # passed: two high-RS leaders -> median_rs 85, median_pe 25
+    passed = [_row("AAA", 80, 20), _row("BBB", 90, 30)]
+    # full universe adds three low-RS names -> full median_rs would be 30
+    full = passed + [_row("CCC", 10, 100), _row("DDD", 20, 110),
+                     _row("EEE", 30, 120)]
+
+    stats = _sector_stats(passed, full)
+    assert len(stats) == 1
+    sec = stats[0]
+    # median over the PASSED set (85), NOT the full-universe median (30).
+    assert sec["median_rs"] == 85
+    assert sec["median_pe"] == 25
+    # counts still use the full universe: 2 passed of 5 total = 40%.
+    assert sec["count"] == 2 and sec["total"] == 5
+    assert sec["pct_of_sector"] == 40
+    # industry medians likewise over the passed stocks.
+    ind = sec["industries"][0]
+    assert ind["median_rs"] == 85 and ind["count"] == 2
+
+
+def test_stage_preset_filters_table_to_that_stage():
+    """preset=stageN keeps only Stage_Class==N rows (app.py:487 parity).
+
+    Regression: the preset was previously ignored entirely, so every stage preset
+    returned the full passing universe (and the sector medians + flat table were
+    identical across stage2/stage4).
+    """
+    from sections.screener.service import handle_page
+    cross, funds = _universe()  # AAA,CCC=stage2  BBB=stage4  DDD=stage1
+    def syms(preset):
+        ctx = handle_page(ScreenRequest.from_query(FakeArgs(single={
+            "preset": preset, "min_turnover": "1000000"})),
+            StubData(funds), StubComputed(cross))
+        return {r["symbol"] for r in ctx["results"]}
+    assert syms("stage2") == {"AAA", "CCC"}
+    assert syms("stage4") == {"BBB"}
+    assert syms("stage1") == {"DDD"}
+    # "all" keeps every base-passing symbol (no stage filter).
+    assert syms("all") == {"AAA", "BBB", "CCC", "DDD"}

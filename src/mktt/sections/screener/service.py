@@ -419,6 +419,18 @@ def _pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
         except Exception:  # noqa: BLE001
             logger.exception("screener rs_changes: fetch failed")
 
+    # trans12 preset: attach the per-symbol stage Transition ("prev->current") from
+    # history (only when that preset is active — it's the sole consumer).
+    if req.preset == "trans12" and hasattr(computed, "stage_transitions"):
+        try:
+            tmap = computed.stage_transitions().to_dict()
+            for r in rows:
+                t = tmap.get(r["Symbol"])
+                if t:
+                    r["Transition"] = t
+        except Exception:  # noqa: BLE001
+            logger.exception("screener trans12: stage_transitions failed")
+
     # Live technicals (adr/0002 §5): turnover/price/day-change/%-from-52w-high+low.
     # Preferred path is the VECTORIZED ``data.panel_technicals`` (computed column-wise
     # off the wide parquet panels — no per-symbol Python loop, sub-second for the full
@@ -879,6 +891,18 @@ def _passes(row: Dict[str, Any], req: ScreenRequest) -> bool:
     if req.sector and req.sector != "All" and sec != req.sector:
         return False
 
+    # Stage preset (app.py:487-496) — a BASE filter so the table shows only the
+    # selected stage, while the stage-distribution banner still counts the full
+    # classified universe (handle_page computes it from res.rows, not res.passed).
+    # stage1-4 -> Stage_Class == N; trans12 -> a "1->2" Transition (attached in
+    # _pipeline from classification_history when that preset is active).
+    if req.preset in _STAGE_NUM:
+        if _int(g("Stage_Class")) != _STAGE_NUM[req.preset]:
+            return False
+    elif req.preset == "trans12":
+        if _stringify(g("Transition")) != "1->2":
+            return False
+
     # Classification multi-selects (app.py:819-827).
     if req.has_class_filters:
         for key, col in CLASS_MULTI_COLUMNS.items():
@@ -1133,6 +1157,8 @@ def _int(v) -> Optional[int]:
 # stage distribution + market regime (port app.py:478-493)
 # --------------------------------------------------------------------------- #
 _STAGE_PRESETS = {"stage1", "stage2", "stage3", "stage4", "trans12"}
+#: Stage-preset -> Stage_Class value the table filters to (app.py:487-494).
+_STAGE_NUM = {"stage1": 1, "stage2": 2, "stage3": 3, "stage4": 4}
 
 
 def _stage_distribution(rows: List[Dict[str, Any]]):
@@ -1201,9 +1227,16 @@ def _group_medians(rows) -> Dict[str, Any]:
 def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
     """Sector→industry→stock hierarchy with sector/industry median stats.
 
-    Medians use the FULL (unfiltered) universe; stock lists use the passed rows
-    (port app.py:957-1119). Each sector entry carries its medians + an industry
-    breakdown (each with its own medians + stock list) + a flat stock list.
+    Medians (``median_rs``, ``median_pe``, …) are computed over the **passed /
+    filtered** stocks in each sector — NOT the full universe — matching the original
+    (app.py @9631169:759-870, which groups the already-filtered ``results_df``). This
+    matters for ``median_rs``: ``RS_Rank`` is a global 0-100 percentile, so a full-
+    universe sector median sits ~50 regardless of the active preset, whereas the
+    passed-set median reflects the actual leaders/laggards that survived the filter.
+
+    Counts use the FULL universe: ``total`` = symbols in the sector, ``count`` =
+    passed, ``pct_of_sector`` = count/total. (The per-stock ``PE_vs_Sector`` premium
+    is a SEPARATE, full-universe figure computed in ``_pipeline`` — unchanged.)
     """
     full_by_sector: Dict[str, List[Dict[str, Any]]] = {}
     for r in full_rows:
@@ -1220,8 +1253,7 @@ def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
     n_passed = len(passed_rows) or 1
     out: List[Dict[str, Any]] = []
     for sec, prows in passed_by_sector.items():
-        full_group = full_by_sector.get(sec, prows)
-        total = sector_totals.get(sec, len(full_group))
+        total = sector_totals.get(sec, len(prows))
         stats: Dict[str, Any] = {
             "sector": sec,
             "count": len(prows),
@@ -1229,16 +1261,12 @@ def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
             "pct_of_sector": len(prows) / total * 100 if total else 0,
             "pct_of_results": len(prows) / n_passed * 100,
         }
-        stats.update(_group_medians(full_group))
+        # medians over the PASSED stocks in this sector (original parity).
+        stats.update(_group_medians(prows))
         stats["stocks"] = sorted((_page_row(r) for r in prows),
                                  key=lambda x: x.get("rs_rank") or 0, reverse=True)
 
-        # industry breakdown
-        full_by_ind: Dict[str, List[Dict[str, Any]]] = {}
-        for r in full_group:
-            ind = r.get("Industry")
-            if ind:
-                full_by_ind.setdefault(ind, []).append(r)
+        # industry breakdown — medians over the passed stocks per industry.
         passed_by_ind: Dict[str, List[Dict[str, Any]]] = {}
         for r in prows:
             ind = r.get("Industry")
@@ -1246,8 +1274,7 @@ def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
                 passed_by_ind.setdefault(ind, []).append(r)
         industries = []
         for ind, iprows in passed_by_ind.items():
-            full_ind = full_by_ind.get(ind, iprows)
-            imeds = _group_medians(full_ind)
+            imeds = _group_medians(iprows)
             ind_pe, sec_pe = imeds.get("median_pe"), stats.get("median_pe")
             imeds["pe_vs_sector"] = (round(ind_pe / sec_pe, 2)
                                      if ind_pe and sec_pe and sec_pe > 0 else None)
@@ -1286,7 +1313,8 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
         # template iterates stage_dist.items(); keep S1-S4 (+S0 for the qualified math).
         stage_dist = {k: v for k, v in sorted(dist.items())}
 
-    # Sector/industry median statistics + hierarchy (medians over full universe).
+    # Sector/industry median statistics + hierarchy (medians over the PASSED set,
+    # original parity — see _sector_stats). res.rows supplies full-universe counts.
     sector_stats = _sector_stats(res.passed, res.rows)
 
     fetch_ms = (time.time() - t0) * 1000.0

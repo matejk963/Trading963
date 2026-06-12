@@ -334,6 +334,62 @@ class ComputedStore:
         return df
 
     # ------------------------------------------------------------------ #
+    # stage_transitions (Screener trans12 preset) — original parity
+    # ------------------------------------------------------------------ #
+    def stage_transitions(self, asof=None, lookback: int = 5) -> pd.Series:
+        """Per-symbol stage transition label (``"prev->current"``) from history.
+
+        Reproduces the original screener's ``Transition`` column
+        (stage_classifier.py:243): ``current`` = the latest ``stage``; ``prev`` = the
+        **mode** of the prior ``lookback`` bars' stage; the label is set only when
+        ``prev != current`` and neither is 0 (unclassified). The ``trans12`` preset
+        filters on ``"1->2"``.
+
+        Reads ``stage`` for the latest ``lookback+1`` trading dates per symbol (one
+        round-trip) and computes the mode in pandas. ``asof`` anchors "current" to the
+        latest trading day ``<= asof`` (default: latest). Returns a **symbol-indexed**
+        ``Series[str]``; symbols with too little history or no transition are omitted.
+        """
+        n = lookback + 1  # current bar (rn=1) + the `lookback` prior bars (rn=2..n)
+        asof_where, params = "", []
+        if asof is not None:
+            asof_where = "WHERE date <= %s"
+            params.append(pd.Timestamp(asof).date())
+        sql = f"""
+        WITH d AS (
+            SELECT date, row_number() OVER (ORDER BY date DESC) AS rn
+            FROM (SELECT DISTINCT date FROM {self._history} {asof_where}) x
+        ),
+        picks AS (SELECT date, rn FROM d WHERE rn <= %s)
+        SELECT ch.symbol, p.rn, ch.stage
+        FROM {self._history} ch JOIN picks p ON ch.date = p.date
+        """
+        rows, cols = self._query(sql, params + [n])
+        df = pd.DataFrame(rows, columns=cols)
+        if df.empty:
+            return pd.Series(dtype=object, name="transition")
+        df["stage"] = pd.to_numeric(df["stage"], errors="coerce")
+        piv = df.pivot_table(index="symbol", columns="rn", values="stage",
+                             aggfunc="first")
+        prior_rns = [r for r in range(2, n + 1) if r in piv.columns]
+        out: Dict[str, str] = {}
+        for sym, srow in piv.iterrows():
+            cur = srow.get(1)
+            if pd.isna(cur) or not prior_rns:
+                continue
+            prior = srow[prior_rns].dropna()
+            if prior.empty:
+                continue
+            mode = prior.mode()
+            if mode.empty:
+                continue
+            cur, prev = int(cur), int(mode.iloc[0])
+            if prev != cur and cur != 0 and prev != 0:
+                out[sym] = f"{prev}->{cur}"
+        logger.debug("stage_transitions: %d transitions (asof=%s)", len(out), asof)
+        return pd.Series(out, name="transition", dtype=object)
+
+    # ------------------------------------------------------------------ #
     # ensure_fresh (spec §5.3) — diff last-bar-date, recompute the stale
     # ------------------------------------------------------------------ #
     def last_bar_dates(self, ids=None) -> Dict[str, pd.Timestamp]:

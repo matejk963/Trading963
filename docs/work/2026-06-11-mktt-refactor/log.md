@@ -243,3 +243,25 @@ No re-materialize needed (current store data already full-universe-correct; FwdP
 - **Tests: 316 passed** (313 + 3 new `rs_rank_changes` integration tests: exact 5/21/63 deltas, short-history NaN, asof-anchor). No regressions.
 
 **Still open:** value-parity verification pass (old↔new diff per section) and full UI walkthrough remain — Open-items (2),(3).
+
+## 2026-06-12 · orchestrator · REPORT — screener stage-preset filter + sector-median basis (wrong-answer bugs)
+**Trigger:** user — "check the old version sector analysis in screener in terms of percentiles/RS rank, I think it doesn't match."
+
+**Found TWO compounding wrong-answer bugs (confirmed vs original app.py @9631169, not assumed):**
+1. **Stage presets never filtered.** `_passes` applied base/classification/fundamental/technical filters but **never the `preset`** — so `stage1/2/3/4/trans12` all returned the *same* full passing universe (verified: stage2 and stage4 both → 3856 rows). The original filters `Stage == N` (app.py:487-494); `trans12 → Transition == "1->2"` (stage_classifier.py:243). The preset was only used for the stage-distribution banner, never the table.
+2. **Sector/industry medians computed over the FULL universe, not the passed set.** `_sector_stats` took medians over `full_rows`; the original groups the already-**filtered** `results_df` (app.py:759-870). Because `RS_Rank` is a global 0-100 percentile, the full-universe sector median sits ~50 for every sector regardless of filter — so the panel's `median_rs` (and all medians) were wrong under any preset/filter. This is what the user saw.
+
+(Bug 1 masked bug 2: with the preset ignored, the passed set was identical across presets, so even a correct median basis would have shown identical numbers.)
+
+**Did:**
+1. **Stage-preset filter** (`_passes`, base-filter position): `stage1-4 → Stage_Class == N` via `_STAGE_NUM`; `trans12 → Transition == "1->2"`. The banner still counts the full universe (handle_page reads `res.rows`, the filter only narrows `res.passed`).
+2. **`ComputedStore.stage_transitions(asof=None, lookback=5)`** — per-symbol `"prev->current"` label from `classification_history`: current = latest `stage`, prev = **mode** of the prior 5 bars; labelled only when `prev != current` and neither is 0 (exact port of stage_classifier.py:243). `_pipeline` attaches `row["Transition"]` only when `preset == trans12` (its sole consumer). One SQL round-trip + pandas mode.
+3. **Sector/industry medians now over the PASSED set** (`_sector_stats`): `_group_medians(prows)` / `_group_medians(iprows)` instead of the full universe. Counts/`pct_of_sector` still use full-universe totals (unchanged, matches original). The separate per-stock `PE_vs_Sector` premium stays full-universe (also matches original).
+
+**Verified (live, full universe):**
+- Preset row counts now distinct: all=3856, stage1=181, stage2=462, stage3=555, stage4=499, trans12=0.
+- `trans12 = 0` is **correct** — there are zero `1->2` transitions in today's data (breakdown: 2->3×14, 3->2×8, 3->1×2, 1->4×2, 4->1, 3->4, 1->3); store found 29 transitions total, none `1->2`.
+- Sector-median RS now tracks stage character: stage2 73-94 (leaders), stage4 7-15 (laggards), stage1 29-52 (basing), stage3 36-60 (topping), all 40-80. Previously identical (~50) across all presets.
+- **Tests: 319 passed** (+3: `stage_preset_filters_table`, `sector_stats_medians_over_passed_not_full_universe`, `stage_transitions_detects_prev_to_current`).
+
+**Bearing on Open-item (2):** this is the **second** user-found, review-missed wrong-answer bug (after the label-scramble). The systematic value-parity pass (old↔new diff per section) is now clearly warranted — these were found by spot-check, not coverage.

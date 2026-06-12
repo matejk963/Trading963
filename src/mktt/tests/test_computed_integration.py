@@ -289,3 +289,31 @@ def test_rs_rank_changes_asof_anchors_to_past_date(schema):
     assert chg.loc["AAA", "rs_chg1w"] == 5      # rank[63] − rank[58]
     assert chg.loc["AAA", "rs_chg1m"] == 21     # rank[63] − rank[42]
     assert chg.loc["AAA", "rs_chg3m"] == 63     # rank[63] − rank[0]
+
+
+# --------------------------------------------------------------------------- #
+# stage_transitions — trans12 preset ("prev->current"), original parity
+# --------------------------------------------------------------------------- #
+def test_stage_transitions_detects_prev_to_current(schema):
+    """current = latest stage; prev = mode of the prior 5 bars; labelled when they
+    differ and neither is 0 (stage_classifier.py:243)."""
+    store = _store(schema)
+    dates = pd.date_range("2024-01-01", periods=6, freq="B")
+    idx = pd.MultiIndex.from_product([["AAA", "BBB", "CCC"], dates],
+                                     names=["symbol", "date"])
+    df = pd.DataFrame(index=idx)
+    for c in VALUE_COLUMNS:
+        df[c] = 1.0
+    ordinal = {d: j for j, d in enumerate(dates)}
+    seq = {
+        "AAA": [1, 1, 1, 1, 1, 2],   # prior mode 1, current 2 -> "1->2"
+        "BBB": [3, 3, 3, 3, 3, 3],   # constant -> no transition
+        "CCC": [0, 0, 0, 0, 0, 2],   # prev mode 0 -> excluded (unclassified)
+    }
+    df["stage"] = [float(seq[s][ordinal[d]]) for (s, d) in df.index]
+    store.upsert(df)
+
+    tr = store.stage_transitions()
+    assert tr.get("AAA") == "1->2"
+    assert "BBB" not in tr.index
+    assert "CCC" not in tr.index   # transitions involving stage 0 are not labelled
