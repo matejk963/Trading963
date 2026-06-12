@@ -1,7 +1,8 @@
-<!DOCTYPE html>
+{% extends "base.html" %}
 {#
-  monitor.html — the Monitor section shell (spec §4.1, §5.1).
+  monitor.html — the Monitor section shell (spec §4.1, §5.1; adr/0002 chrome).
 
+  Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
   The page holds NO render logic: placeholder divs keyed by the ids the section
   emits + a fetch->renderViewModel call. The generic renderer
   (static/js/viewmodel.js) consumes the ViewModel envelope the API returns.
@@ -13,13 +14,12 @@
     tables[].id  == "monitor_list"         -> #monitor_list    (multi-symbol)
   meta sinks: title, status banner, readout badges (stage / rs_rank / sector).
 #}
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>MKTT Monitor{% if symbol %} — {{ symbol }}{% endif %}</title>
+{% block title_suffix %}// Monitor{% if symbol %} {{ symbol }}{% endif %}{% endblock %}
+{% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
   <h2 id="vm-title">Monitor</h2>
   <div id="vm-status" class="vm-banner" style="display:none"></div>
   <div id="vm-readouts" class="vm-readouts"></div>
@@ -45,7 +45,9 @@
     <input id="watchlist-add-symbol" placeholder="symbol">
     <button id="watchlist-add" type="button">Add</button>
   </section>
+{% endblock %}
 
+{% block scripts %}
   <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
     (function () {
@@ -77,5 +79,4 @@
       });
     })();
   </script>
-</body>
-</html>
+{% endblock %}

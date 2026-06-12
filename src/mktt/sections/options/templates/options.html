@@ -1,7 +1,8 @@
-<!DOCTYPE html>
+{% extends "base.html" %}
 {#
-  options.html — the Options (GEX) section shell (spec §4.1, §5.1).
+  options.html — the Options (GEX) section shell (spec §4.1, §5.1; adr/0002 chrome).
 
+  Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
   The page holds NO render logic: placeholder divs keyed by the ids the section
   emits + a fetch->renderViewModel call. The generic renderer
   (static/js/viewmodel.js) consumes the ViewModel envelope `/api/options/gex/<sym>`
@@ -18,13 +19,12 @@
   string and reload; they are NOT renderer consumers (spec §5.1) — they bind
   handlers / build the URL.
 #}
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>MKTT Options — GEX</title>
+{% block title_suffix %}// Options — GEX{% endblock %}
+{% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
   <h2 id="vm-title">Options — GEX</h2>
   <div id="vm-status" class="vm-banner" style="display:none"></div>
   <div id="vm-readouts" class="vm-readouts"></div>
@@ -50,7 +50,9 @@
   <div id="gex_profile" class="vm-figure-host"></div>
   <div id="gex_strikes" class="vm-table-host"></div>
   <div id="gex_walls" class="vm-table-host"></div>
+{% endblock %}
 
+{% block scripts %}
   <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
     (function () {
@@ -67,5 +69,4 @@
       document.addEventListener('DOMContentLoaded', load);
     })();
   </script>
-</body>
-</html>
+{% endblock %}

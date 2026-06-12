@@ -1,7 +1,8 @@
-<!DOCTYPE html>
+{% extends "base.html" %}
 {#
-  rrg.html — the RRG section shell (spec §4.1, §5.1).
+  rrg.html — the RRG section shell (spec §4.1, §5.1; adr/0002 chrome).
 
+  Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
   The page holds NO render logic: a placeholder div keyed by the figure/table ids
   the section emits + a fetch->renderViewModel call. The generic renderer
   (static/js/viewmodel.js) consumes the ViewModel envelope `/api/rrg` returns.
@@ -15,13 +16,12 @@
   request as a query string and reload; they are NOT renderer consumers (spec
   §5.1) — they bind handlers / build the URL.
 #}
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>MKTT RRG</title>
+{% block title_suffix %}// RRG{% endblock %}
+{% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
   <h2 id="vm-title">Relative Rotation Graph</h2>
   <div id="vm-status" class="vm-banner" style="display:none"></div>
   <div id="vm-readouts" class="vm-readouts"></div>
@@ -54,7 +54,9 @@
   {# Host divs per figure/table id the section emits. #}
   <div id="rrg_scatter" class="vm-figure-host"></div>
   <div id="rrg_positions" class="vm-table-host"></div>
+{% endblock %}
 
+{% block scripts %}
   <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
     (function () {
@@ -72,5 +74,4 @@
       document.addEventListener('DOMContentLoaded', load);
     })();
   </script>
-</body>
-</html>
+{% endblock %}

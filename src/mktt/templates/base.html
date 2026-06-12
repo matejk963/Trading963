@@ -12,11 +12,11 @@
     <nav class="topbar">
         <div class="logo">MKTT <span>v0.2 // trading terminal</span></div>
         <div class="tab-bar">
-            <a id="screener-tab" href="{{ url_for('screener_page') }}" class="tab {% if active_section|default('screener') == 'screener' %}active{% endif %}">SCREENER</a>
-            <a href="{{ url_for('macro.section_page', section='liquidity') }}" class="tab {% if active_section|default('') == 'liquidity' %}active{% endif %}">LIQUIDITY</a>
-            <a href="{{ url_for('macro.section_page', section='rrg') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
-            <a href="{{ url_for('options_page') }}" class="tab {% if active_section|default('') == 'options' %}active{% endif %}">OPTIONS</a>
-            <a href="{{ url_for('watchlist_page') }}" class="tab {% if active_section|default('') == 'watchlist' %}active{% endif %}">WATCHLIST<span id="wl-badge" style="font-size:9px;background:var(--primary);color:white;border-radius:50%;padding:1px 5px;margin-left:4px;display:none;"></span></a>
+            <a id="screener-tab" href="{{ url_for('screener.screener_page') }}" class="tab {% if active_section|default('screener') == 'screener' %}active{% endif %}">SCREENER</a>
+            <a href="{{ url_for('macro.macro_page', view='liquidity') }}" class="tab {% if active_section|default('') in ('liquidity', 'macro') %}active{% endif %}">LIQUIDITY</a>
+            <a href="{{ url_for('rrg.rrg_page') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
+            <a href="{{ url_for('options.options_page') }}" class="tab {% if active_section|default('') == 'options' %}active{% endif %}">OPTIONS</a>
+            <a href="{{ url_for('monitor.watchlist_page') }}" class="tab {% if active_section|default('') == 'watchlist' %}active{% endif %}">WATCHLIST<span id="wl-badge" style="font-size:9px;background:var(--primary);color:white;border-radius:50%;padding:1px 5px;margin-left:4px;display:none;"></span></a>
             <span style="margin-left:auto;cursor:pointer;font-size:12px;color:var(--text-faint,#666);padding:6px 10px;" onclick="showFreshness()" title="Data freshness">&#9202; DATA</span>
         </div>
         <div id="freshness-panel" style="display:none;position:fixed;top:40px;right:10px;z-index:900;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:8px;padding:14px 18px;width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-size:12px;">
