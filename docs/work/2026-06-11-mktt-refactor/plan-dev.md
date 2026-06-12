@@ -41,10 +41,10 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
 - [x] ▶ **13. app.py → app-factory + blueprint registration** (`<~80 lines`). Blocked-by: 7–12.
 
 ## Wave 4 — Frontend (adr/0002: revive originals, server-render tables, client-render charts)
-- [ ] ▶ **14. Chrome & plumbing** — revive `templates/base.html` (remap stale `url_for` → new blueprint endpoints); section pages `{% extends base %}`; add a **connection pool** in the app-factory injected into ListStore/ComputedStore/DataSource; fix the `/static/viewmodel.js` 404. Verify all pages 200 + show nav/chrome. Blocked-by: none.
-- [ ] ▶ **15. Screener page** (tracer) — revive the rich `screener.html` filter form (extends base); `screener.handle` = `cross_section ⨝ MKFund ⨝ live time_series` (turnover/price/change/%-from-high) → filter → **server-render** the table; `/api/screener` still returns ViewModel. Browser-verify a populated, styled table on default filters. Blocked-by: 14.
-- [ ] ▶ **16. Monitor + Watchlist pages** — revive chart/fundamentals + watchlist pages (extends base); **client-render** charts (Plotly via renderViewModel); watchlist read/write on **MKLists** via Monitor endpoints (side→note). Browser-verify. Blocked-by: 14.
-- [ ] ▶ **17. Options + RRG + Macro pages** — revive their pages (extends base); client-render their charts (GEX profile / RRG scatter / liquidity lines). Browser-verify. Blocked-by: 14.
+- [x] ▶ **14. Chrome & plumbing** — revive `templates/base.html` (remap stale `url_for` → new blueprint endpoints); section pages `{% extends base %}`; add a **connection pool** in the app-factory injected into ListStore/ComputedStore/DataSource; fix the `/static/viewmodel.js` 404. Verify all pages 200 + show nav/chrome. Blocked-by: none.
+- [x] ▶ **15. Screener page** (tracer) — revive the rich `screener.html` filter form (extends base); `screener.handle` = `cross_section ⨝ MKFund ⨝ live time_series` (turnover/price/change/%-from-high) → filter → **server-render** the table; `/api/screener` still returns ViewModel. Browser-verify a populated, styled table on default filters. Blocked-by: 14.
+- [x] ▶ **16. Monitor + Watchlist pages** — revive chart/fundamentals + watchlist pages (extends base); **client-render** charts (Plotly via renderViewModel); watchlist read/write on **MKLists** via Monitor endpoints (side→note). Browser-verify. Blocked-by: 14.
+- [x] ▶ **17. Options + RRG + Macro pages** — revive their pages (extends base); client-render their charts (GEX profile / RRG scatter / liquidity lines). Browser-verify. Blocked-by: 14.
 
 ## Change log (cont.)
 

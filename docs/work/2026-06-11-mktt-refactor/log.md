@@ -185,3 +185,12 @@ adr/0002); watchlist on MKLists + connection pooling; screener technicals comput
 Also found while running: (1) /static/viewmodel.js 404 (path), (2) screener empty by default (turnover
 not materialized — now computed live). Wave 4 = slices 14 (chrome) → 15 (screener) → 16 (monitor+watchlist)
 → 17 (options/rrg/macro). Dispatching.
+
+## 2026-06-12 · orchestrator · DEBRIEF (Wave 4 Frontend complete)
+Slices 14-17 done+committed (5d6818e chrome, 0b9cf1f screener, f17656a monitor+watchlist; 17 verified—no new diff).
+275 tests green. Browser-verified (chrome-devtools): screener renders the rich filter form + populated color-coded
+table (4122 rows on default min_turnover=500000, was 0); macro/liquidity renders full chrome + Plotly chart;
+all pages have the dark terminal nav. Connection pool added; watchlist on MKLists.
+Honest gaps (follow-up, logged): (a) screener missing the sector→industry hierarchy + map view + EPS-estimate
+columns (data not in new stores); (b) options/rrg/macro pages are chart shells (chrome+charts), not the original
+rich layouts; (c) screener full-universe page render ~6-7s (live time_series fetch per request — window/cache later).
