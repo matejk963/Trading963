@@ -276,6 +276,76 @@ def test_blueprint_api_is_thin(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# F4 fix — the time-replay payload the as-of slider + asset toggles consume
+# --------------------------------------------------------------------------- #
+def test_handle_emits_full_data_for_slider_replay():
+    """meta.full_data + all_dates must be present and shaped for the client replay
+    (each asset carries name/color + aligned dates/rs_ratio/rs_momentum)."""
+    wide = _wide_etf_panel()
+    data = StubData(_symbol_date_panel(wide))
+    vm = handle(RrgRequest(dataset="us", window=13, trail=8), data)
+
+    meta = vm["meta"]
+    full = meta["full_data"]
+    dates = meta["all_dates"]
+    assert full and dates                       # both non-empty
+    assert dates == sorted(dates)               # ascending for the slider index
+    # the positions table assets are a subset of the replay series.
+    tbl = next(t for t in vm["tables"] if t["id"] == "rrg_positions")
+    assert len(tbl["rows"]) <= len(full)
+    for key, series in full.items():
+        assert set(series) >= {"name", "color", "dates", "rs_ratio", "rs_momentum"}
+        n = len(series["dates"])
+        assert len(series["rs_ratio"]) == n and len(series["rs_momentum"]) == n
+        assert all(d in dates for d in series["dates"])
+
+
+def _page_app():
+    """A Flask app with all section blueprints registered (so base.html's url_for
+    chrome resolves) and the package + section template dirs on the loader path.
+    No DB/provider is touched — only the page route (pure template render) is hit."""
+    from flask import Flask
+    from jinja2 import ChoiceLoader, FileSystemLoader
+    from sections.rrg import routes as rrg_routes
+    from sections.macro import routes as macro_routes
+    from sections.options import routes as options_routes
+    from sections.screener import routes as screener_routes
+    from sections.monitor import routes as monitor_routes
+
+    pkg_templates = Path(rrg_routes.__file__).resolve().parents[2] / "templates"
+    app = Flask(__name__, template_folder=str(pkg_templates))
+    # Section shells must win over the legacy app-level templates of the same name
+    # (mirrors app._prioritize_section_templates) — section dirs FIRST.
+    section_dirs = [FileSystemLoader(str(Path(r.__file__).resolve().parent / "templates"))
+                    for r in (rrg_routes, macro_routes, options_routes,
+                              screener_routes, monitor_routes)]
+    app.jinja_loader = ChoiceLoader(section_dirs + [app.jinja_loader])
+    from datetime import datetime
+    app.context_processor(lambda: {"now": datetime.utcnow()})
+    for bp in (rrg_routes.rrg_bp, macro_routes.macro_bp, options_routes.options_bp,
+               screener_routes.screener_bp, monitor_routes.monitor_bp):
+        app.register_blueprint(bp)
+    return app
+
+
+def test_rrg_page_renders_slider_toggles_and_drill_dropdown():
+    """The shell must carry the as-of slider, the All/None + checkbox strip, and a
+    futures-only drill <select> populated from q.FUTURES_GROUPS (F4 gaps 1-3)."""
+    html = _page_app().test_client().get("/rrg").get_data(as_text=True)
+
+    assert 'id="rrg-date-slider"' in html and 'rrg-date-slider-wrap' in html
+    assert 'id="rrg-checkboxes"' in html and 'rrg-show-all' in html and 'rrg-show-none' in html
+    assert '<select id="rrg-drill-group"' in html
+    assert 'rrg-drill-controls" style="display:none' in html  # hidden until futures
+    for g in q.FUTURES_GROUPS:
+        assert ">" + g + "<" in html                          # each group offered
+    assert "— Overview —" in html                             # reset affordance
+    # window/trail are constrained <select> (not free-text inputs).
+    assert "Short (13w)" in html and "Long (26w)" in html
+    assert ">4 weeks<" in html and ">26 weeks<" in html
+
+
+# --------------------------------------------------------------------------- #
 # DataSource etf/futures submodules — normalize injected yf.download
 # --------------------------------------------------------------------------- #
 def test_etf_submodule_normalizes_to_symbol_date():

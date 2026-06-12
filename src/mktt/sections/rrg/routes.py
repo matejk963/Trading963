@@ -38,8 +38,14 @@ def _providers():
 
 @rrg_bp.route("/rrg")
 def rrg_page():
-    """Render the RRG shell — placeholder divs + fetch->renderViewModel."""
-    return render_template("rrg.html", active_section="rrg")
+    """Render the RRG shell — placeholder divs + fetch->renderViewModel.
+
+    The futures drill groups are passed so the (futures-only) drill dropdown can
+    be populated from the PRIVATE quadrant config instead of hard-coding labels.
+    """
+    from . import quadrant as q
+    return render_template("rrg.html", active_section="rrg",
+                           futures_groups=list(q.FUTURES_GROUPS.keys()))
 
 
 @rrg_bp.route("/api/rrg")

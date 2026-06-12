@@ -3,18 +3,21 @@
   rrg.html — the RRG section shell (spec §4.1, §5.1; adr/0002 chrome).
 
   Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
-  The page holds NO render logic: a placeholder div keyed by the figure/table ids
-  the section emits + a fetch->renderViewModel call. The generic renderer
-  (static/js/viewmodel.js) consumes the ViewModel envelope `/api/rrg` returns.
+  Controls build the typed request (dataset/period/window/trail [+ drill group]),
+  fetch `/api/rrg` (or `/api/rrg/drill`), and render the ViewModel envelope.
+
+  The RRG envelope carries the FULL per-asset series in `meta.full_data` +
+  `meta.all_dates` (rrg/service.py:_serialize_full) for client-side time replay:
+  an AS-OF DATE slider scrubs the tails back through history, and a per-asset
+  checkbox strip toggles individual series — both ported from the original
+  templates/macro/_rrg.html + macro.js (onRRGDateSlider / initRRGSliderAndChecks /
+  rrgSelectAll / rrgToggle / sortRRGTable). Because the replay redraws the chart
+  and rebuilds the table itself, this shell uses a section-specific renderer
+  rather than the generic one (the generic renderer cannot replay history).
 
   Section figure/table ids (must match service.py):
-    figures[0].id == "rrg_scatter"     -> #rrg_scatter
-    tables[0].id  == "rrg_positions"   -> #rrg_positions
-  meta sinks: title, status banner, readout badges (assets).
-
-  Input controls (dataset/period/window/trail [+ drill group]) build the typed
-  request as a query string and reload; they are NOT renderer consumers (spec
-  §5.1) — they bind handlers / build the URL.
+    figures[0].id == "rrg_scatter"     -> #rrg-chart
+    tables[0].id  == "rrg_positions"   -> #rrg-table
 #}
 {% block title_suffix %}// RRG{% endblock %}
 {% block head %}
@@ -26,52 +29,295 @@
   <div id="vm-status" class="vm-banner" style="display:none"></div>
   <div id="vm-readouts" class="vm-readouts"></div>
 
-  {# Controls build the query string; submitting reloads with the params. #}
-  <form id="rrg-controls" onsubmit="return false;">
-    <label>Dataset
-      <select name="dataset">
-        <option value="us">US Sectors</option>
-        <option value="europe">Europe Sectors</option>
-        <option value="global">Global Markets</option>
-        <option value="futures">Futures Groups</option>
+  {# Controls build the query string; changing any reloads with the params. #}
+  <div class="macro-controls" id="rrg-controls">
+    <label>Dataset:</label>
+    <select id="rrg-dataset">
+      <option value="us">US Sectors</option>
+      <option value="europe">Europe Sectors</option>
+      <option value="global">Global Markets</option>
+      <option value="futures">Futures Groups</option>
+    </select>
+    <label>Period:</label>
+    <select id="rrg-period">
+      <option value="1y">1 Year</option>
+      <option value="2y" selected>2 Years</option>
+      <option value="3y">3 Years</option>
+      <option value="5y">5 Years</option>
+    </select>
+    <label>Window:</label>
+    <select id="rrg-window">
+      <option value="13" selected>Short (13w)</option>
+      <option value="26">Long (26w)</option>
+    </select>
+    <label>Trail:</label>
+    <select id="rrg-trail">
+      <option value="4">4 weeks</option>
+      <option value="8" selected>8 weeks</option>
+      <option value="13">13 weeks</option>
+      <option value="26">26 weeks</option>
+    </select>
+    {# Drill dropdown — only shown for the futures dataset (see onRRGDatasetChange). #}
+    <span id="rrg-drill-controls" style="display:none;margin-left:16px">
+      <label>Drill into:</label>
+      <select id="rrg-drill-group">
+        <option value="">— Overview —</option>
+        {% for g in futures_groups %}<option value="{{ g }}">{{ g }}</option>{% endfor %}
       </select>
-    </label>
-    <label>Period
-      <select name="period">
-        <option value="1y">1y</option>
-        <option value="2y" selected>2y</option>
-        <option value="3y">3y</option>
-        <option value="5y">5y</option>
-      </select>
-    </label>
-    <label>Window <input name="window" value="13" size="3"></label>
-    <label>Trail <input name="trail" value="8" size="3"></label>
-    {# Optional intra-group drill: set the group name to hit /api/rrg/drill. #}
-    <label>Drill group <input name="group" value="" size="8"></label>
-    <button id="apply-rrg" type="button">Apply</button>
-  </form>
+    </span>
+    <span id="rrg-loading" style="color:var(--amber);display:none;margin-left:12px">Loading...</span>
+  </div>
 
-  {# Host divs per figure/table id the section emits. #}
-  <div id="rrg_scatter" class="vm-figure-host"></div>
-  <div id="rrg_positions" class="vm-table-host"></div>
+  {# Per-asset show/hide strip (All / None + one checkbox per series). #}
+  <div id="rrg-asset-selector" style="padding:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--text-faint);font-weight:600;text-transform:uppercase;margin-right:4px">Show:</span>
+    <button type="button" id="rrg-show-all" style="font-size:11px;padding:2px 8px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:4px;cursor:pointer">All</button>
+    <button type="button" id="rrg-show-none" style="font-size:11px;padding:2px 8px;background:var(--bg-card);border:1px solid var(--border-light);color:var(--text-dim);border-radius:4px;cursor:pointer">None</button>
+    <span id="rrg-checkboxes" style="display:flex;gap:4px;flex-wrap:wrap;margin-left:4px"></span>
+  </div>
+
+  {# AS-OF DATE slider — replays meta.full_data tails up to the chosen date. #}
+  <div id="rrg-date-slider-wrap" style="display:none;padding:4px 0 8px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <label style="font-size:12px;color:var(--text-dim);font-weight:600;white-space:nowrap">AS-OF DATE:</label>
+      <input type="range" id="rrg-date-slider" min="0" max="100" value="100"
+        style="flex:1;accent-color:var(--primary);cursor:pointer">
+      <span id="rrg-date-label" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text);min-width:90px;text-align:right">Latest</span>
+    </div>
+  </div>
+
+  {# Chart + positions table, side by side (chart 3x, table 1x). #}
+  <div style="display:flex;gap:16px">
+    <div id="rrg-chart" class="macro-chart" style="flex:3"></div>
+    <div id="rrg-table" style="flex:1;max-height:600px;overflow-y:auto"></div>
+  </div>
 {% endblock %}
 
 {% block scripts %}
   <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
-    (function () {
-      function buildUrl() {
-        var form = document.getElementById('rrg-controls');
-        var fd = new FormData(form);
-        var group = (fd.get('group') || '').trim();
-        var params = new URLSearchParams(fd);
-        // Drill-down endpoint when a group is named; overview otherwise.
-        var base = group ? '/api/rrg/drill' : '/api/rrg';
-        return base + '?' + params.toString();
+  (function () {
+    'use strict';
+    var rrg_full_data = null;   // key -> {name,color,dates,rs_ratio,rs_momentum}
+    var rrg_all_dates = null;   // sorted unique date strings
+    var rrg_visible = {};       // key -> bool
+    var rrg_sort_dir = {};
+    var QCOL = {Leading:'#10b981', Weakening:'#f59e0b', Lagging:'#ef4444', Improving:'#4f8cf7'};
+
+    function $(id) { return document.getElementById(id); }
+
+    function onDatasetChange() {
+      var ds = $('rrg-dataset').value;
+      var drill = $('rrg-drill-controls');
+      if (ds === 'futures') {
+        drill.style.display = 'inline';
+      } else {
+        drill.style.display = 'none';
+        $('rrg-drill-group').value = '';
       }
-      function load() { ViewModel.fetchAndRender(buildUrl()); }
-      document.getElementById('apply-rrg').addEventListener('click', load);
-      document.addEventListener('DOMContentLoaded', load);
-    })();
+      load();
+    }
+
+    function buildUrl() {
+      var ds = $('rrg-dataset').value;
+      var period = $('rrg-period').value;
+      var wnd = $('rrg-window').value;
+      var trail = $('rrg-trail').value;
+      var group = (ds === 'futures') ? ($('rrg-drill-group').value || '') : '';
+      var base = group ? '/api/rrg/drill' : '/api/rrg';
+      var qs = 'dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(period)
+             + '&window=' + encodeURIComponent(wnd) + '&trail=' + encodeURIComponent(trail);
+      if (group) qs += '&group=' + encodeURIComponent(group);
+      return base + '?' + qs;
+    }
+
+    function load() {
+      $('rrg-loading').style.display = 'inline';
+      $('rrg-chart').innerHTML = '';
+      $('rrg-table').innerHTML = '';
+      fetch(buildUrl())
+        .then(function (r) { return r.json(); })
+        .then(function (vm) {
+          $('rrg-loading').style.display = 'none';
+          var meta = vm.meta || {};
+          // status banner + title + readout badges via the generic sinks.
+          if (window.ViewModel) {
+            ViewModel._renderStatus(meta);
+            if (meta.title) { var t = $('vm-title'); if (t) t.textContent = meta.title; }
+            ViewModel._renderReadouts(meta.readouts || {});
+          }
+          if (meta.status && meta.status !== 'ok') {
+            $('rrg-date-slider-wrap').style.display = 'none';
+            $('rrg-checkboxes').innerHTML = '';
+            return;
+          }
+          rrg_full_data = meta.full_data || null;
+          rrg_all_dates = meta.all_dates || null;
+          if (rrg_full_data && rrg_all_dates) {
+            initSliderAndChecks();
+            redraw();   // draws chart + table from the latest as-of slice
+          }
+        })
+        .catch(function (e) {
+          $('rrg-loading').style.display = 'none';
+          $('rrg-chart').innerHTML = '<div style="color:var(--red);padding:20px">' + e.message + '</div>';
+        });
+    }
+
+    function initSliderAndChecks() {
+      var slider = $('rrg-date-slider');
+      slider.max = rrg_all_dates.length - 1;
+      slider.value = rrg_all_dates.length - 1;
+      $('rrg-date-label').textContent = rrg_all_dates[rrg_all_dates.length - 1];
+      $('rrg-date-slider-wrap').style.display = 'block';
+
+      rrg_visible = {};
+      var container = $('rrg-checkboxes');
+      container.innerHTML = '';
+      Object.keys(rrg_full_data).forEach(function (key) {
+        rrg_visible[key] = true;
+        var fd = rrg_full_data[key];
+        var lbl = document.createElement('label');
+        lbl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;font-size:12px;color:' + fd.color + ';cursor:pointer;padding:2px 6px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;user-select:none';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.dataset.key = key;
+        cb.style.cssText = 'accent-color:' + fd.color + ';cursor:pointer';
+        cb.onchange = function () { rrg_visible[this.dataset.key] = this.checked; redraw(); };
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(fd.name));
+        container.appendChild(lbl);
+      });
+    }
+
+    function selectAll(checked) {
+      var cbs = document.querySelectorAll('#rrg-checkboxes input[type=checkbox]');
+      cbs.forEach(function (cb) { cb.checked = checked; rrg_visible[cb.dataset.key] = checked; });
+      redraw();
+    }
+
+    // Replay meta.full_data up to the slider's as-of date and redraw (ported
+    // from macro.js onRRGDateSlider / rrgRedraw).
+    function redraw() {
+      if (!rrg_full_data || !rrg_all_dates) return;
+      var idx = parseInt($('rrg-date-slider').value, 10);
+      var asOf = rrg_all_dates[idx];
+      var trail = parseInt($('rrg-trail').value, 10);
+      $('rrg-date-label').textContent = asOf;
+
+      var traces = [], all_x = [], all_y = [], tableRows = '';
+      Object.keys(rrg_full_data).forEach(function (key) {
+        if (rrg_visible[key] === false) return;
+        var fd = rrg_full_data[key];
+        var endIdx = -1;
+        for (var i = 0; i < fd.dates.length; i++) { if (fd.dates[i] <= asOf) endIdx = i; }
+        if (endIdx < 0) return;
+        var startIdx = Math.max(0, endIdx - trail + 1);
+        var tr = fd.rs_ratio.slice(startIdx, endIdx + 1);
+        var tm = fd.rs_momentum.slice(startIdx, endIdx + 1);
+        all_x = all_x.concat(tr); all_y = all_y.concat(tm);
+        var lr = tr[tr.length - 1], lm = tm[tm.length - 1];
+        var quad = (lr >= 100 && lm >= 100) ? 'Leading' :
+                   (lr >= 100 && lm < 100) ? 'Weakening' :
+                   (lr < 100 && lm < 100) ? 'Lagging' : 'Improving';
+        if (tr.length > 1) {
+          traces.push({type:'scatter',mode:'lines',x:tr,y:tm,line:{color:fd.color,width:1.5},opacity:0.4,showlegend:false,hoverinfo:'skip',legendgroup:key});
+        }
+        traces.push({type:'scatter',mode:'markers+text',x:[lr],y:[lm],
+          marker:{size:14,color:fd.color,line:{width:2,color:'white'}},
+          text:[fd.name],textposition:'top center',textfont:{size:11,color:fd.color},
+          name:fd.name+' ('+quad+')',legendgroup:key,
+          hovertemplate:'<b>'+fd.name+'</b><br>'+quad+'<br>RS-Ratio: %{x:.2f}<br>RS-Mom: %{y:.2f}<extra></extra>'});
+        tableRows += '<tr><td style="color:'+fd.color+';font-weight:600">'+fd.name+'</td>'
+          +'<td style="color:'+(QCOL[quad]||'#888')+'">'+quad+'</td>'
+          +'<td>'+lr.toFixed(2)+'</td><td>'+lm.toFixed(2)+'</td></tr>';
+      });
+
+      if (all_x.length === 0) { $('rrg-chart').innerHTML = ''; $('rrg-table').innerHTML = ''; return; }
+
+      var m = 0.3;
+      var xMin = Math.min(Math.min.apply(null, all_x), 100) - m;
+      var xMax = Math.max(Math.max.apply(null, all_x), 100) + m;
+      var yMin = Math.min(Math.min.apply(null, all_y), 100) - m;
+      var yMax = Math.max(Math.max.apply(null, all_y), 100) + m;
+
+      var layout = {
+        height:600, dragmode:'pan',
+        xaxis:{title:'RS-Ratio',zeroline:false},
+        yaxis:{title:'RS-Momentum',zeroline:false},
+        legend:{x:1.02,y:1,font:{size:10}}, margin:{r:200},
+        shapes:[
+          {type:'rect',x0:100,y0:100,x1:xMax+1,y1:yMax+1,fillcolor:'rgba(76,175,80,0.08)',line_width:0,layer:'below'},
+          {type:'rect',x0:100,y0:yMin-1,x1:xMax+1,y1:100,fillcolor:'rgba(255,152,0,0.08)',line_width:0,layer:'below'},
+          {type:'rect',x0:xMin-1,y0:yMin-1,x1:100,y1:100,fillcolor:'rgba(244,67,54,0.08)',line_width:0,layer:'below'},
+          {type:'rect',x0:xMin-1,y0:100,x1:100,y1:yMax+1,fillcolor:'rgba(33,150,243,0.08)',line_width:0,layer:'below'},
+          {type:'line',x0:xMin-1,x1:xMax+1,y0:100,y1:100,line:{color:'rgba(255,255,255,0.2)',width:1,dash:'dash'}},
+          {type:'line',x0:100,x1:100,y0:yMin-1,y1:yMax+1,line:{color:'rgba(255,255,255,0.2)',width:1,dash:'dash'}},
+        ],
+        annotations:[
+          {x:100+(xMax-100)*0.5,y:100+(yMax-100)*0.5,text:'<b>LEADING</b>',showarrow:false,font:{size:14,color:'rgba(76,175,80,0.4)'}},
+          {x:100+(xMax-100)*0.5,y:yMin+(100-yMin)*0.5,text:'<b>WEAKENING</b>',showarrow:false,font:{size:14,color:'rgba(255,152,0,0.4)'}},
+          {x:xMin+(100-xMin)*0.5,y:yMin+(100-yMin)*0.5,text:'<b>LAGGING</b>',showarrow:false,font:{size:14,color:'rgba(244,67,54,0.4)'}},
+          {x:xMin+(100-xMin)*0.5,y:100+(yMax-100)*0.5,text:'<b>IMPROVING</b>',showarrow:false,font:{size:14,color:'rgba(33,150,243,0.4)'}},
+        ],
+      };
+      Plotly.newPlot('rrg-chart', traces, layout, {responsive:true, displayModeBar:false});
+      $('rrg-table').innerHTML =
+        '<table class="data-table" id="rrg-pos-table"><thead><tr>'
+        +'<th data-col="0" data-type="str">Asset</th>'
+        +'<th data-col="1" data-type="str">Quadrant</th>'
+        +'<th data-col="2" data-type="num">RS-Ratio</th>'
+        +'<th data-col="3" data-type="num">RS-Mom</th>'
+        +'</tr></thead><tbody>'+tableRows+'</tbody></table>';
+      wireSort();
+    }
+
+    function wireSort() {
+      var ths = document.querySelectorAll('#rrg-pos-table th');
+      ths.forEach(function (th) {
+        th.style.cursor = 'pointer';
+        th.onclick = function () { sortTable(parseInt(th.dataset.col, 10), th.dataset.type); };
+      });
+    }
+
+    function sortTable(colIdx, type) {
+      var table = $('rrg-pos-table');
+      if (!table) return;
+      var tbody = table.querySelector('tbody');
+      var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+      var key = colIdx + '';
+      rrg_sort_dir[key] = rrg_sort_dir[key] === 'asc' ? 'desc' : 'asc';
+      var asc = rrg_sort_dir[key] === 'asc';
+      rows.sort(function (a, b) {
+        var va, vb;
+        if (type === 'num') {
+          va = parseFloat(a.cells[colIdx].textContent) || 0;
+          vb = parseFloat(b.cells[colIdx].textContent) || 0;
+        } else {
+          va = a.cells[colIdx].textContent.trim();
+          vb = b.cells[colIdx].textContent.trim();
+        }
+        var cmp = type === 'num' ? va - vb : va.localeCompare(vb);
+        return asc ? cmp : -cmp;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      table.querySelectorAll('th').forEach(function (th, i) {
+        th.textContent = th.textContent.replace(/ [▲▼]$/, '');
+        if (i === colIdx) th.textContent += asc ? ' ▲' : ' ▼';
+      });
+    }
+
+    // Wire controls.
+    $('rrg-dataset').addEventListener('change', onDatasetChange);
+    ['rrg-period', 'rrg-window', 'rrg-trail'].forEach(function (id) {
+      $(id).addEventListener('change', load);
+    });
+    $('rrg-drill-group').addEventListener('change', load);
+    $('rrg-date-slider').addEventListener('input', redraw);
+    $('rrg-show-all').addEventListener('click', function () { selectAll(true); });
+    $('rrg-show-none').addEventListener('click', function () { selectAll(false); });
+    document.addEventListener('DOMContentLoaded', load);
+  })();
   </script>
 {% endblock %}

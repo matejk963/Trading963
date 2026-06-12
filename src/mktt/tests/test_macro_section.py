@@ -359,6 +359,86 @@ def test_blueprint_api_is_thin(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# F4 fix — liquidity meta carries the regime badge + score-card data; the shell
+# renders the regime badge, score cards, two-level sub-nav, and flow strip.
+# --------------------------------------------------------------------------- #
+def test_handle_liquidity_emits_regime_badge_and_score_data():
+    """The colored regime badge + L1/L2a/L2b/Composite cards need regime_label,
+    regime_description, bias, and the four scalars in readouts (F4 gap 4)."""
+    raw = _raw_fred_frame()
+    data = StubData(_symbol_date_panel(raw))
+    meta = handle(MacroRequest(view="liquidity"), data)["meta"]
+
+    assert isinstance(meta.get("regime_label"), str) and meta["regime_label"]
+    assert isinstance(meta.get("regime_description"), str) and meta["regime_description"]
+    assert meta.get("bias") in ("bullish", "bearish", "neutral")
+    ro = meta["readouts"]
+    for k in ("l1", "l2a", "l2b", "composite"):
+        assert k in ro and isinstance(ro[k], (int, float))
+
+
+def test_handle_transmission_emits_stage_rows_and_break():
+    """The flow strip is built from the transmission_stages rows + break_stage."""
+    raw = _raw_fred_frame()
+    data = StubData(_symbol_date_panel(raw))
+    vm = handle(MacroRequest(view="transmission"), data)
+
+    tbl = next(t for t in vm["tables"] if t["id"] == "transmission_stages")
+    assert tbl["columns"] == ["Stage", "Name", "Score", "Status"]
+    assert [r[0] for r in tbl["rows"]] == [f"S{i}" for i in range(1, 8)]
+    assert "break_stage" in vm["meta"]
+
+
+def _page_app():
+    """A Flask app with all section blueprints registered (so base.html's url_for
+    chrome resolves) and the package + section template dirs on the loader path.
+    No DB/provider is touched — only the page route (pure template render) is hit."""
+    from flask import Flask
+    from jinja2 import ChoiceLoader, FileSystemLoader
+    from sections.rrg import routes as rrg_routes
+    from sections.macro import routes as macro_routes
+    from sections.options import routes as options_routes
+    from sections.screener import routes as screener_routes
+    from sections.monitor import routes as monitor_routes
+
+    pkg_templates = Path(macro_routes.__file__).resolve().parents[2] / "templates"
+    app = Flask(__name__, template_folder=str(pkg_templates))
+    # Section shells must win over the legacy app-level templates of the same name
+    # (mirrors app._prioritize_section_templates) — section dirs FIRST.
+    section_dirs = [FileSystemLoader(str(Path(r.__file__).resolve().parent / "templates"))
+                    for r in (rrg_routes, macro_routes, options_routes,
+                              screener_routes, monitor_routes)]
+    app.jinja_loader = ChoiceLoader(section_dirs + [app.jinja_loader])
+    from datetime import datetime
+    app.context_processor(lambda: {"now": datetime.utcnow()})
+    for bp in (rrg_routes.rrg_bp, macro_routes.macro_bp, options_routes.options_bp,
+               screener_routes.screener_bp, monitor_routes.monitor_bp):
+        app.register_blueprint(bp)
+    return app
+
+
+def test_macro_page_renders_subnav_badge_and_cards():
+    """The shell restores the two-level sub-tab nav, the regime badge, the four
+    labelled score cards, the curated overlay list, and the flow strip host
+    (F4 gaps 4-5)."""
+    html = _page_app().test_client().get("/macro").get_data(as_text=True)
+
+    # two-level sub-tab affordance.
+    assert 'id="macro-sub-tabs"' in html
+    for view in ("liquidity", "layer", "overlay", "transmission"):
+        assert 'data-view="' + view + '"' in html
+    # colored regime badge + four labelled score cards + description sink.
+    assert 'id="regime-badge"' in html and "regime-badge neutral" in html
+    for sid in ("l1-score", "l2a-score", "l2b-score", "composite-score"):
+        assert 'id="' + sid + '"' in html
+    assert 'id="regime-description"' in html
+    # transmission flow strip host.
+    assert 'id="transmission-flow"' in html
+    # curated overlay list (not a free-text box).
+    assert "HYG" in html and "High Yield" in html
+
+
+# --------------------------------------------------------------------------- #
 # DataSource macro submodule — normalize an injected CSV reader
 # --------------------------------------------------------------------------- #
 def test_macro_submodule_normalizes_to_symbol_date():

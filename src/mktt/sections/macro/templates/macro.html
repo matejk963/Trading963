@@ -3,53 +3,81 @@
   macro.html — the Macro section shell (spec §4.1, §5.1; adr/0002 chrome).
 
   Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
-  The page holds NO render logic: placeholder divs keyed by the figure/table ids
-  the section emits + a fetch->renderViewModel call. The generic renderer
-  (static/js/viewmodel.js) consumes the ViewModel envelope the /macro/api/* routes
-  return.
+  Restores the original two-level affordance: a Liquidity sub-tab strip
+  (Dashboard / Layer Detail / Asset Overlay / Transmission Chain — original
+  templates/macro.html:36-42). Selecting a sub-tab rebuilds the API URL and
+  refetches; the generic renderer (static/js/viewmodel.js) draws figures/tables,
+  and small section hooks render the views the generic renderer has no concept of:
+
+    * liquidity    -> colored regime badge (by bias) + L1/L2a/L2b/Composite score
+                      cards (meta.readouts + meta.regime_label/regime_description/bias)
+    * transmission -> horizontal stage-flow strip built from the transmission_stages
+                      table + meta.break_stage (port of macro.js loadTransmission /
+                      original _transmission.html flow_html)
 
   Section figure/table ids by view (must match service.py):
     liquidity     -> figures[0].id == "liquidity_composite"
     layer         -> figures[0].id == "layer_detail"   tables[0].id == "layer_indicators"
     overlay       -> figures[0].id == "overlay"
     transmission  -> figures[0].id == "transmission_chain"  tables[0].id == "transmission_stages"
-  meta sinks: title, status banner, readout badges (l1/l2a/l2b/composite/regime/bias).
-
-  The view switcher rebuilds the API URL and refetches; it is NOT a renderer
-  consumer (spec §5.1) — it binds a handler and re-runs the fetch.
 #}
-{% block title_suffix %}// Macro — Global Liquidity{% endblock %}
+{% block title_suffix %}// MACRO — Global Liquidity{% endblock %}
 {% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
 {% endblock %}
 
 {% block content %}
-  <h2 id="vm-title">Global Liquidity</h2>
-  <div id="vm-status" class="vm-banner" style="display:none"></div>
-  <div id="vm-readouts" class="vm-readouts"></div>
+  {# Two-level nav: this is the Liquidity branch; RRG is its own top-level tab. #}
+  <div class="sub-tab-bar" id="macro-sub-tabs">
+    <span class="sub-tab" data-view="liquidity">Dashboard</span>
+    <span class="sub-tab" data-view="layer">Layer Detail</span>
+    <span class="sub-tab" data-view="overlay">Asset Overlay</span>
+    <span class="sub-tab" data-view="transmission">Transmission Chain</span>
+  </div>
 
-  {# View switcher builds the API URL; selecting refetches. #}
-  <form id="macro-controls" onsubmit="return false;">
-    <label>View
-      <select name="view">
-        <option value="liquidity" {% if active_view == 'liquidity' %}selected{% endif %}>Liquidity Dashboard</option>
-        <option value="layer" {% if active_view == 'layer' %}selected{% endif %}>Layer Detail</option>
-        <option value="overlay" {% if active_view == 'overlay' %}selected{% endif %}>Asset Overlay</option>
-        <option value="transmission" {% if active_view == 'transmission' %}selected{% endif %}>Transmission Chain</option>
-      </select>
-    </label>
-    <label>Layer
-      <select name="layer">
-        <option value="1">L1 — CB</option>
-        <option value="2a">L2a — Private</option>
-        <option value="2b">L2b — Economy</option>
-      </select>
-    </label>
-    <label>Overlay asset <input name="asset" value="SPY" size="6"></label>
-  </form>
+  <h2 id="vm-title" style="margin-top:16px">Global Liquidity</h2>
+  <div id="vm-status" class="vm-banner" style="display:none"></div>
+
+  {# Liquidity dashboard: colored regime badge + four labelled score cards. #}
+  <div id="liquidity-header" style="display:flex;gap:16px;align-items:center;margin:12px 0;flex-wrap:wrap">
+    <div id="regime-badge" class="regime-badge neutral">—</div>
+    <div class="score-card"><div class="label">Layer 1 (CB)</div><div class="value" id="l1-score">—</div></div>
+    <div class="score-card"><div class="label">Layer 2a (Private)</div><div class="value" id="l2a-score">—</div></div>
+    <div class="score-card"><div class="label">Layer 2b (Economy)</div><div class="value" id="l2b-score">—</div></div>
+    <div class="score-card"><div class="label">Composite</div><div class="value" id="composite-score">—</div></div>
+  </div>
+  <div id="regime-description" style="font-size:12px;color:var(--text-dim);margin-bottom:12px"></div>
+
+  {# Contextual control: Layer picker (layer view) / Overlay-asset picker (overlay view). #}
+  <div id="layer-control" class="macro-controls" style="display:none">
+    <label>Layer:</label>
+    <select id="layer-select">
+      <option value="1">Layer 1 — CB Liquidity</option>
+      <option value="2a">Layer 2a — Private / Wholesale</option>
+      <option value="2b">Layer 2b — Economic Reality</option>
+    </select>
+  </div>
+  <div id="overlay-control" class="macro-controls" style="display:none">
+    <label>Asset Overlay:</label>
+    <select id="overlay-asset">
+      <option value="SPY">SPY — S&P 500</option>
+      <option value="QQQ">QQQ — Nasdaq 100</option>
+      <option value="IWM">IWM — Russell 2000</option>
+      <option value="HYG">HYG — High Yield Credit</option>
+      <option value="LQD">LQD — Investment Grade Credit</option>
+      <option value="TLT">TLT — 20+ Year Treasuries</option>
+      <option value="GLD">GLD — Gold</option>
+      <option value="UUP">UUP — US Dollar</option>
+      <option value="DBC">DBC — Commodities</option>
+      <option value="USO">USO — Crude Oil</option>
+    </select>
+  </div>
+
+  {# Transmission flow strip (built from transmission_stages + break_stage). #}
+  <div id="transmission-flow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0"></div>
 
   {# Placeholder divs — the renderer fills the one matching the active view. #}
-  <div id="liquidity_composite"></div>
+  <div id="liquidity_composite" class="macro-chart"></div>
   <div id="layer_detail"></div>
   <div id="layer_indicators"></div>
   <div id="overlay"></div>
@@ -60,24 +88,110 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
-    // Map the selected view to its API endpoint.
-    function macroApiUrl() {
-      const form = document.getElementById('macro-controls');
-      const view = form.view.value;
-      if (view === 'layer') return '/macro/api/layer/' + encodeURIComponent(form.layer.value);
-      if (view === 'overlay') return '/macro/api/overlay?asset=' + encodeURIComponent(form.asset.value);
-      if (view === 'transmission') return '/macro/api/transmission';
+  (function () {
+    'use strict';
+    var activeView = '{{ active_view or "liquidity" }}';
+    var STAGE_FLOW = {};   // populated from the transmission_stages table
+
+    function $(id) { return document.getElementById(id); }
+
+    function apiUrl() {
+      if (activeView === 'layer') return '/macro/api/layer/' + encodeURIComponent($('layer-select').value);
+      if (activeView === 'overlay') return '/macro/api/overlay?asset=' + encodeURIComponent($('overlay-asset').value);
+      if (activeView === 'transmission') return '/macro/api/transmission';
       return '/macro/api/liquidity';
     }
 
-    function loadMacro() {
-      fetch(macroApiUrl())
-        .then(r => r.json())
-        .then(renderViewModel)
-        .catch(err => console.error('macro fetch failed', err));
+    // Show only the placeholders / controls relevant to the active view.
+    function applyViewChrome() {
+      $('macro-sub-tabs').querySelectorAll('.sub-tab').forEach(function (t) {
+        t.classList.toggle('active', t.dataset.view === activeView);
+      });
+      $('liquidity-header').style.display = (activeView === 'liquidity') ? 'flex' : 'none';
+      $('regime-description').style.display = (activeView === 'liquidity') ? 'block' : 'none';
+      $('layer-control').style.display = (activeView === 'layer') ? 'flex' : 'none';
+      $('overlay-control').style.display = (activeView === 'overlay') ? 'flex' : 'none';
+      $('transmission-flow').style.display = (activeView === 'transmission') ? 'flex' : 'none';
+      // Hide non-active figure/table hosts so stale charts don't linger.
+      var hosts = ['liquidity_composite','layer_detail','layer_indicators','overlay','transmission_chain','transmission_stages'];
+      var keep = {
+        liquidity: ['liquidity_composite'],
+        layer: ['layer_detail','layer_indicators'],
+        overlay: ['overlay'],
+        transmission: ['transmission_chain','transmission_stages']
+      }[activeView] || [];
+      hosts.forEach(function (id) { var n = $(id); if (n) n.style.display = keep.indexOf(id) >= 0 ? '' : 'none'; });
     }
 
-    document.getElementById('macro-controls').addEventListener('change', loadMacro);
-    loadMacro();
+    function setScore(id, val) {
+      var el = $(id);
+      if (val === null || val === undefined) { el.textContent = '—'; el.className = 'value'; return; }
+      el.textContent = (val > 0 ? '+' : '') + Number(val).toFixed(2);
+      el.className = 'value ' + (val > 0 ? 'pos' : 'neg');
+    }
+
+    function renderLiquidityHeader(meta) {
+      var r = meta.readouts || {};
+      var badge = $('regime-badge');
+      badge.textContent = meta.regime_label || 'Unknown';
+      badge.className = 'regime-badge ' + (meta.bias || r.bias || 'neutral');
+      $('regime-description').textContent = meta.regime_description || '';
+      setScore('l1-score', r.l1);
+      setScore('l2a-score', r.l2a);
+      setScore('l2b-score', r.l2b);
+      setScore('composite-score', r.composite);
+    }
+
+    // Build the horizontal stage-flow strip from the transmission_stages table
+    // rows ([Stage, Name, Score, Status]) + the break stage (port of flow_html).
+    function renderTransmissionFlow(vm, meta) {
+      var flow = $('transmission-flow');
+      flow.innerHTML = '';
+      var table = (vm.tables || []).filter(function (t) { return t.id === 'transmission_stages'; })[0];
+      if (!table) return;
+      var brk = meta.break_stage;
+      table.rows.forEach(function (row, idx) {
+        var stage = row[0], name = row[1], score = Number(row[2]) || 0;
+        var card = document.createElement('div');
+        card.className = 'score-card';
+        card.style.minWidth = '100px';
+        if (brk && (stage === 'S' + brk)) card.style.outline = '2px solid var(--red)';
+        var lbl = document.createElement('div'); lbl.className = 'label'; lbl.textContent = stage;
+        var val = document.createElement('div');
+        val.className = 'value ' + (score > 0 ? 'pos' : 'neg');
+        val.textContent = (score > 0 ? '+' : '') + score.toFixed(2);
+        var nm = document.createElement('div'); nm.className = 'label'; nm.style.fontSize = '12px'; nm.textContent = name;
+        card.appendChild(lbl); card.appendChild(val); card.appendChild(nm);
+        flow.appendChild(card);
+        if (idx < table.rows.length - 1) {
+          var arrow = document.createElement('span');
+          var col = score > 0.3 ? '#33ff00' : score < -0.3 ? '#ff3333' : '#ffb000';
+          arrow.style.cssText = 'color:' + col + ';font-size:20px';
+          arrow.textContent = score > 0.3 ? ' → ' : score < -0.3 ? ' ✕ ' : ' ⇢ ';
+          flow.appendChild(arrow);
+        }
+      });
+    }
+
+    function load() {
+      applyViewChrome();
+      fetch(apiUrl())
+        .then(function (r) { return r.json(); })
+        .then(function (vm) {
+          renderViewModel(vm);   // generic: figures + tables + status + title + badges
+          var meta = vm.meta || {};
+          if (activeView === 'liquidity') renderLiquidityHeader(meta);
+          if (activeView === 'transmission') renderTransmissionFlow(vm, meta);
+        })
+        .catch(function (e) { console.error('macro fetch failed', e); });
+    }
+
+    $('macro-sub-tabs').querySelectorAll('.sub-tab').forEach(function (t) {
+      t.addEventListener('click', function () { activeView = t.dataset.view; load(); });
+    });
+    $('layer-select').addEventListener('change', load);
+    $('overlay-asset').addEventListener('change', load);
+    document.addEventListener('DOMContentLoaded', load);
+  })();
   </script>
 {% endblock %}
