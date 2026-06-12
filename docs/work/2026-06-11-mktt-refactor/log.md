@@ -210,3 +210,14 @@ Fix wave done: F1 computed+pool (0999f4f), F2 screener (48296da), F3 options (a4
 Honest deferrals (data-availability, not bugs): (a) NTM growth uses FY1 annual as proxy — exact quarterly NTM
 needs a forward_quarterly table not in MKFund; (b) asset overlays only SPY has price coverage (pre-existing).
 No re-materialize needed (current store data already full-universe-correct; FwdPE/growth computed live in screener).
+
+## 2026-06-12 · orchestrator · HANDOFF (current state — fresh-agent pick-up)
+**PICK-UP PATH** (per CLAUDE.md): read THIS HANDOFF + `plan-dev.md` (status + Open items). Design=`refactor/TARGET_ARCHITECTURE.md`; as-built=`docs/product/mktt-architecture.md`; decisions=`docs/adr/0001,0002`; full chronology=this log; review=`gap-and-review-findings.md`.
+
+**STATE** — branch `chore/agents-workflow-port` @ `7380730` (pushed to origin):
+- DONE + VERIFIED: backend (kernel/datasource/computed/lists/sections/app-factory), full-universe data in Postgres `etc_db` (MKCompStore 4835+6.5M / MKFund 4835 / MKLists), clean prices through 2026-06-11, revived chrome + all 5 section pages, fix wave (34 findings), filter code→label fix. **313 tests green**; screener+macro browser-verified.
+- RUN: `cd src/mktt && MKTT_PG_DSN=postgresql://postgres:postgres@10.123.0.9:5432/etc_db python -c "import app; app.create_app().run(port=<FREE>)"`. **Port 5001 collides with the energy app — use a free port.** DB creds: `postgres/postgres @ etc_db`.
+
+**OPEN ITEMS** (see plan-dev.md "Open items"): (1) missing screener growth-filter controls + sort options; (2) **value-parity vs original NOT systematically verified** — the filter-scramble bug (user-found, review-missed) is evidence more correctness bugs may exist; (3) not all sections browser-clicked / all 34 fixes re-verified; (4) the deferrals (GPU 2b, legacy_bp port, old-module cleanup, NTM proxy, asset-overlay coverage, thinner options/rrg/macro layouts).
+
+**RECOMMENDED NEXT:** a value-parity verification pass (run old↔new on same inputs, diff per section) + add the missing growth-filter controls + a full UI walkthrough.

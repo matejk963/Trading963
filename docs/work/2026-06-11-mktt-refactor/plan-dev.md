@@ -1,5 +1,5 @@
 # Plan: MKTT refactor — dev
-Status: Active (Wave 4 — Frontend, 2026-06-12) — backend done (12/13); reviving UI per adr/0002
+Status: Build complete (2026-06-12) — backend+data+frontend+fix-wave+filter-fix done (12/13 slices; 2b GPU deferred). See latest HANDOFF in log.md for current state + open items.
 Derived from: prd.md   Respects: `refactor/TARGET_ARCHITECTURE.md` (locked contracts §5, §8)
 Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 10 → 13 slices.
 
@@ -58,3 +58,9 @@ Reformulated: 2026-06-11 after reviewer pass (see log.md REPORT + FLAGs 1–8). 
   FLAG-3 (PCA-regime ADR), FLAG-5 (scope-widening vendoring), FLAG-7 (creds).
 
 - 2026-06-12 — Wave 4 (Frontend) added after /grill-me on Option C. adr/0002: revive original templates, server-render tables / client-render charts, watchlist on MKLists, live screener technicals. Slices 14-17; first = 14 (chrome).
+
+## Open items (post-build) — not done
+- **Screener filter-control gaps:** UI lacks `eps_growth` / `rev_growth` / `eps_accel_filter` controls (backend supports them) + `sort_by` missing `mcap`/growth sorts.
+- **Value-parity not systematically verified:** no old↔new output diff across sections; the regime/ma_screen label-scramble bug (user-found, review-missed) shows more wrong-answer bugs may lurk. Parity harness covers only kernel+GEX.
+- **Not all sections browser-verified end-to-end** (Monitor/Options/RRG controls curl-verified for markup, not clicked); not all 34 findings independently re-verified.
+- **Deferred:** 2b GPU; `legacy_bp` → Monitor; old-module cleanup; NTM-growth = FY1 proxy (needs `forward_quarterly` table); asset-overlay coverage (only SPY); options/rrg/macro thinner layouts; screener sector-hierarchy compact.
