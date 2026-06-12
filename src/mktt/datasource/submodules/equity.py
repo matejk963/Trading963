@@ -229,6 +229,102 @@ class EquitySubmodule:
         return panel[mask.to_numpy()]
 
     # ------------------------------------------------------------------ #
+    # vectorized screener technicals (perf — no per-symbol Python loop)
+    # ------------------------------------------------------------------ #
+    def panel_technicals(
+        self,
+        ids,
+        adv_window: int = 50,
+        win_52w: int = 252,
+        as_of=None,
+    ) -> dict:
+        """Vectorized technicals straight off the wide ``{field}.parquet`` panels.
+
+        Replaces the per-symbol ``time_series`` reassembly (the 6-7s cliff): all
+        derivations are column-wise pandas over the cached wide ``close``/``volume``
+        panels, so the whole universe is computed in a handful of vectorized ops
+        with **no** Python per-symbol loop and **no** ``pd.concat`` over thousands
+        of frames.
+
+        Returns ``{symbol: {Price, Change%, ADV_Dollar, From52H, From52L}}`` for
+        every requested id present in the panels.
+
+        - ``Price``       — last close (≤ ``as_of`` when given),
+        - ``Change%``     — last close vs the prior close,
+        - ``ADV_Dollar``  — last close × mean volume over the last ``adv_window`` bars,
+        - ``From52H``     — % the last close sits below the trailing ``win_52w`` high (≤ 0),
+        - ``From52L``     — % the last close sits above the trailing ``win_52w`` low (≥ 0).
+
+        ``as_of`` (ISO date) honors the screener As-Of picker: the panel is sliced
+        to bars on/before that date before the last-close/rolling windows are taken.
+        """
+        close = self._load_field_panel("close")
+        if close is None or close.empty:
+            return {}
+        ids = [i for i in _normalize_ids(ids) if i in close.columns]
+        if not ids:
+            return {}
+
+        close = close[ids]
+        if as_of is not None:
+            idx = close.index
+            if getattr(idx, "tz", None) is not None:
+                close = close.copy()
+                close.index = idx.tz_localize(None)
+            close = close[close.index <= pd.Timestamp(as_of)]
+            if close.empty:
+                return {}
+
+        # last close + prior close, vectorized (ffill so the latest valid bar wins
+        # even when symbols have ragged trailing NaNs).
+        ff = close.ffill()
+        last = ff.iloc[-1]
+        prev = ff.iloc[-2] if len(ff) >= 2 else None
+
+        tail = close.tail(win_52w)
+        hi = tail.max()
+        lo = tail.min()
+
+        vol = self._load_field_panel("volume")
+        adv_vol = None
+        if vol is not None and not vol.empty:
+            vcols = [i for i in ids if i in vol.columns]
+            if vcols:
+                v = vol[vcols]
+                if as_of is not None:
+                    vidx = v.index
+                    if getattr(vidx, "tz", None) is not None:
+                        v = v.copy()
+                        v.index = vidx.tz_localize(None)
+                    v = v[v.index <= pd.Timestamp(as_of)]
+                adv_vol = v.tail(adv_window).mean()
+
+        out: dict = {}
+        for sym in ids:
+            price = last.get(sym)
+            if price is None or pd.isna(price):
+                continue
+            price = float(price)
+            rec: dict = {"Price": price}
+            if prev is not None:
+                p = prev.get(sym)
+                if p is not None and not pd.isna(p) and float(p):
+                    rec["Change%"] = (price / float(p) - 1.0) * 100.0
+            if adv_vol is not None:
+                av = adv_vol.get(sym)
+                if av is not None and not pd.isna(av):
+                    rec["ADV_Dollar"] = price * float(av)
+            h = hi.get(sym)
+            if h is not None and not pd.isna(h) and float(h) > 0:
+                rec["From52H"] = (price / float(h) - 1.0) * 100.0
+            lw = lo.get(sym)
+            if lw is not None and not pd.isna(lw) and float(lw) > 0:
+                rec["From52L"] = (price / float(lw) - 1.0) * 100.0
+            out[str(sym)] = rec
+        logger.debug("panel_technicals: %d/%d symbols", len(out), len(ids))
+        return out
+
+    # ------------------------------------------------------------------ #
     # incremental delta-fetch concept (spec §4.4, §7) — freshness signal
     # ------------------------------------------------------------------ #
     def last_bar_date(self, ids=None) -> dict:

@@ -77,6 +77,17 @@
         </div>
 
         <div class="filter-group">
+            <label>As Of</label>
+            <input type="date" name="as_of" value="{{ filters.as_of }}" style="width:130px" onchange="this.form.submit()">
+        </div>
+
+        <div class="filter-group" style="position:relative">
+            <label>Find Ticker</label>
+            <input type="text" id="ticker-search" placeholder="e.g. AAPL" autocomplete="off" style="width:90px;text-transform:uppercase" onkeyup="tickerAutocomplete(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();tickerGo();}">
+            <div id="ticker-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:600;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:4px;max-height:200px;overflow-y:auto;width:180px;box-shadow:0 4px 12px rgba(0,0,0,0.5);"></div>
+        </div>
+
+        <div class="filter-group">
             <label>&nbsp;</label>
             <button type="submit" class="btn">Scan</button>
         </div>
@@ -220,15 +231,101 @@
     </div>
 </form>
 
+{% if stage_dist %}
+{# Stage-distribution status bar + market-regime banner (stage presets) — app.py:259-323 #}
+{% set qualified = universe_total - stage_dist.get(0, {}).get('count', 0) %}
+{% set qualified_pct = (qualified / universe_total * 100) if universe_total > 0 else 0 %}
+<div class="status-bar" style="gap:12px;flex-wrap:wrap;">
+    <span>Universe: <span class="count">{{ universe_total }}</span></span>
+    <span>| Classified: <span class="count">{{ qualified }}</span> ({{ "%.0f"|format(qualified_pct) }}%)</span>
+    <span>|</span>
+    {% for stage_id, info in stage_dist.items() %}
+    {% if stage_id != 0 and qualified > 0 %}
+    {% set stage_of_qualified = (info.count / qualified * 100) %}
+    <span style="{% if stage_id == 2 %}color:var(--phosphor-bright,var(--green));{% elif stage_id == 4 %}color:var(--red,#ff3333);{% elif stage_id == 1 %}color:var(--amber,#ffb000);{% elif stage_id == 3 %}color:var(--orange,#ff6e27);{% endif %}">
+        S{{ stage_id }}: {{ info.count }} ({{ "%.0f"|format(stage_of_qualified) }}%)
+    </span>
+    {% endif %}
+    {% endfor %}
+    <span>| Results: <span class="count">{{ passed }}</span></span>
+    <span style="margin-left:auto">{{ fetch_time }}</span>
+</div>
+{% if market_regime %}
+<div style="padding:6px 10px;margin-bottom:10px;border-left:3px solid
+    {% if market_regime == 'Healthy Bull' %}var(--phosphor-bright,var(--green))
+    {% elif market_regime == 'Late Bull' %}var(--amber,#ffb000)
+    {% elif market_regime == 'Bear' %}var(--red,#ff3333)
+    {% else %}var(--text-dim,#888){% endif %};">
+    Market Regime: <strong>{{ market_regime }}</strong>
+    {% if qualified > 0 %}
+    (S2: {{ "%.0f"|format(stage_dist.get(2, {}).get('count', 0) / qualified * 100) }}% / S4: {{ "%.0f"|format(stage_dist.get(4, {}).get('count', 0) / qualified * 100) }}%)
+    {% endif %}
+</div>
+{% endif %}
+{% else %}
 <div class="status-bar" style="gap:12px;flex-wrap:wrap;">
     <span>Universe: <span class="count">{{ universe_total }}</span></span>
     <span>| Results: <span class="count">{{ passed }}</span></span>
     {% if as_of_date %}<span>| Date: <strong>{{ as_of_date }}</strong></span>{% endif %}
     <span style="margin-left:auto">{{ fetch_time }}</span>
 </div>
+{% endif %}
 
+{# ===== Column picker + view toggle + sector-stats hierarchy ===== #}
 {% if results %}
-<div class="table-wrap" style="margin-top:6px;">
+<div style="padding:8px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <button type="button" onclick="var p=document.getElementById('col-picker');p.style.display=p.style.display==='none'?'block':'none'" style="font-size:12px;padding:5px 12px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:6px;cursor:pointer">Columns ▼</button>
+    <span style="font-size:11px;color:var(--text-faint)" id="col-count"></span>
+    {% if sector_stats %}
+    <span style="font-size:13px;color:var(--text-dim);margin-left:12px">{{ sector_stats|length }} sectors / {{ passed }} stocks</span>
+    <span style="margin-left:auto;display:flex;gap:0">
+        <button type="button" id="view-flat-btn" onclick="switchView('flat')" style="font-size:11px;padding:4px 10px;background:var(--primary);border:1px solid var(--border);color:white;border-radius:4px 0 0 4px;cursor:pointer">All Stocks</button>
+        <button type="button" id="view-sectors-btn" onclick="switchView('sectors')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer">Sectors</button>
+    </span>
+    {% endif %}
+</div>
+<div id="col-picker" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:8px;max-width:900px">
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <button type="button" onclick="toggleColGroup('price')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Price/Tech</button>
+        <button type="button" onclick="toggleColGroup('valuation')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Valuation</button>
+        <button type="button" onclick="toggleColGroup('earnings')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Earnings</button>
+        <button type="button" onclick="toggleColGroup('quality')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Quality</button>
+        <button type="button" onclick="toggleColGroup('all')" style="font-size:11px;padding:3px 8px;background:var(--primary);border:none;color:white;border-radius:4px;cursor:pointer">All</button>
+        <button type="button" onclick="toggleColGroup('minimal')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Minimal</button>
+    </div>
+    <div id="col-checks" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+</div>
+
+{% if sector_stats %}
+<div id="view-sectors" style="display:none;margin-top:6px">
+    {% for sec in sector_stats %}
+    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg-card)">
+        <div style="padding:8px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);cursor:pointer" onclick="this.parentElement.querySelector('.sec-body').style.display=this.parentElement.querySelector('.sec-body').style.display==='none'?'block':'none'">
+            <strong style="font-size:14px">{{ sec.sector }}</strong>
+            <span style="font-size:12px;color:var(--text-dim)">{{ sec.count }}/{{ sec.total }} ({{ "%.0f"|format(sec.pct_of_sector) }}% of sector)</span>
+            <span style="font-size:12px;color:var(--text-faint)">PE {{ "%.1f"|format(sec.median_pe) if sec.median_pe is not none else '—' }} · FwdPE {{ "%.1f"|format(sec.median_fwd_pe) if sec.median_fwd_pe is not none else '—' }} · OpMgn {{ "%.1f"|format(sec.median_op_margin) if sec.median_op_margin is not none else '—' }} · ROIC {{ "%.1f"|format(sec.median_roic) if sec.median_roic is not none else '—' }} · RS {{ "%.0f"|format(sec.median_rs) if sec.median_rs is not none else '—' }}</span>
+        </div>
+        <div class="sec-body" style="display:none;padding:4px 14px 10px">
+            {% for ind in sec.industries %}
+            <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+                <div style="font-size:12px;color:var(--text-dim);display:flex;gap:10px;flex-wrap:wrap">
+                    <strong>{{ ind.industry }}</strong>
+                    <span>{{ ind.count }} stk</span>
+                    <span>PE {{ "%.1f"|format(ind.median_pe) if ind.median_pe is not none else '—' }}{% if ind.pe_vs_sector is not none %} ({{ "%.2f"|format(ind.pe_vs_sector) }}× sec){% endif %}</span>
+                    <span>FwdPE {{ "%.1f"|format(ind.median_fwd_pe) if ind.median_fwd_pe is not none else '—' }}</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-faint);padding-left:8px">
+                    {% for stk in ind.stocks %}<span style="margin-right:10px"><strong>{{ stk.symbol }}</strong> RS{{ "%.0f"|format(stk.rs_rank) if stk.rs_rank is not none else '—' }}</span>{% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div id="view-flat" class="table-wrap" style="margin-top:6px;">
     <table id="screener-table">
         <thead>
             <tr>
@@ -312,5 +409,124 @@ function sortTable(col, type) {
 }
 // Placeholder chart toggle (Monitor section owns the real chart wiring).
 function toggleStockChart(sym, row) { /* watchlist context-menu lives in base.html */ }
+
+// ---- view toggle: flat table <-> sector hierarchy ----
+function switchView(v) {
+    var flat = document.getElementById('view-flat');
+    var sectors = document.getElementById('view-sectors');
+    var bf = document.getElementById('view-flat-btn');
+    var bs = document.getElementById('view-sectors-btn');
+    if (!flat) return;
+    if (v === 'sectors' && sectors) {
+        flat.style.display = 'none'; sectors.style.display = 'block';
+        if (bs) { bs.style.background = 'var(--primary)'; bs.style.color = 'white'; }
+        if (bf) { bf.style.background = 'var(--bg-card)'; bf.style.color = 'var(--text-dim)'; }
+    } else {
+        flat.style.display = 'block'; if (sectors) sectors.style.display = 'none';
+        if (bf) { bf.style.background = 'var(--primary)'; bf.style.color = 'white'; }
+        if (bs) { bs.style.background = 'var(--bg-card)'; bs.style.color = 'var(--text-dim)'; }
+    }
+}
+
+// ---- column picker (per-col toggles + group presets), persisted in localStorage ----
+var COL_GROUPS = {
+    price: ['price','chg','turnover','rs','stage','regime','ma','pct50','pct200','from52h','from52l'],
+    valuation: ['pe','fwdpe','pesect','evebitda','target'],
+    earnings: ['pe','fwdpe','target'],
+    quality: ['opmgn','roic'],
+    minimal: ['sym','price','chg','rs','stage']
+};
+function _allCols() {
+    var ths = document.querySelectorAll('#screener-table thead th[data-cid]');
+    return Array.prototype.map.call(ths, function(t){ return t.getAttribute('data-cid'); });
+}
+function _colLabel(cid) {
+    var th = document.querySelector('#screener-table thead th[data-cid="'+cid+'"]');
+    return th ? th.textContent.trim() : cid;
+}
+function applyColVisibility() {
+    var hidden = {};
+    document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
+        if (!cb.checked) hidden[cb.value] = true;
+    });
+    var table = document.getElementById('screener-table');
+    if (!table) return;
+    var cols = _allCols();
+    cols.forEach(function(cid, i){
+        var sel = '[data-cid="'+cid+'"]';
+        table.querySelectorAll('thead '+sel+', tbody td'+sel).forEach(function(el){
+            el.style.display = hidden[cid] ? 'none' : '';
+        });
+    });
+    var shown = cols.length - Object.keys(hidden).length;
+    var cc = document.getElementById('col-count');
+    if (cc) cc.textContent = shown + '/' + cols.length + ' cols';
+    try { localStorage.setItem('screenerHiddenCols', JSON.stringify(Object.keys(hidden))); } catch(e) {}
+}
+function toggleColGroup(group) {
+    var keep = group === 'all' ? _allCols() : (COL_GROUPS[group] || []);
+    keep = keep.concat(['sym']);
+    document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
+        cb.checked = keep.indexOf(cb.value) !== -1;
+    });
+    applyColVisibility();
+}
+(function initColPicker(){
+    var box = document.getElementById('col-checks');
+    if (!box) return;
+    var hidden = {};
+    try { (JSON.parse(localStorage.getItem('screenerHiddenCols')) || []).forEach(function(c){ hidden[c]=true; }); } catch(e) {}
+    _allCols().forEach(function(cid){
+        var lbl = document.createElement('label');
+        lbl.style.cssText = 'font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:3px';
+        var cb = document.createElement('input');
+        cb.type='checkbox'; cb.value=cid; cb.checked = !hidden[cid];
+        cb.addEventListener('change', applyColVisibility);
+        lbl.appendChild(cb); lbl.appendChild(document.createTextNode(_colLabel(cid)));
+        box.appendChild(lbl);
+    });
+    applyColVisibility();
+})();
+
+// ---- Find Ticker autocomplete (jump straight to a symbol's screener row) ----
+var _TICKERS = [{% for st in results %}"{{ st.symbol }}"{% if not loop.last %},{% endif %}{% endfor %}];
+function tickerAutocomplete(input) {
+    var q = (input.value || '').toUpperCase().trim();
+    var dd = document.getElementById('ticker-dropdown');
+    if (!q) { dd.style.display='none'; return; }
+    var hits = _TICKERS.filter(function(t){ return t.indexOf(q) === 0; }).slice(0, 12);
+    if (!hits.length) { dd.style.display='none'; return; }
+    dd.innerHTML = '';
+    hits.forEach(function(t){
+        var d = document.createElement('div');
+        d.textContent = t;
+        d.style.cssText = 'padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text)';
+        d.onmouseover = function(){ d.style.background='var(--bg)'; };
+        d.onmouseout = function(){ d.style.background=''; };
+        d.onclick = function(){ input.value = t; dd.style.display='none'; tickerGo(); };
+        dd.appendChild(d);
+    });
+    dd.style.display='block';
+}
+function tickerGo() {
+    var v = (document.getElementById('ticker-search').value || '').toUpperCase().trim();
+    if (!v) return;
+    var row = document.querySelector('#screener-table tbody td[data-cid="sym"]');
+    var rows = document.querySelectorAll('#screener-table tbody tr');
+    for (var i=0; i<rows.length; i++) {
+        var cell = rows[i].querySelector('td[data-cid="sym"]');
+        if (cell && cell.textContent.trim().toUpperCase() === v) {
+            rows[i].scrollIntoView({block:'center'});
+            rows[i].style.outline = '2px solid var(--primary)';
+            setTimeout(function(r){ return function(){ r.style.outline=''; }; }(rows[i]), 2000);
+            return;
+        }
+    }
+}
+document.addEventListener('click', function(e){
+    if (!e.target.closest('#ticker-search') && !e.target.closest('#ticker-dropdown')) {
+        var dd = document.getElementById('ticker-dropdown'); if (dd) dd.style.display='none';
+    }
+});
 </script>
 {% endblock %}

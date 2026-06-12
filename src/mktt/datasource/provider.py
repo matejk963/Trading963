@@ -119,6 +119,22 @@ class DataSource:
         return submodule.fundamentals(ids, fields=fields, estimates=estimates)
 
     # ------------------------------------------------------------------ #
+    # quarterly (spec §5.3) — long quarterly actuals for growth derivation
+    # ------------------------------------------------------------------ #
+    def quarterly(self, ids, fields=None):
+        """ids → long ``MKFund.quarterly`` frame (symbol × report_date).
+
+        Routes through the ``(fundamentals, *)`` registry row to the MKFund
+        submodule (one quarterly table per symbol). The Screener uses this to
+        derive TTM / YoY EPS & Revenue growth from quarterly actuals.
+        """
+        ids = _normalize_ids(ids)
+        if not ids:
+            return self.fundamentals([]).iloc[0:0]
+        submodule = self._registry.resolve("fundamentals", ids[0])
+        return submodule.quarterly(ids, fields=fields)
+
+    # ------------------------------------------------------------------ #
     # option_chain (spec §5.3) — routes through the (option_chain, *) row
     # ------------------------------------------------------------------ #
     def option_chain(self, symbol, n_exp=4, expirations=None, force_refresh=False):
@@ -133,6 +149,19 @@ class DataSource:
         return submodule.option_chain(
             symbol, n_exp=n_exp, expirations=expirations, force_refresh=force_refresh
         )
+
+    # ------------------------------------------------------------------ #
+    # vectorized screener technicals — delegates to the equity submodule
+    # ------------------------------------------------------------------ #
+    def panel_technicals(self, ids, **kwargs):
+        """Vectorized screener technicals straight off the wide parquet panels
+        (the perf path that avoids the per-symbol ``time_series`` reassembly).
+
+        Delegates to the equity submodule (the one owner of the wide panels).
+        Benchmark ids (SPY) are not screener members and are skipped upstream.
+        """
+        equity = self._equity or self._registry.resolve("time_series", "__equity_probe__")
+        return equity.panel_technicals(ids, **kwargs)
 
     # ------------------------------------------------------------------ #
     # universe fetch — delegates to the single equity implementation

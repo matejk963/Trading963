@@ -50,15 +50,32 @@ class StubComputed:
 
 
 class StubData:
-    """Returns a fixed fundamentals frame; records the requested ids."""
+    """Returns a fixed fundamentals frame; records the requested ids.
 
-    def __init__(self, frame):
+    Optionally carries a long ``quarterly`` frame and a ``panel_technicals`` dict
+    so the growth-derivation and vectorized-technicals paths can be exercised.
+    """
+
+    def __init__(self, frame, quarterly=None, panel=None):
         self._frame = frame
+        self._quarterly = quarterly
+        self._panel = panel
         self.last_ids = None
+        self.last_estimates = None
 
-    def fundamentals(self, ids, fields=None):
+    def fundamentals(self, ids, fields=None, estimates=False):
         self.last_ids = list(ids)
+        self.last_estimates = estimates
         return self._frame
+
+    def quarterly(self, ids, fields=None):
+        if self._quarterly is None:
+            import pandas as _pd
+            return _pd.DataFrame()
+        return self._quarterly
+
+    def panel_technicals(self, ids, **kwargs):
+        return dict(self._panel or {})
 
 
 def _cross(rows):
@@ -394,3 +411,119 @@ def test_blueprint_api_route_is_thin(monkeypatch):
     assert payload["meta"]["status"] == "ok"
     assert payload["tables"][0]["id"] == "screener_results"
     assert payload["meta"]["readouts"]["universe_total"] == 4
+
+
+# --------------------------------------------------------------------------- #
+# F2 review fixes — FwdPE via estimates, growth derivation, dist_high sort,
+# vectorized panel technicals, sector stats / stage banner.
+# --------------------------------------------------------------------------- #
+def test_pipeline_requests_estimates():
+    """FwdPE bug fix: _pipeline must fetch fundamentals WITH estimates=True so the
+    forward FY1 EPS comes back (else FwdPE is always None)."""
+    cross, funds = _universe()
+    data = StubData(funds)
+    handle(ScreenRequest.from_query(FakeArgs()), data, StubComputed(cross))
+    assert data.last_estimates is True
+
+
+def test_fwdpe_and_fy_columns_live():
+    """FwdPE = price/fy1_eps and FY1/FY2 EPS columns surface in the table."""
+    cross, funds = _universe()
+    # add fy2 + fy revenue to exercise FY2/FY1 growth too.
+    funds.loc["AAA", "fy2_eps_mean"] = 10.0
+    funds.loc["AAA", "fy1_revenue_mean"] = 1000e6
+    funds.loc["AAA", "fy2_revenue_mean"] = 1200e6
+    vm = handle(ScreenRequest.from_query(FakeArgs()), StubData(funds), StubComputed(cross))
+    aaa = _row_by_symbol(vm["tables"][0], "AAA")
+    assert_parity(aaa["FwdPE"], 15.0)        # 120 / 8
+    assert_parity(aaa["EPS_FY1"], 8.0)
+    assert_parity(aaa["EPS_FY2"], 10.0)
+    # G_FY2_FY1 = (10/8 - 1)*100 = 25.0 ; RG_FY2_FY1 = (1200/1000 -1)*100 = 20.0
+    assert_parity(aaa["G_FY2_FY1"], 25.0)
+    assert_parity(aaa["RG_FY2_FY1"], 20.0)
+
+
+def test_fwdpe_filter_is_live():
+    """fwdpe range filter actually narrows now that FwdPE has values."""
+    cross, funds = _universe()
+    # FwdPE: AAA=120/8=15, BBB=48/4.5=10.7, CCC=210/14=15, DDD=28/0.5=56.
+    args = FakeArgs(single={"fwdpe_max": "12"})
+    vm = handle(ScreenRequest.from_query(args), StubData(funds), StubComputed(cross))
+    syms = {r[0] for r in vm["tables"][0]["rows"]}
+    assert syms == {"BBB"}
+
+
+def test_eps_growth_preset_live_from_forward_estimates():
+    """eps_growth=fy2_fy1_pos works end-to-end from forward FY1/FY2 EPS."""
+    cross, funds = _universe()
+    funds["fy2_eps_mean"] = pd.Series({"AAA": 10.0, "BBB": 4.0, "CCC": 20.0, "DDD": 0.6})
+    # G_FY2_FY1: AAA (10/8) +, BBB (4/4.5) -, CCC (20/14) +, DDD (0.6/0.5) +.
+    args = FakeArgs(single={"eps_growth": "fy2_fy1_pos"})
+    vm = handle(ScreenRequest.from_query(args), StubData(funds), StubComputed(cross))
+    syms = {r[0] for r in vm["tables"][0]["rows"]}
+    assert syms == {"AAA", "CCC", "DDD"}
+
+
+def test_growth_metrics_from_quarterly_ttm_yoy():
+    """G_TTM_YOY derived from 8 quarters of EPS actuals (port app.py:692-696)."""
+    cross, funds = _universe()
+    # AAA: 8 quarters, last-4 TTM=10, prior-4 TTM=8 -> +25.0%.
+    q = pd.DataFrame({
+        "symbol": ["AAA"] * 8,
+        "report_date": pd.date_range("2024-03-31", periods=8, freq="QE"),
+        "eps_actual": [2.0, 2.0, 2.0, 2.0, 2.5, 2.5, 2.5, 2.5],
+        "revenue_actual": [None] * 8,
+    })
+    data = StubData(funds, quarterly=q)
+    vm = handle(ScreenRequest.from_query(FakeArgs()), data, StubComputed(cross))
+    aaa = _row_by_symbol(vm["tables"][0], "AAA")
+    assert_parity(aaa["EPS_TTM"], 10.0)
+    assert_parity(aaa["G_TTM_YOY"], 25.0)
+    # ttm_yoy_pos preset keeps AAA.
+    vm2 = handle(ScreenRequest.from_query(FakeArgs(single={"eps_growth": "ttm_yoy_pos"})),
+                 StubData(funds, quarterly=q), StubComputed(cross))
+    assert "AAA" in {r[0] for r in vm2["tables"][0]["rows"]}
+
+
+def test_dist_high_sort_closest_to_high_first():
+    """dist_high sort: From52H DESC (closest-to-52w-high, i.e. nearest-zero, first)."""
+    cross, funds = _universe()
+    panel = {
+        "AAA": {"Price": 120.0, "From52H": -2.0, "ADV_Dollar": 5e8},
+        "BBB": {"Price": 48.0, "From52H": -40.0, "ADV_Dollar": 2e8},
+        "CCC": {"Price": 210.0, "From52H": -10.0, "ADV_Dollar": 9e8},
+        "DDD": {"Price": 28.0, "From52H": -25.0, "ADV_Dollar": 1e8},
+    }
+    args = FakeArgs(single={"sort_by": "dist_high"})
+    vm = handle(ScreenRequest.from_query(args),
+                StubData(funds, panel=panel), StubComputed(cross))
+    order = [r[0] for r in vm["tables"][0]["rows"]]
+    assert order == ["AAA", "CCC", "DDD", "BBB"]
+
+
+def test_panel_technicals_override_price_and_turnover():
+    """Vectorized panel technicals override Price/ADV_Dollar on the joined rows."""
+    cross, funds = _universe()
+    panel = {"AAA": {"Price": 999.0, "ADV_Dollar": 7e8, "From52H": -1.0, "From52L": 80.0}}
+    vm = handle(ScreenRequest.from_query(FakeArgs()),
+                StubData(funds, panel=panel), StubComputed(cross))
+    aaa = _row_by_symbol(vm["tables"][0], "AAA")
+    assert_parity(aaa["Price"], 999.0)
+    assert_parity(aaa["ADV_Dollar"], 7e8)
+    assert_parity(aaa["From52H"], -1.0)
+
+
+def test_handle_page_emits_sector_stats_and_stage_banner():
+    """handle_page restores sector_stats hierarchy + stage_dist/market_regime."""
+    from sections.screener.service import handle_page
+    cross, funds = _universe()
+    ctx = handle_page(ScreenRequest.from_query(FakeArgs(single={"preset": "stage2"})),
+                      StubData(funds), StubComputed(cross))
+    # sector stats present with medians + hierarchy.
+    assert ctx["sector_stats"]
+    sec = ctx["sector_stats"][0]
+    assert "median_pe" in sec and "industries" in sec and "stocks" in sec
+    # stage distribution + regime banner computed for a stage preset.
+    assert ctx["stage_dist"] is not None
+    assert ctx["market_regime"] in {
+        "Healthy Bull", "Late Bull", "Bear", "Bottoming", "Mixed"}

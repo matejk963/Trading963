@@ -95,7 +95,7 @@ SORT_COLUMNS = {
     "change": ("Change%", False),
     "rs": ("RS_Rank", False),
     "mansfield": ("Mansfield_RS", False),
-    "dist_high": ("From52H", True),
+    "dist_high": ("From52H", False),  # From52H ≤ 0; DESC → closest-to-52w-high first
     "pe": ("PE", True),
     "fwdpe": ("FwdPE", True),
     "opmgn": ("OpMargin", False),
@@ -388,17 +388,32 @@ def _pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
     if universe_total == 0:
         return _PipelineResult(context, 0, [], [], asof)
 
-    funds = data.fundamentals(universe)
+    # Fetch WITH estimates so FY1/FY2 EPS+Revenue come back (estimates_forward):
+    # FwdPE = price / fy1_eps and the FY2/FY1 growth presets read these. Some stub
+    # providers don't accept ``estimates``; fall back to the bare signature.
+    try:
+        funds = data.fundamentals(universe, estimates=True)
+    except TypeError:
+        funds = data.fundamentals(universe)
+
+    # Per-symbol quarterly-derived EPS/Rev growth metrics (TTM/NTM/YoY) — port of
+    # app.py:656-788. Read from MKFund.quarterly + estimates_forward when the
+    # provider exposes them; absent on bare stubs (then presets stay inert).
+    growth = _growth_metrics(data, universe)
 
     # Build the joined rows (one dict per symbol). PE/FwdPE derive from the
     # fundamental price_close here (parity), BEFORE live price overrides Price.
-    rows = _join(cross, funds)
+    rows = _join(cross, funds, growth)
 
-    # Live technicals from data.time_series (adr/0002 §5): turnover/price/
-    # day-change/%-from-52w-high+low/%-above-MA50+200, matching the original which
-    # derived these live. Guarded so stub providers (no time_series) keep the
-    # precomputed-only path (ADV_Dollar carried on the cross-section in tests).
-    if hasattr(data, "time_series"):
+    # Live technicals (adr/0002 §5): turnover/price/day-change/%-from-52w-high+low.
+    # Preferred path is the VECTORIZED ``data.panel_technicals`` (computed column-wise
+    # off the wide parquet panels — no per-symbol Python loop, sub-second for the full
+    # universe). Falls back to the ``time_series`` reassembly for stub providers that
+    # only expose ``time_series`` (and the precomputed-only path for bare stubs).
+    as_of = req.as_of or None
+    if hasattr(data, "panel_technicals"):
+        _apply_panel_technicals(rows, data, universe, as_of)
+    elif hasattr(data, "time_series"):
         _apply_live_technicals(rows, data, universe)
 
     # Median-PE premium over the FULL (unfiltered) universe (app.py:592-639).
@@ -486,7 +501,67 @@ def _row_lookup(frame) -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def _join(cross, funds) -> List[Dict[str, Any]]:
+def _growth_metrics(data, universe) -> Dict[str, Dict[str, Any]]:
+    """Per-symbol EPS/Rev growth metrics derived from quarterly actuals.
+
+    Port of app.py:656-788 (the quarterly-derived growth block), reading the long
+    ``MKFund.quarterly`` table via ``data.quarterly`` instead of the legacy pkl:
+
+    - ``EPS_TTM`` / ``Rev_TTM`` — sum of the last 4 reported quarters,
+    - ``G_TTM_YOY`` / ``RG_TTM_YOY`` — TTM vs the prior TTM (quarters -8:-4),
+    - ``G_FQ_YOY`` / ``RG_FQ_YOY`` — latest quarter vs the same quarter a year ago.
+
+    The FY2/FY1 and NTM/TTM presets are filled from the forward estimates in
+    :func:`_join` (they need the per-symbol FY1/FY2 EPS the join already carries).
+    Returns ``{}`` when the provider has no ``quarterly`` (bare stubs) so the
+    presets simply stay inert rather than zeroing the screen.
+    """
+    if not hasattr(data, "quarterly"):
+        return {}
+    try:
+        q = data.quarterly(universe)
+    except Exception:  # noqa: BLE001
+        logger.exception("screener growth: quarterly fetch failed")
+        return {}
+    if q is None or getattr(q, "empty", True):
+        return {}
+
+    import pandas as pd  # local — keep the module import-light for stub tests
+
+    out: Dict[str, Dict[str, Any]] = {}
+    q = q.copy()
+    if "report_date" in q.columns:
+        q["report_date"] = pd.to_datetime(q["report_date"], errors="coerce")
+    for sym, grp in q.groupby("symbol"):
+        grp = grp.sort_values("report_date")
+        rec: Dict[str, Any] = {}
+        for field, ttm_key, yoy_key, fq_key in (
+            ("eps_actual", "EPS_TTM", "G_TTM_YOY", "G_FQ_YOY"),
+            ("revenue_actual", "Rev_TTM", "RG_TTM_YOY", "RG_FQ_YOY"),
+        ):
+            if field not in grp.columns:
+                continue
+            vals = pd.to_numeric(grp[field], errors="coerce").dropna().to_numpy()
+            n = len(vals)
+            if n < 4:
+                continue
+            ttm = float(vals[-4:].sum())
+            rec[ttm_key] = round(ttm / 1e6, 1) if field == "revenue_actual" else round(ttm, 2)
+            if n >= 8:
+                prior = float(vals[-8:-4].sum())
+                if prior:
+                    rec[yoy_key] = round((ttm / prior - 1.0) * 100.0, 1)
+            if n >= 5:
+                fq_latest, fq_yoy = float(vals[-1]), float(vals[-5])
+                if fq_yoy:
+                    rec[fq_key] = round((fq_latest / fq_yoy - 1.0) * 100.0, 1)
+        if rec:
+            out[str(sym)] = rec
+    logger.debug("screener growth: %d symbols with quarterly metrics", len(out))
+    return out
+
+
+def _join(cross, funds, growth=None) -> List[Dict[str, Any]]:
     """Join the computed cross-section with fundamentals, aliasing columns to the
     screener row names and deriving PE/FwdPE from price+EPS.
 
@@ -516,16 +591,53 @@ def _join(cross, funds) -> List[Dict[str, Any]]:
         for col, v in frec.items():
             if col in passthrough:
                 row[col] = v
-        # Forward EPS (FY1) for FwdPE, if estimates were attached.
-        fy1_eps = frec.get("fy1_eps_mean", frec.get("fy1_eps_smart"))
+
+        # Forward EPS / Revenue (FY1 / FY2) from estimates_forward (attached when
+        # data.fundamentals(estimates=True)). FwdPE = price / FY1 EPS.
+        fy1_eps = _f(frec.get("fy1_eps_mean", frec.get("fy1_eps_smart")))
+        fy2_eps = _f(frec.get("fy2_eps_mean", frec.get("fy2_eps_smart")))
+        fy1_rev = _f(frec.get("fy1_revenue_mean"))
+        fy2_rev = _f(frec.get("fy2_revenue_mean"))
+        row["EPS_FY1"] = fy1_eps
+        row["EPS_FY2"] = fy2_eps
+        # Revenue reported in millions for display parity (app.py:715).
+        row["Rev_FY1"] = round(fy1_rev / 1e6, 1) if fy1_rev is not None else None
+        row["Rev_FY2"] = round(fy2_rev / 1e6, 1) if fy2_rev is not None else None
+
         # Derive PE / FwdPE (app.py:556-559).
         price = _f(row.get("Price"))
         eps_act = _f(row.get("EPS_Act"))
+        row["EPS_Act"] = eps_act
         row["PE"] = (price / eps_act) if (price is not None and eps_act
                                           and eps_act > 0) else None
-        fy1 = _f(fy1_eps)
-        row["FwdPE"] = (price / fy1) if (price is not None and fy1
-                                         and fy1 > 0) else None
+        row["FwdPE"] = (price / fy1_eps) if (price is not None and fy1_eps
+                                             and fy1_eps > 0) else None
+
+        # Merge quarterly-derived growth metrics (TTM/YoY/FQ) — app.py:730-788.
+        if growth:
+            grec = growth.get(sym)
+            if grec:
+                row.update(grec)
+
+        # FY2-vs-FY1 growth (forward estimates) — app.py:685-689 / 761-765.
+        if fy1_eps and fy1_eps != 0 and fy2_eps is not None:
+            row["G_FY2_FY1"] = round((fy2_eps / fy1_eps - 1.0) * 100.0, 1)
+        if fy1_rev and fy1_rev != 0 and fy2_rev is not None:
+            row["RG_FY2_FY1"] = round((fy2_rev / fy1_rev - 1.0) * 100.0, 1)
+
+        # NTM-vs-TTM growth — the legacy NTM came from a forward_quarterly pkl not
+        # in MKFund; FY1 (next-fiscal-year mean) is the available forward annual
+        # proxy for next-twelve-months EPS/Rev (documented approximation).
+        eps_ttm = _f(row.get("EPS_TTM"))
+        if eps_ttm and eps_ttm != 0 and fy1_eps is not None:
+            row["EPS_NTM"] = round(fy1_eps, 2)
+            row["G_NTM_TTM"] = round((fy1_eps / eps_ttm - 1.0) * 100.0, 1)
+        rev_ttm = _f(row.get("Rev_TTM"))
+        fy1_rev_m = (fy1_rev / 1e6) if fy1_rev is not None else None
+        if rev_ttm and rev_ttm != 0 and fy1_rev_m is not None:
+            row["Rev_NTM"] = round(fy1_rev_m, 1)
+            row["RG_NTM_TTM"] = round((fy1_rev_m / rev_ttm - 1.0) * 100.0, 1)
+
         out.append(row)
     return out
 
@@ -537,6 +649,33 @@ def _join(cross, funds) -> List[Dict[str, Any]]:
 _ADV_WINDOW = 50        # avg dollar volume lookback
 _52W_WINDOW = 252       # 52-week high/low lookback
 _TS_LOOKBACK_DAYS = 420  # calendar days fetched (covers ~252 trading days)
+
+
+def _apply_panel_technicals(rows, data, universe, as_of=None) -> None:
+    """Vectorized live technicals via ``data.panel_technicals`` (the perf path).
+
+    The whole-universe technicals dict is computed column-wise off the wide parquet
+    panels in one shot; here we just splice each symbol's record onto its row.
+    ``as_of`` honors the screener As-Of picker (price window ends on that date).
+    Best-effort: any failure leaves the precomputed/fundamental rows untouched.
+    """
+    try:
+        tech = data.panel_technicals(
+            universe, adv_window=_ADV_WINDOW, win_52w=_52W_WINDOW, as_of=as_of)
+    except Exception:  # noqa: BLE001 — never let a fetch hiccup blank the page
+        logger.exception("screener panel technicals: vectorized fetch failed")
+        return
+    if not tech:
+        logger.debug("screener panel technicals: empty result")
+        return
+    enriched = 0
+    for r in rows:
+        t = tech.get(r["Symbol"])
+        if not t:
+            continue
+        r.update(t)
+        enriched += 1
+    logger.debug("screener panel technicals: enriched %d/%d rows", enriched, len(rows))
 
 
 def _apply_live_technicals(rows: List[Dict[str, Any]], data, universe) -> None:
@@ -782,6 +921,10 @@ RESULT_COLUMNS = [
     "MA50", "MA150", "MA200", "PctAbove50", "PctAbove200", "From52H", "From52L",
     "PE", "FwdPE", "OpMargin", "NetMargin", "FCF", "ROIC", "ND_EBITDA",
     "EV_EBITDA", "Analysts", "Target", "PE_vs_Sector", "PE_vs_Industry",
+    "EPS_Act", "EPS_TTM", "EPS_NTM", "EPS_FY1", "EPS_FY2",
+    "Rev_TTM", "Rev_NTM", "Rev_FY1", "Rev_FY2",
+    "G_NTM_TTM", "G_FY2_FY1", "G_TTM_YOY", "G_FQ_YOY",
+    "RG_NTM_TTM", "RG_FY2_FY1", "RG_TTM_YOY", "RG_FQ_YOY",
     "PCA_Regime", "Stage_Class", "EPS_Accel", "MA_Screen",
 ]
 
@@ -909,11 +1052,27 @@ def _page_row(r: Dict[str, Any]) -> Dict[str, Any]:
         "ev_ebitda": _f(r.get("EV_EBITDA")),
         "rs_rank": _f(r.get("RS_Rank")),
         "mansfield_rs": _f(r.get("Mansfield_RS")),
+        "analysts": _f(r.get("Analysts")),
         "target": _f(r.get("Target")),
         "pct50": _f(r.get("PctAbove50")),
         "pct200": _f(r.get("PctAbove200")),
         "from52h": _f(r.get("From52H")),
         "from52l": _f(r.get("From52L")),
+        # estimate / growth columns (now that estimates_forward + quarterly join in)
+        "eps_ttm": _f(r.get("EPS_TTM")),
+        "eps_ntm": _f(r.get("EPS_NTM")),
+        "eps_fy1": _f(r.get("EPS_FY1")),
+        "eps_fy2": _f(r.get("EPS_FY2")),
+        "rev_ttm": _f(r.get("Rev_TTM")),
+        "rev_ntm": _f(r.get("Rev_NTM")),
+        "rev_fy1": _f(r.get("Rev_FY1")),
+        "rev_fy2": _f(r.get("Rev_FY2")),
+        "g_ntm_ttm": _f(r.get("G_NTM_TTM")),
+        "g_fy2_fy1": _f(r.get("G_FY2_FY1")),
+        "g_ttm_yoy": _f(r.get("G_TTM_YOY")),
+        "g_fq_yoy": _f(r.get("G_FQ_YOY")),
+        "rg_ntm_ttm": _f(r.get("RG_NTM_TTM")),
+        "rg_fy2_fy1": _f(r.get("RG_FY2_FY1")),
         "stage": stage,
         "stage_label": _STAGE_LABELS.get(stage, ""),
         "ma_screen_label": _MA_SCREEN_LABELS.get(ma_screen, ""),
@@ -924,6 +1083,140 @@ def _page_row(r: Dict[str, Any]) -> Dict[str, Any]:
 def _int(v) -> Optional[int]:
     f = _f(v)
     return int(f) if f is not None else None
+
+
+# --------------------------------------------------------------------------- #
+# stage distribution + market regime (port app.py:478-493)
+# --------------------------------------------------------------------------- #
+_STAGE_PRESETS = {"stage1", "stage2", "stage3", "stage4", "trans12"}
+
+
+def _stage_distribution(rows: List[Dict[str, Any]]):
+    """Per-stage counts over the FULL universe (S1-S4 + unclassified S0).
+
+    Returns ``({stage_id: {count}}, market_regime)`` mirroring the original status
+    bar + colored regime banner (app.py:478-493). Only meaningful for the stage
+    presets, so callers gate on the preset.
+    """
+    dist: Dict[int, Dict[str, int]] = {}
+    for r in rows:
+        s = _int(r.get("Stage_Class")) or 0
+        dist.setdefault(s, {"count": 0})["count"] += 1
+    total = len(rows)
+    qualified = total - dist.get(0, {}).get("count", 0)
+    s2 = (dist.get(2, {}).get("count", 0) / qualified * 100) if qualified > 0 else 0
+    s4 = (dist.get(4, {}).get("count", 0) / qualified * 100) if qualified > 0 else 0
+    if s2 >= 40 and s4 < 10:
+        regime = "Healthy Bull"
+    elif s2 >= 25 and s4 < 20:
+        regime = "Late Bull"
+    elif s2 < 20 and s4 >= 30:
+        regime = "Bear"
+    elif s2 < 25 and s4 >= 20:
+        regime = "Bottoming"
+    else:
+        regime = "Mixed"
+    return dist, regime
+
+
+# --------------------------------------------------------------------------- #
+# sector / industry median statistics + hierarchy (port app.py:957-1119)
+# --------------------------------------------------------------------------- #
+def _med_pos(rows, col, positive_only=False):
+    vals = [_f(r.get(col)) for r in rows]
+    vals = [v for v in vals if v is not None and (not positive_only or v > 0)]
+    return _median(vals)
+
+
+def _mean(rows, col):
+    vals = [_f(r.get(col)) for r in rows if _f(r.get(col)) is not None]
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
+_MEDIAN_COLS = [
+    ("median_pe", "PE", True), ("median_fwd_pe", "FwdPE", True),
+    ("median_eps", "EPS_Act", False), ("median_eps_ttm", "EPS_TTM", False),
+    ("median_eps_ntm", "EPS_NTM", False), ("median_fy1", "EPS_FY1", False),
+    ("median_fy2", "EPS_FY2", False), ("median_rev_ttm", "Rev_TTM", False),
+    ("median_rev_ntm", "Rev_NTM", False), ("median_op_margin", "OpMargin", False),
+    ("median_net_margin", "NetMargin", False), ("median_roic", "ROIC", False),
+    ("median_fcf", "FCF", False), ("median_nd_ebitda", "ND_EBITDA", False),
+    ("median_ev_ebitda", "EV_EBITDA", True), ("median_rs", "RS_Rank", False),
+    ("median_target", "Target", False),
+]
+_MEAN_COLS = [("median_rs_chg1w", "RS_Chg1W"), ("median_rs_chg1m", "RS_Chg1M"),
+              ("median_rs_chg3m", "RS_Chg3M")]
+
+
+def _group_medians(rows) -> Dict[str, Any]:
+    stats = {key: _med_pos(rows, col, pos) for key, col, pos in _MEDIAN_COLS}
+    stats.update({key: _mean(rows, col) for key, col in _MEAN_COLS})
+    return stats
+
+
+def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
+    """Sector→industry→stock hierarchy with sector/industry median stats.
+
+    Medians use the FULL (unfiltered) universe; stock lists use the passed rows
+    (port app.py:957-1119). Each sector entry carries its medians + an industry
+    breakdown (each with its own medians + stock list) + a flat stock list.
+    """
+    full_by_sector: Dict[str, List[Dict[str, Any]]] = {}
+    for r in full_rows:
+        sec = r.get("Sector")
+        if sec:
+            full_by_sector.setdefault(sec, []).append(r)
+    passed_by_sector: Dict[str, List[Dict[str, Any]]] = {}
+    for r in passed_rows:
+        sec = r.get("Sector")
+        if sec:
+            passed_by_sector.setdefault(sec, []).append(r)
+
+    sector_totals = {s: len(v) for s, v in full_by_sector.items()}
+    n_passed = len(passed_rows) or 1
+    out: List[Dict[str, Any]] = []
+    for sec, prows in passed_by_sector.items():
+        full_group = full_by_sector.get(sec, prows)
+        total = sector_totals.get(sec, len(full_group))
+        stats: Dict[str, Any] = {
+            "sector": sec,
+            "count": len(prows),
+            "total": total,
+            "pct_of_sector": len(prows) / total * 100 if total else 0,
+            "pct_of_results": len(prows) / n_passed * 100,
+        }
+        stats.update(_group_medians(full_group))
+        stats["stocks"] = sorted((_page_row(r) for r in prows),
+                                 key=lambda x: x.get("rs_rank") or 0, reverse=True)
+
+        # industry breakdown
+        full_by_ind: Dict[str, List[Dict[str, Any]]] = {}
+        for r in full_group:
+            ind = r.get("Industry")
+            if ind:
+                full_by_ind.setdefault(ind, []).append(r)
+        passed_by_ind: Dict[str, List[Dict[str, Any]]] = {}
+        for r in prows:
+            ind = r.get("Industry")
+            if ind:
+                passed_by_ind.setdefault(ind, []).append(r)
+        industries = []
+        for ind, iprows in passed_by_ind.items():
+            full_ind = full_by_ind.get(ind, iprows)
+            imeds = _group_medians(full_ind)
+            ind_pe, sec_pe = imeds.get("median_pe"), stats.get("median_pe")
+            imeds["pe_vs_sector"] = (round(ind_pe / sec_pe, 2)
+                                     if ind_pe and sec_pe and sec_pe > 0 else None)
+            imeds["industry"] = ind
+            imeds["count"] = len(iprows)
+            imeds["stocks"] = sorted((_page_row(r) for r in iprows),
+                                     key=lambda x: x.get("rs_rank") or 0, reverse=True)
+            industries.append(imeds)
+        industries.sort(key=lambda x: x["count"], reverse=True)
+        stats["industries"] = industries
+        out.append(stats)
+    out.sort(key=lambda x: x["pct_of_sector"], reverse=True)
+    return out
 
 
 def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
@@ -940,6 +1233,18 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
     res = _pipeline(req, data, computed)
     sectors = sorted({r["Sector"] for r in res.rows if r.get("Sector")})
     results = [_page_row(r) for r in res.passed]
+
+    # Stage-distribution status bar + market-regime banner (stage presets only).
+    stage_dist = None
+    market_regime = None
+    if req.preset in _STAGE_PRESETS and res.rows:
+        dist, market_regime = _stage_distribution(res.rows)
+        # template iterates stage_dist.items(); keep S1-S4 (+S0 for the qualified math).
+        stage_dist = {k: v for k, v in sorted(dist.items())}
+
+    # Sector/industry median statistics + hierarchy (medians over full universe).
+    sector_stats = _sector_stats(res.passed, res.rows)
+
     fetch_ms = (time.time() - t0) * 1000.0
     logger.debug("screener.handle_page passed=%d/%d in %.0fms",
                  len(results), res.universe_total, fetch_ms)
@@ -948,6 +1253,9 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
         "filters": _filters_dict(req),
         "sectors": sectors,
         "results": results,
+        "sector_stats": sector_stats,
+        "stage_dist": stage_dist,
+        "market_regime": market_regime,
         "universe_total": res.universe_total,
         "passed": len(results),
         "as_of_date": res.asof,

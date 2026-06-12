@@ -322,3 +322,43 @@ def test_yf_screen_loop_appears_in_exactly_one_module():
                 hits.append(path)
     assert len(hits) == 1, f"universe-fetch loop found in {len(hits)} modules: {hits}"
     assert hits[0].endswith(os.path.join("datasource", "submodules", "equity.py"))
+
+
+# --------------------------------------------------------------------------- #
+# F2 — vectorized panel_technicals (off the wide parquet panels, no per-symbol loop)
+# --------------------------------------------------------------------------- #
+def test_panel_technicals_vectorized(tmp_path):
+    """Vectorized technicals off wide close/volume panels: Price/Change%/ADV/52H/52L."""
+    dates = pd.date_range("2024-01-01", periods=10, freq="D")
+    close = pd.DataFrame({
+        "AAA": [10, 11, 12, 13, 14, 15, 16, 17, 18, 20],
+        "BBB": [50, 49, 48, 47, 46, 45, 44, 43, 42, 40],
+    }, index=dates)
+    volume = pd.DataFrame({"AAA": [1000] * 10, "BBB": [2000] * 10}, index=dates)
+    close.to_parquet(tmp_path / "close.parquet")
+    volume.to_parquet(tmp_path / "volume.parquet")
+
+    eq = EquitySubmodule(data_dir=tmp_path)
+    tech = eq.panel_technicals(["AAA", "BBB", "__MISSING__"], adv_window=5, win_52w=10)
+
+    assert set(tech) == {"AAA", "BBB"}
+    assert tech["AAA"]["Price"] == 20.0
+    # Change% AAA: 20/18 - 1 = +11.11%
+    assert round(tech["AAA"]["Change%"], 2) == 11.11
+    # ADV_Dollar = last close * mean(last 5 vols) = 20 * 1000
+    assert tech["AAA"]["ADV_Dollar"] == 20.0 * 1000
+    # From52H = price/max - 1 = 20/20 - 1 = 0 ; From52L = 20/10 - 1 = +100%
+    assert round(tech["AAA"]["From52H"], 2) == 0.0
+    assert round(tech["AAA"]["From52L"], 2) == 100.0
+    # BBB at its 52w low: From52L ~ 0, From52H negative.
+    assert tech["BBB"]["From52H"] < 0
+
+
+def test_panel_technicals_honors_as_of(tmp_path):
+    """as_of slices the price window so Price is the close on/before that date."""
+    dates = pd.date_range("2024-01-01", periods=5, freq="D")
+    close = pd.DataFrame({"AAA": [10, 11, 12, 13, 14]}, index=dates)
+    close.to_parquet(tmp_path / "close.parquet")
+    eq = EquitySubmodule(data_dir=tmp_path)
+    tech = eq.panel_technicals(["AAA"], as_of="2024-01-03")
+    assert tech["AAA"]["Price"] == 12.0  # close on 2024-01-03, later bars ignored

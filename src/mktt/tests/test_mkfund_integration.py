@@ -177,3 +177,16 @@ def test_fundamentals_empty_ids(schema):
     data = _datasource(schema)
     f = data.fundamentals([])
     assert len(f) == 0
+
+
+def test_quarterly_roundtrip(schema):
+    """F2: DataSource.quarterly reads the long MKFund.quarterly table (used by the
+    screener to derive TTM/YoY EPS & Revenue growth)."""
+    L.load(_mini_pkl(), _factory, schema=schema)
+    data = _datasource(schema)
+    q = data.quarterly(["AAA"])
+    assert list(q.columns)[:2] == ["symbol", "report_date"]
+    assert (q["symbol"] == "AAA").all()
+    assert "eps_actual" in q.columns
+    # the mini pkl has one AAA quarter with EPS 0.71.
+    assert float(q.iloc[0]["eps_actual"]) == 0.71

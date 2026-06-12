@@ -25,6 +25,7 @@ import pandas as pd
 from ..loaders.mkfund_loader import (
     FUNDAMENTALS_CURRENT_COLS,
     ESTIMATES_FORWARD_COLS,
+    QUARTERLY_COLS,
 )
 
 logger = logging.getLogger("mktt.datasource.fundamentals")
@@ -106,6 +107,32 @@ class FundamentalsSubmodule:
         if estimates:
             frame = self._attach_estimates(frame, ids)
         return frame
+
+    # ------------------------------------------------------------------ #
+    def quarterly(self, ids, fields: Optional[Sequence[str]] = None) -> pd.DataFrame:
+        """ids → long ``MKFund.quarterly`` frame (one row per symbol × report_date).
+
+        Used by the Screener to derive TTM / YoY EPS & Revenue growth (the
+        quarterly actuals the FY1/FY2 forward curve can't supply). ``fields=None``
+        returns all quarterly columns. Missing ids are tolerated (absent).
+        """
+        ids = _normalize_ids(ids)
+        if not ids:
+            return pd.DataFrame(columns=[c for c in QUARTERLY_COLS])
+        if fields is None:
+            cols = list(QUARTERLY_COLS)
+        else:
+            requested = set(fields) | {"symbol", "report_date"}
+            cols = [c for c in QUARTERLY_COLS if c in requested]
+        col_list = ", ".join(cols)
+        placeholders = ", ".join(["%s"] * len(ids))
+        sql = (
+            f"SELECT {col_list} FROM \"{self.schema}\".quarterly "
+            f"WHERE symbol IN ({placeholders}) ORDER BY symbol, report_date"
+        )
+        logger.debug("quarterly ids=%d fields=%s", len(ids), fields)
+        rows = self._query(sql, tuple(ids))
+        return pd.DataFrame(rows, columns=cols)
 
     # ------------------------------------------------------------------ #
     def _attach_estimates(self, frame: pd.DataFrame, ids) -> pd.DataFrame:
