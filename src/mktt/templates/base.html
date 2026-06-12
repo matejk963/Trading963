@@ -110,46 +110,49 @@
         }
     })();
 
-    // Watchlist — stored in localStorage as [{sym, side}]
-    // Migrate old format (plain array of strings) if needed
-    function getWatchlist() {
-        try {
-            var raw = JSON.parse(localStorage.getItem('mktt_watchlist') || '[]');
-            if (raw.length > 0 && typeof raw[0] === 'string') {
-                // Migrate: old format was ['AAPL','MSFT'], convert to [{sym,side}]
-                raw = raw.map(function(s) { return {sym: s, side: 'long'}; });
-                saveWatchlist(raw);
-            }
-            return raw;
-        } catch(e) { return []; }
+    // Watchlist — server-side state in MKLists (adr/0002 §4), read/written via the
+    // Monitor section's /api/watchlist endpoint. `side` (long/short) rides in the
+    // member note. A small in-memory cache of [{sym, side}] backs the context menu
+    // (so it can show "switch side"/"remove"); the nav badge counts MKLists members.
+    var MKLIST = 'default';
+    var _wlCache = [];   // [{sym, side}] from the last /api/watchlist read
+    function _entriesFromVm(vm) {
+        var meta = (vm && vm.meta) || {};
+        return (meta.context && meta.context.entries) || [];
     }
-    function saveWatchlist(wl) {
-        localStorage.setItem('mktt_watchlist', JSON.stringify(wl));
-        updateWlBadge();
+    function mklistsRefresh() {
+        return fetch('/api/watchlist?list=' + encodeURIComponent(MKLIST))
+            .then(function(r){ return r.json(); })
+            .then(function(vm){
+                _wlCache = _entriesFromVm(vm).map(function(e){ return {sym: e.symbol, side: e.side}; });
+                _renderWlBadge();
+                return _wlCache;
+            })
+            .catch(function(){ return _wlCache; });
     }
-    function addToWatchlist(sym, side) {
-        var wl = getWatchlist();
-        var existing = wl.find(function(w) { return w.sym === sym; });
-        if (existing) {
-            existing.side = side;
-        } else {
-            wl.push({sym: sym, side: side});
-        }
-        saveWatchlist(wl);
+    function mklistsAdd(sym, side) {
+        return fetch('/api/watchlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ list: MKLIST, symbol: sym, action: 'add', note: side }),
+        }).then(mklistsRefresh);
     }
-    function removeFromWatchlist(sym) {
-        var wl = getWatchlist().filter(function(w) { return w.sym !== sym; });
-        saveWatchlist(wl);
+    function mklistsRemove(sym) {
+        return fetch('/api/watchlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ list: MKLIST, symbol: sym, action: 'remove' }),
+        }).then(mklistsRefresh);
     }
     function getWlSide(sym) {
-        var entry = getWatchlist().find(function(w) { return w.sym === sym; });
+        var entry = _wlCache.find(function(w) { return w.sym === sym; });
         return entry ? entry.side : null;
     }
-    function updateWlBadge() {
+    function _renderWlBadge() {
         var badge = document.getElementById('wl-badge');
-        var wl = getWatchlist();
-        if (badge) { badge.textContent = wl.length; badge.style.display = wl.length > 0 ? 'inline' : 'none'; }
+        if (badge) { badge.textContent = _wlCache.length; badge.style.display = _wlCache.length > 0 ? 'inline' : 'none'; }
     }
+    function updateWlBadge() { return mklistsRefresh(); }
     updateWlBadge();
 
     // Context menu for adding to watchlist
@@ -185,11 +188,11 @@
         if (side) {
             // Already in watchlist — show switch side + remove
             var otherSide = side === 'long' ? 'short' : 'long';
-            _ctxMenu.appendChild(_makeCtxItem('↔ Switch to ' + otherSide.toUpperCase(), '#f59e0b', function() { addToWatchlist(sym, otherSide); }));
-            _ctxMenu.appendChild(_makeCtxItem('✕ Remove ' + sym, 'var(--red,#ef4444)', function() { removeFromWatchlist(sym); }));
+            _ctxMenu.appendChild(_makeCtxItem('↔ Switch to ' + otherSide.toUpperCase(), '#f59e0b', function() { mklistsAdd(sym, otherSide); }));
+            _ctxMenu.appendChild(_makeCtxItem('✕ Remove ' + sym, 'var(--red,#ef4444)', function() { mklistsRemove(sym); }));
         } else {
-            _ctxMenu.appendChild(_makeCtxItem('▲ Add ' + sym + ' LONG', 'var(--accent,#10b981)', function() { addToWatchlist(sym, 'long'); }));
-            _ctxMenu.appendChild(_makeCtxItem('▼ Add ' + sym + ' SHORT', 'var(--red,#ef4444)', function() { addToWatchlist(sym, 'short'); }));
+            _ctxMenu.appendChild(_makeCtxItem('▲ Add ' + sym + ' LONG', 'var(--accent,#10b981)', function() { mklistsAdd(sym, 'long'); }));
+            _ctxMenu.appendChild(_makeCtxItem('▼ Add ' + sym + ' SHORT', 'var(--red,#ef4444)', function() { mklistsAdd(sym, 'short'); }));
         }
         document.body.appendChild(_ctxMenu);
     });

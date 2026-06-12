@@ -377,15 +377,38 @@ def _handle_multi(req: MonitorRequest, data, computed) -> dict:
 # watchlist endpoints — proxy to the injected ListStore (Monitor reads)
 # --------------------------------------------------------------------------- #
 def watchlist_members(lists, list_name: str = DEFAULT_LIST) -> dict:
-    """Read the members of ``list_name`` -> ViewModel (``readouts.members``)."""
-    members = lists.members(list_name) if lists is not None else []
+    """Read the members of ``list_name`` -> ViewModel.
+
+    ``readouts.members`` is the flat symbol list (badge + count). ``entries``
+    rides in ``context`` as ``[{symbol, side}]`` — ``side`` is read from each
+    member's ``note`` (adr/0002 §4: long/short stored in the note), defaulting to
+    ``"long"`` when absent. The watchlist page + the nav badge consume this."""
+    entries = _watchlist_entries(lists, list_name)
+    members = [e["symbol"] for e in entries]
     status = "ok" if members else "empty"
     return vm(
         status=status,
         title=f"Watchlist — {list_name}",
-        context={"list": list_name},
+        context={"list": list_name, "entries": entries},
         readouts={"members": list(members), "count": len(members)},
     )
+
+
+def _watchlist_entries(lists, list_name: str) -> List[Dict[str, Any]]:
+    """``[{symbol, side}]`` for ``list_name`` (side from the note; default long).
+
+    Prefers ``members_with_notes`` (carries the side); degrades to ``members``
+    (all-long) for a store that only exposes the flat read."""
+    if lists is None:
+        return []
+    with_notes = getattr(lists, "members_with_notes", None)
+    if callable(with_notes):
+        pairs = with_notes(list_name)
+        return [
+            {"symbol": sym, "side": (note or "long").strip().lower() or "long"}
+            for sym, note in pairs
+        ]
+    return [{"symbol": sym, "side": "long"} for sym in lists.members(list_name)]
 
 
 def watchlist_add(lists, list_name: str, symbol: str, note: Optional[str] = None) -> dict:

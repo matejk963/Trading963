@@ -134,6 +134,18 @@ class ListStore:
         )
         return [r[0] for r in rows]
 
+    def members_with_notes(self, list_name: str) -> List[tuple]:
+        """`(symbol, note)` pairs in `list_name`, ordered by symbol.
+
+        The note carries the watchlist `side` (long/short) so the Monitor /
+        watchlist page can split the list without a second lookup."""
+        rows = self._execute(
+            f"SELECT symbol, note FROM {self._table} WHERE list_name = %s ORDER BY symbol",
+            (list_name,),
+            fetch=True,
+        )
+        return [(r[0], r[1]) for r in rows]
+
     def lists(self) -> List[str]:
         """All distinct list names, ordered by name."""
         rows = self._execute(

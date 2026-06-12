@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{#
+  watchlist.html — the MKLists-backed watchlist page (adr/0002 §4).
+
+  The watchlist is server-side state in `MKLists` (not localStorage). This page
+  reads it via GET /api/watchlist?list=default — the Monitor section's watchlist
+  endpoint — and renders LONG / SHORT sections from `meta.context.entries`
+  (`[{symbol, side}]`, side from the member note). Rows link to /chart/<symbol>;
+  the remove button POSTs {action:"remove"} back to the same endpoint and the
+  base.html badge re-counts members.
+#}
+{% block title_suffix %}// Watchlist{% endblock %}
+
+{% block content %}
+<h2 class="page-title">Watchlist</h2>
+
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+  <span id="wl-status" style="font-size:13px;color:var(--text-dim,#888);"></span>
+</div>
+
+<div id="wl-table-wrap" style="overflow-x:auto;">
+  <div style="color:var(--text-faint,#666);font-size:13px;padding:20px;">Loading watchlist...</div>
+</div>
+
+<script>
+function fmtSide(entries, side) {
+  return entries.filter(function (e) { return e.side === side; });
+}
+
+function buildSection(label, color, arrow, entries) {
+  var h = '<div style="margin-bottom:18px;">';
+  h += '<h3 style="color:' + color + ';font-size:14px;margin:0 0 6px;">' + arrow + ' ' + label + ' (' + entries.length + ')</h3>';
+  if (entries.length === 0) {
+    h += '<div style="color:var(--text-faint,#666);font-size:12px;padding:8px;">Nothing here. Right-click a stock in the Screener &rarr; Add ' + label + '.</div>';
+  } else {
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+    h += '<thead><tr style="border-bottom:2px solid #333;"><th style="text-align:left;padding:5px 8px;">Symbol</th><th style="text-align:left;padding:5px 8px;">Side</th><th style="padding:5px 8px;"></th></tr></thead><tbody>';
+    entries.forEach(function (e) {
+      h += '<tr style="border-bottom:1px solid var(--border,#222);">';
+      h += '<td style="padding:5px 8px;font-weight:600;"><a href="/chart/' + encodeURIComponent(e.symbol) + '" style="color:var(--phosphor,var(--cyan));text-decoration:none;">' + e.symbol + '</a></td>';
+      h += '<td style="padding:5px 8px;color:' + color + ';">' + e.side + '</td>';
+      h += '<td style="padding:5px 8px;text-align:right;"><span class="wl-remove" data-sym="' + e.symbol + '" style="cursor:pointer;color:var(--red,#ef4444);font-size:14px;" title="Remove">&#10005;</span></td>';
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function renderWatchlist(vm) {
+  var meta = (vm && vm.meta) || {};
+  var entries = (meta.context && meta.context.entries) || [];
+  var nLong = fmtSide(entries, 'long').length;
+  var nShort = fmtSide(entries, 'short').length;
+  document.getElementById('wl-status').textContent =
+    entries.length + ' stocks (' + nLong + ' long, ' + nShort + ' short)';
+
+  var wrap = document.getElementById('wl-table-wrap');
+  if (entries.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-faint,#666);font-size:13px;padding:20px;">No stocks in watchlist. Right-click a stock in the Screener to add it.</div>';
+    return;
+  }
+  var h = '';
+  h += buildSection('LONG', 'var(--accent,#10b981)', '▲', fmtSide(entries, 'long'));
+  h += buildSection('SHORT', 'var(--red,#ef4444)', '▼', fmtSide(entries, 'short'));
+  wrap.innerHTML = h;
+
+  // wire remove buttons -> POST {action:remove}, then reload + re-badge.
+  Array.prototype.forEach.call(wrap.querySelectorAll('.wl-remove'), function (btn) {
+    btn.addEventListener('click', function () {
+      var sym = btn.getAttribute('data-sym');
+      fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ list: 'default', symbol: sym, action: 'remove' }),
+      }).then(function () {
+        if (typeof updateWlBadge === 'function') { updateWlBadge(); }
+        loadWatchlistPage();
+      });
+    });
+  });
+}
+
+function loadWatchlistPage() {
+  fetch('/api/watchlist?list=default')
+    .then(function (r) { return r.json(); })
+    .then(renderWatchlist)
+    .catch(function (e) {
+      document.getElementById('wl-table-wrap').innerHTML =
+        '<span style="color:#f33;">' + e.message + '</span>';
+    });
+}
+
+document.addEventListener('DOMContentLoaded', loadWatchlistPage);
+</script>
+{% endblock %}

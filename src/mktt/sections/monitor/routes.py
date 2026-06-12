@@ -90,8 +90,8 @@ def monitor_multi_api():
 # ------------------------------------------------------------------ #
 @monitor_bp.route("/watchlist")
 def watchlist_page():
-    """Render the watchlist shell."""
-    return render_template("monitor.html", symbol=None, active_section="watchlist")
+    """Render the watchlist shell (MKLists-backed — adr/0002 §4)."""
+    return render_template("watchlist.html", active_section="watchlist")
 
 
 @monitor_bp.route("/api/watchlist", methods=["GET", "POST"])

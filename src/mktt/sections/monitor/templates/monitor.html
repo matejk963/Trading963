@@ -1,50 +1,49 @@
 {% extends "base.html" %}
 {#
-  monitor.html — the Monitor section shell (spec §4.1, §5.1; adr/0002 chrome).
+  monitor.html — the per-symbol Monitor page (adr/0002: charts client-rendered).
 
   Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
-  The page holds NO render logic: placeholder divs keyed by the ids the section
-  emits + a fetch->renderViewModel call. The generic renderer
-  (static/js/viewmodel.js) consumes the ViewModel envelope the API returns.
+  The page holds NO render logic for the charts: placeholder divs keyed by the ids
+  the section emits + a fetch->renderViewModel call. The generic renderer
+  (static/js/viewmodel.js) consumes the ViewModel envelope /api/chart returns and
+  draws the Plotly figures.
 
   Section figure/table ids (must match service.py):
     figures[].id == "monitor_price"        -> #monitor_price   (price + MA overlay)
     figures[].id == "monitor_history"      -> #monitor_history (stage / RS evolution)
     tables[].id  == "monitor_fundamentals" -> #monitor_fundamentals
-    tables[].id  == "monitor_list"         -> #monitor_list    (multi-symbol)
-  meta sinks: title, status banner, readout badges (stage / rs_rank / sector).
+  meta sinks: #vm-title, #vm-status banner, #vm-readouts badges (stage / rs_rank / sector).
 #}
-{% block title_suffix %}// Monitor{% if symbol %} {{ symbol }}{% endif %}{% endblock %}
+{% block title_suffix %}// {{ symbol }}{% endblock %}
 {% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
 {% endblock %}
 
 {% block content %}
-  <h2 id="vm-title">Monitor</h2>
-  <div id="vm-status" class="vm-banner" style="display:none"></div>
-  <div id="vm-readouts" class="vm-readouts"></div>
+  <h2 id="vm-title" class="page-title">Monitor — {{ symbol }}</h2>
 
-  {# Symbol lookup builds the per-symbol API URL and reloads. #}
-  <form id="monitor-lookup" onsubmit="return false;">
-    <label>Symbol
-      <input id="monitor-symbol" name="symbol" value="{{ symbol or '' }}">
-    </label>
-    <button id="monitor-go" type="button">Load</button>
-  </form>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+    <a href="javascript:history.back()" style="color:var(--phosphor,var(--cyan));text-decoration:none;font-size:14px;">&larr; Back</a>
+    <form id="monitor-lookup" onsubmit="return false;" style="display:flex;gap:6px;align-items:center;">
+      <input id="monitor-symbol" name="symbol" value="{{ symbol or '' }}"
+             style="background:var(--bg-light,#111);border:1px solid var(--border,#333);color:var(--text,#ccc);padding:4px 8px;font-family:monospace;text-transform:uppercase;width:90px;">
+      <button id="monitor-go" type="button" style="padding:4px 12px;cursor:pointer;">Load</button>
+    </form>
+    <span style="margin-left:auto;display:flex;gap:6px;">
+      <button id="wl-add-long" type="button" title="Add to watchlist (long)"
+              style="padding:4px 12px;cursor:pointer;color:var(--accent,#10b981);background:none;border:1px solid var(--border,#333);border-radius:4px;">&#9650; LONG</button>
+      <button id="wl-add-short" type="button" title="Add to watchlist (short)"
+              style="padding:4px 12px;cursor:pointer;color:var(--red,#ef4444);background:none;border:1px solid var(--border,#333);border-radius:4px;">&#9660; SHORT</button>
+    </span>
+  </div>
+
+  <div id="vm-status" class="vm-banner" style="display:none"></div>
+  <div id="vm-readouts" class="vm-readouts" style="margin-bottom:12px;"></div>
 
   {# One host div per figure / table id the section emits. #}
-  <div id="monitor_price" class="vm-figure-host"></div>
-  <div id="monitor_history" class="vm-figure-host"></div>
-  <div id="monitor_fundamentals" class="vm-table-host"></div>
-  <div id="monitor_list" class="vm-table-host"></div>
-
-  {# Watchlist controls — read members + add/remove via the shared list store. #}
-  <section id="watchlist-panel">
-    <h3>Watchlist</h3>
-    <div id="watchlist-members"></div>
-    <input id="watchlist-add-symbol" placeholder="symbol">
-    <button id="watchlist-add" type="button">Add</button>
-  </section>
+  <div id="monitor_price" class="vm-figure-host" style="width:100%;height:480px;"></div>
+  <div id="monitor_history" class="vm-figure-host" style="width:100%;height:320px;margin-top:16px;"></div>
+  <div id="monitor_fundamentals" class="vm-table-host" style="margin-top:16px;"></div>
 {% endblock %}
 
 {% block scripts %}
@@ -58,24 +57,20 @@
         var sym = currentSymbol();
         if (sym) { ViewModel.fetchAndRender('/api/chart/' + encodeURIComponent(sym)); }
       }
-      function loadWatchlist() {
-        ViewModel.fetchAndRender('/api/watchlist?list=default', null,
-          { readoutsTarget: 'watchlist-members' });
-      }
-      function addToWatchlist() {
-        var sym = (document.getElementById('watchlist-add-symbol').value || '').trim().toUpperCase();
+      function addToWatchlist(side) {
+        var sym = currentSymbol();
         if (!sym) return;
-        fetch('/api/watchlist', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ list: 'default', symbol: sym, action: 'add' }),
-        }).then(loadWatchlist);
+        // mklistsAdd (base.html) POSTs to /api/watchlist (MKLists), refreshes the badge.
+        if (typeof mklistsAdd === 'function') { mklistsAdd(sym, side); }
       }
       document.getElementById('monitor-go').addEventListener('click', load);
-      document.getElementById('watchlist-add').addEventListener('click', addToWatchlist);
+      document.getElementById('monitor-symbol').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); load(); }
+      });
+      document.getElementById('wl-add-long').addEventListener('click', function () { addToWatchlist('long'); });
+      document.getElementById('wl-add-short').addEventListener('click', function () { addToWatchlist('short'); });
       document.addEventListener('DOMContentLoaded', function () {
         if (currentSymbol()) { load(); }
-        loadWatchlist();
       });
     })();
   </script>
