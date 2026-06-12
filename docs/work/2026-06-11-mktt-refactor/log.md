@@ -194,3 +194,19 @@ all pages have the dark terminal nav. Connection pool added; watchlist on MKList
 Honest gaps (follow-up, logged): (a) screener missing the sector→industry hierarchy + map view + EPS-estimate
 columns (data not in new stores); (b) options/rrg/macro pages are chart shells (chrome+charts), not the original
 rich layouts; (c) screener full-universe page render ~6-7s (live time_series fetch per request — window/cache later).
+
+## 2026-06-12 · orchestrator · DEBRIEF (fix wave — 34 findings cleared)
+Fix wave done: F1 computed+pool (0999f4f), F2 screener (48296da), F3 options (a41843e), F4 rrg+macro (cc775cb).
+313 tests green (was 275, +38). Headline results (browser/curl verified):
+- BUGS: rs_rank now universe-wide & incremental-safe (verified AAPL=54.12 over 4835, not 0/50/100); Options
+  drilldown returns real per-strike contracts; FwdPE live (join estimates_forward); growth/EPS-accel presets
+  live (join quarterly+estimates); dist_high sort fixed; pool maxconn env + graceful 503 (no more 500).
+- EFFICIENCY: Writer upsert incremental via itertuples (no 6.5M-row rewrite); cross_section cached; screener
+  render 6.7s → 2.4s (vectorized technicals off the wide parquet).
+- GAPS RESTORED: screener column picker + sector/industry hierarchy + stage/regime banner + as-of + ticker
+  search + EPS/Rev estimate columns; options chip-picker + GEX table coloring/format + disclosure footer +
+  click-to-drill; RRG as-of slider (now consumes the previously-wasted full_data) + asset toggles + futures
+  dropdown; macro regime badge + L1/L2a/L2b score cards + two-level nav + transmission flow.
+Honest deferrals (data-availability, not bugs): (a) NTM growth uses FY1 annual as proxy — exact quarterly NTM
+needs a forward_quarterly table not in MKFund; (b) asset overlays only SPY has price coverage (pre-existing).
+No re-materialize needed (current store data already full-universe-correct; FwdPE/growth computed live in screener).
