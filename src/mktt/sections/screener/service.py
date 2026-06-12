@@ -92,6 +92,10 @@ CLASS_MULTI_COLUMNS = {
 #: Sort key -> (joined-row column, ascending). Port of app.py:453-458 / 513-525.
 SORT_COLUMNS = {
     "turnover": ("ADV_Dollar", False),
+    # "mcap" is an original-parity alias: app.py mapped it to ADV_Dollar too (there
+    # is no market-cap column), so it sorts identically to turnover — kept for the
+    # dropdown's exact option parity.
+    "mcap": ("ADV_Dollar", False),
     "change": ("Change%", False),
     "rs": ("RS_Rank", False),
     "mansfield": ("Mansfield_RS", False),
@@ -405,6 +409,16 @@ def _pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
     # fundamental price_close here (parity), BEFORE live price overrides Price.
     rows = _join(cross, funds, growth)
 
+    # RS momentum (RS_Chg1W/1M/3M) — original screener parity (app.py@9631169).
+    # Computed cross-sectionally from classification_history (rs_rank diffed at
+    # 5/21/63 trading-day lags); the store's rs_rank shares the 6mo-return percentile
+    # basis, so the delta == the original. Best-effort: never let it blank the page.
+    if hasattr(computed, "rs_rank_changes"):
+        try:
+            _apply_rs_changes(rows, computed.rs_rank_changes())
+        except Exception:  # noqa: BLE001
+            logger.exception("screener rs_changes: fetch failed")
+
     # Live technicals (adr/0002 §5): turnover/price/day-change/%-from-52w-high+low.
     # Preferred path is the VECTORIZED ``data.panel_technicals`` (computed column-wise
     # off the wide parquet panels — no per-symbol Python loop, sub-second for the full
@@ -715,6 +729,34 @@ def _apply_live_technicals(rows: List[Dict[str, Any]], data, universe) -> None:
         r.update(t)
         enriched += 1
     logger.debug("screener live technicals: enriched %d/%d rows", enriched, len(rows))
+
+
+#: store rs_chg column -> screener row column (RS momentum range filters + medians).
+_RS_CHG_COLUMNS = {"rs_chg1w": "RS_Chg1W", "rs_chg1m": "RS_Chg1M", "rs_chg3m": "RS_Chg3M"}
+
+
+def _apply_rs_changes(rows: List[Dict[str, Any]], rs_chg) -> None:
+    """Splice RS-momentum (rs_chg1w/1m/3m) onto rows as ``RS_Chg1W/1M/3M`` (parity).
+
+    ``rs_chg`` is the symbol-indexed frame from ``ComputedStore.rs_rank_changes``.
+    Best-effort: symbols absent from the frame (short history) keep ``RS_Chg = None``,
+    so the range filters simply don't match them (``_in_range`` drops None) — the
+    same exclusion the original applied. Never raises.
+    """
+    if rs_chg is None or getattr(rs_chg, "empty", True):
+        return
+    recs = rs_chg.to_dict("index")
+    enriched = 0
+    for r in rows:
+        rec = recs.get(r["Symbol"])
+        if not rec:
+            continue
+        for src, dst in _RS_CHG_COLUMNS.items():
+            v = rec.get(src)
+            if v is not None and v == v:  # not None / not NaN
+                r[dst] = round(float(v), 1)
+        enriched += 1
+    logger.debug("screener rs_changes: enriched %d/%d rows", enriched, len(rows))
 
 
 def _derive_panel_technicals(panel) -> Dict[str, Dict[str, Any]]:

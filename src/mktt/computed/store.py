@@ -269,6 +269,71 @@ class ComputedStore:
         return df
 
     # ------------------------------------------------------------------ #
+    # rs_rank_changes (Screener RS momentum) — original parity
+    # ------------------------------------------------------------------ #
+    def rs_rank_changes(self, asof=None) -> pd.DataFrame:
+        """Per-symbol RS-rank momentum (``rs_chg1w/rs_chg1m/rs_chg3m``) from history.
+
+        Reproduces the original screener's RS-momentum columns (app.py @9631169):
+        the stored ``rs_rank`` is the 6-month-return cross-sectional percentile
+        (Writer ``by="returns_6m"``), and ::
+
+            RS_Chg{1W,1M,3M} = rs_rank[asof] − rs_rank[asof − {5,21,63} trading days]
+
+        Lags are counted in **distinct ``date`` rows** of ``classification_history``
+        (one per trading day), so they are market-calendar-correct without a holiday
+        table. The anchor + three lagged dates are diffed **in SQL** so only one row
+        per symbol crosses the wire.
+
+        Returns a **symbol-indexed** frame with float columns
+        ``rs_chg1w/rs_chg1m/rs_chg3m``; a window is ``NaN`` where history is too short
+        to reach that lag (or the symbol lacks an ``rs_rank`` at either endpoint).
+
+        ``asof`` (optional) anchors the "current" date to the latest trading day
+        ``<= asof``; the default (``None``) uses the latest available date — matching
+        :meth:`cross_section`, so the change base aligns with the displayed ``rs_rank``.
+        """
+        # row_number() is 1-based DESC, so the anchor is rn=1 and a lag of N is rn=N+1.
+        windows = (("rs_chg1w", 5), ("rs_chg1m", 21), ("rs_chg3m", 63))
+        rns = {col: lag + 1 for col, lag in windows}
+        in_list = ",".join(str(r) for r in sorted(set(rns.values())))  # 6,22,64
+        deltas = ",\n            ".join(
+            f"max(rs_rank) FILTER (WHERE rn=1) - "
+            f"max(rs_rank) FILTER (WHERE rn={rns[col]}) AS {col}"
+            for col, _ in windows
+        )
+        asof_where, params = "", []
+        if asof is not None:
+            asof_where = "WHERE date <= %s"
+            params.append(pd.Timestamp(asof).date())
+        sql = f"""
+        WITH d AS (
+            SELECT date, row_number() OVER (ORDER BY date DESC) AS rn
+            FROM (SELECT DISTINCT date FROM {self._history} {asof_where}) x
+        ),
+        picks AS (SELECT date, rn FROM d WHERE rn IN (1,{in_list})),
+        h AS (
+            SELECT ch.symbol, p.rn, ch.rs_rank
+            FROM {self._history} ch JOIN picks p ON ch.date = p.date
+        )
+        SELECT symbol,
+            {deltas}
+        FROM h GROUP BY symbol
+        """
+        rows, cols = self._query(sql, params)
+        df = pd.DataFrame(rows, columns=cols)
+        out_cols = [c for c, _ in windows]
+        if df.empty:
+            return pd.DataFrame(columns=out_cols,
+                                index=pd.Index([], name="symbol", dtype=object))
+        df = df.set_index("symbol")
+        for c in out_cols:
+            # psycopg2 returns NUMERIC as Decimal; coerce to float (NaN where null).
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        logger.debug("rs_rank_changes: %d symbols (asof=%s)", len(df), asof)
+        return df
+
+    # ------------------------------------------------------------------ #
     # ensure_fresh (spec §5.3) — diff last-bar-date, recompute the stale
     # ------------------------------------------------------------------ #
     def last_bar_dates(self, ids=None) -> Dict[str, pd.Timestamp]:

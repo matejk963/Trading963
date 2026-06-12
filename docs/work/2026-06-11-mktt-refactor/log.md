@@ -221,3 +221,25 @@ No re-materialize needed (current store data already full-universe-correct; FwdP
 **OPEN ITEMS** (see plan-dev.md "Open items"): (1) missing screener growth-filter controls + sort options; (2) **value-parity vs original NOT systematically verified** — the filter-scramble bug (user-found, review-missed) is evidence more correctness bugs may exist; (3) not all sections browser-clicked / all 34 fixes re-verified; (4) the deferrals (GPU 2b, legacy_bp port, old-module cleanup, NTM proxy, asset-overlay coverage, thinner options/rrg/macro layouts).
 
 **RECOMMENDED NEXT:** a value-parity verification pass (run old↔new on same inputs, diff per section) + add the missing growth-filter controls + a full UI walkthrough.
+
+## 2026-06-12 · orchestrator · REPORT — screener filter+sort parity + RS-momentum backend
+**Task:** close Open-item (1) — make the screener's filter/sort controls fully match the original.
+
+**Found (objective gap analysis, not assumed):**
+- The *served* screener template is the 534-line blueprint template (`sections/screener/templates/screener.html`), which **shadows** the 1461-line app-level original — empirically confirmed via `jinja_env.get_source` (blueprint wins). The min/max range filters were all present (an earlier greedy-grep false alarm); the true gap was 9 fields + 1 sort option.
+- Missing vs original: `eps_growth` / `rev_growth` / `eps_accel_filter` dropdowns; `rschg1w/1m/3m` min/max range filters (+ their active-filter tags); `mcap` sort option.
+- **Backend reality check:** the 3 growth dropdowns were already fully wired (`*_PRESETS` parse/apply/round-trip; `_join` computes `G_NTM_TTM/G_FY2_FY1/…` inline — so the old finding "growth presets dead" was resolved during the build; verified `eps_growth=ntm_pos` → 2002 rows). But `RS_Chg1W/1M/3M` were **referenced yet never computed** — `cross_section` only has `rs_rank`, no rank-change windows — so every `rschg*` filter returned **0 rows** (dead controls). `mcap` sort had no backend key.
+
+**Did:**
+1. **Template (`sections/screener/templates/screener.html`):** added the 3 growth/accel dropdowns (Fundamental row), the 3 RS-Chg range filters (Technical row) + RS1W/RS1M/RS3M active-filter tags, and the `Market Cap` sort option — all ported verbatim from the original (option values validated against the backend preset keys).
+2. **RS-momentum backend (the real fix):** new `ComputedStore.rs_rank_changes(asof=None)` — computes `rs_chg1w/1m/3m` cross-sectionally from `classification_history`, diffing `rs_rank` at 5/21/63 **trading-day** lags (one SQL round-trip; anchor + 3 lagged dates diffed in-DB). Confirmed parity basis: the Writer persists `rs_rank` via `rank(by="returns_6m")` = `close.pct_change(126).rank(pct=True)*100`, **identical** to the original screener's 6-mo-return percentile (app.py @9631169), so `rs_rank[t] − rs_rank[t−N]` reproduces the original `RS_Chg` exactly.
+3. **Pipeline:** `_pipeline` calls `rs_rank_changes()` and `_apply_rs_changes` splices `RS_Chg1W/1M/3M` onto rows (best-effort; absent symbols keep None → `_in_range` drops them when filtered, matching the original). This also fixes the previously-NaN sector-median RS-chg.
+4. **`mcap` sort:** added `"mcap": ("ADV_Dollar", False)` to `SORT_COLUMNS` — original-parity alias (the original's `mcap` *also* mapped to ADV_Dollar; there is no market-cap column, so it sorts identically to turnover; kept for exact dropdown parity).
+
+**Verified (live server, port 46293, full universe):**
+- Field parity gap = ∅; sort-option parity = exact (both directions).
+- `rschg1m_min` sweep now monotonic: −50→3694, 0→2029, 5→1127, 10→687, 20→287 (was 0 for all). Store method: 1324 symbols with `rs_chg1m≥5`, range −91.7…+98.0 — matches a direct SQL check.
+- Round-trip + active tags confirmed (`eps_growth ntm_pos` selected; `RS1M: 5.0/`, `RS3M: 10.0/` tags; combined growth+RS filter → 320 rows; `mcap` sort selected, 200 OK).
+- **Tests: 316 passed** (313 + 3 new `rs_rank_changes` integration tests: exact 5/21/63 deltas, short-history NaN, asof-anchor). No regressions.
+
+**Still open:** value-parity verification pass (old↔new diff per section) and full UI walkthrough remain — Open-items (2),(3).

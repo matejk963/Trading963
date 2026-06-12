@@ -235,3 +235,57 @@ def test_ensure_fresh_diffs_stored_max_against_source_last_bar(schema):
     store.set_last_bar_provider(lambda ids: {"AAA": pd.Timestamp(dates[-1].date())})
     store.ensure_fresh(["AAA"])
     assert seen == []
+
+
+# --------------------------------------------------------------------------- #
+# rs_rank_changes — RS momentum (RS_Chg1W/1M/3M) from history, original parity
+# --------------------------------------------------------------------------- #
+def _rs_panel(n, symbols=("AAA", "BBB")):
+    """Panel where ``rs_rank`` == the date ordinal (0..n-1), identical across symbols,
+    so ``rs_rank_changes`` deltas equal the trading-day lags exactly (anchor − lag)."""
+    dates = pd.date_range("2024-01-01", periods=n, freq="B")
+    idx = pd.MultiIndex.from_product([symbols, dates], names=["symbol", "date"])
+    df = pd.DataFrame(index=idx)
+    for c in VALUE_COLUMNS:
+        df[c] = 1.0
+    ordinal = {d: float(j) for j, d in enumerate(dates)}
+    df["rs_rank"] = [ordinal[d] for (_, d) in df.index]
+    return df, dates
+
+
+def test_rs_rank_changes_deltas(schema):
+    """rs_rank == date ordinal → deltas are exactly the 5/21/63 trading-day lags."""
+    store = _store(schema)
+    panel, _ = _rs_panel(n=64)
+    store.upsert(panel)
+    chg = store.rs_rank_changes()
+    assert list(chg.columns) == ["rs_chg1w", "rs_chg1m", "rs_chg3m"]
+    assert list(chg.index) == ["AAA", "BBB"]
+    for sym in ("AAA", "BBB"):
+        assert chg.loc[sym, "rs_chg1w"] == 5    # rank[63] − rank[58]
+        assert chg.loc[sym, "rs_chg1m"] == 21   # rank[63] − rank[42]
+        assert chg.loc[sym, "rs_chg3m"] == 63   # rank[63] − rank[0]
+
+
+def test_rs_rank_changes_short_history_is_nan(schema):
+    """Lags beyond the available history yield NaN (the original left them None)."""
+    store = _store(schema)
+    panel, _ = _rs_panel(n=10)   # only 10 trading days of history
+    store.upsert(panel)
+    chg = store.rs_rank_changes()
+    assert chg.loc["AAA", "rs_chg1w"] == 5      # 1W lag (5) reachable: rank[9] − rank[4]
+    assert pd.isna(chg.loc["AAA", "rs_chg1m"])  # 1M lag (21) unreachable
+    assert pd.isna(chg.loc["AAA", "rs_chg3m"])  # 3M lag (63) unreachable
+
+
+def test_rs_rank_changes_asof_anchors_to_past_date(schema):
+    """``asof`` anchors the 'current' date to the latest trading day ≤ asof."""
+    store = _store(schema)
+    panel, dates = _rs_panel(n=65)
+    store.upsert(panel)
+    # anchor one trading day earlier (ordinal 63) → all three lags still reachable,
+    # deltas unchanged because rs_rank == ordinal (constant slope).
+    chg = store.rs_rank_changes(asof=dates[-2])
+    assert chg.loc["AAA", "rs_chg1w"] == 5      # rank[63] − rank[58]
+    assert chg.loc["AAA", "rs_chg1m"] == 21     # rank[63] − rank[42]
+    assert chg.loc["AAA", "rs_chg3m"] == 63     # rank[63] − rank[0]
