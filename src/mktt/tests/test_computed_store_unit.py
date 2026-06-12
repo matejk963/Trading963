@@ -63,6 +63,54 @@ def test_nan_becomes_none():
     assert all(d[c] is None for c in VALUE_COLUMNS)
 
 
+def test_panel_rows_skips_already_stored_dates():
+    """Incremental shaping (finding F1-2): rows at/under a stored MAX(date) are
+    skipped; only strictly-newer dates are emitted."""
+    store = _store()
+    panel, dates = _enriched_panel()  # AAA/BBB × 2024-01-01..03
+    # pretend AAA is stored through 01-02, BBB has no history.
+    newer = {"AAA": pd.Timestamp("2024-01-02"), "BBB": None}
+    rows = store._panel_rows(panel, newer_than=newer)
+    by_sym = {}
+    for r in rows:
+        by_sym.setdefault(r["symbol"], []).append(r["date"])
+    # AAA: only 01-03 survives; BBB: all three (no cutoff).
+    assert by_sym["AAA"] == [dates[-1].date()]
+    assert len(by_sym["BBB"]) == 3
+
+
+def test_panel_rows_full_when_no_cutoff():
+    store = _store()
+    panel, _ = _enriched_panel()
+    assert len(store._panel_rows(panel)) == 6  # itertuples path, all rows
+
+
+def test_cross_section_cache_get_respects_ttl():
+    """Cache helper honours TTL and returns None when expired (finding F1-3)."""
+    import time
+    store = _store()
+    store._xs_cache_ttl = 1000
+    key = store._xs_cache_key({"stage": 4})
+    df = pd.DataFrame({"stage": [4]})
+    store._xs_cache_put(key, df)
+    assert store._xs_cache_get(key) is not None
+    # expire by forcing the stored timestamp into the past.
+    ts, cached = store._xs_cache[key]
+    store._xs_cache[key] = (ts - 10_000, cached)
+    assert store._xs_cache_get(key) is None
+    # invalidate clears all entries.
+    store._xs_cache_put(key, df)
+    store.invalidate_cross_section_cache()
+    assert store._xs_cache_get(key) is None
+
+
+def test_ensure_fresh_noop_without_refresher():
+    store = _store()
+    # no refresher wired → ensure_fresh is a no-op even with a stale provider.
+    store.set_last_bar_provider(lambda ids: {"AAA": pd.Timestamp("2099-01-01")})
+    store.ensure_fresh(["AAA"])  # must not raise / not call anything
+
+
 def test_ddl_has_both_tables_and_pks():
     sql = ddl("mktt_test")
     assert "classification_current" in sql

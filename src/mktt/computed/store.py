@@ -114,16 +114,33 @@ class ComputedStore:
         conn_factory: Optional[ConnFactory] = None,
         schema: str = DEFAULT_SCHEMA,
         refresher: Optional[Callable[[Sequence[str]], None]] = None,
+        last_bar_provider: Optional[Callable[[Sequence[str]], Dict]] = None,
     ) -> None:
         self._conn_factory = conn_factory or build_conn_factory()
         self.schema = schema
         self._refresher = refresher
+        # Optional freshness seam (finding F1-5): a callable ``f(ids)->{sym: last_bar}``
+        # (the DataSource's ``last_bar_date``). When wired, ``ensure_fresh`` flags a
+        # symbol stale not only when it has NO history but when its stored MAX(date)
+        # lags the source last bar — so a *stale* (not just empty) symbol refreshes.
+        self._last_bar_provider = last_bar_provider
         self._current = f'"{schema}".classification_current'
         self._history = f'"{schema}".classification_history'
+        # cross_section in-process cache (finding F1-3) — the cross-section is
+        # one-row-per-symbol and changes ONLY on a Writer upsert, yet the Screener
+        # re-runs the full-table DISTINCT ON every request. Cache the built frame,
+        # keyed by the filter map, with a short TTL; ``upsert`` invalidates it so a
+        # fresh write is never served stale.
+        self._xs_cache: Dict = {}
+        self._xs_cache_ttl = float(os.environ.get("MKTT_CROSS_SECTION_TTL", "30"))
 
     def set_refresher(self, refresher: Callable[[Sequence[str]], None]) -> None:
         """Wire the Writer's ``run`` as the auto-ensure-fresh hook (spec §5.3)."""
         self._refresher = refresher
+
+    def set_last_bar_provider(self, provider: Callable[[Sequence[str]], Dict]) -> None:
+        """Wire the DataSource's ``last_bar_date`` as the staleness signal (finding F1-5)."""
+        self._last_bar_provider = provider
 
     # ------------------------------------------------------------------ #
     # connection helper
@@ -158,6 +175,12 @@ class ComputedStore:
         if auto_fresh:
             self._maybe_refresh(None)
 
+        key = self._xs_cache_key(filters)
+        cached = self._xs_cache_get(key)
+        if cached is not None:
+            logger.debug("cross_section: cache hit (filters=%s)", filters)
+            return cached.copy()
+
         where, params = self._build_filter(filters)
         cols = ", ".join(CURRENT_COLS)
         sql = (
@@ -173,7 +196,34 @@ class ComputedStore:
             df = df.reindex(columns=[c for c in colnames if c != "symbol"])
             df.index.name = "symbol"
         logger.debug("cross_section: %d symbols (filters=%s)", len(df), filters)
+        self._xs_cache_put(key, df)
+        return df.copy()
+
+    # ---- cross_section cache (finding F1-3) --------------------------- #
+    @staticmethod
+    def _xs_cache_key(filters):
+        if not filters:
+            return ()
+        return tuple(sorted((str(k), repr(v)) for k, v in filters.items()))
+
+    def _xs_cache_get(self, key):
+        import time
+        entry = self._xs_cache.get(key)
+        if entry is None:
+            return None
+        ts, df = entry
+        if (time.monotonic() - ts) > self._xs_cache_ttl:
+            self._xs_cache.pop(key, None)
+            return None
         return df
+
+    def _xs_cache_put(self, key, df) -> None:
+        import time
+        self._xs_cache[key] = (time.monotonic(), df.copy())
+
+    def invalidate_cross_section_cache(self) -> None:
+        """Drop the cross_section cache (a Writer upsert mutates the cross-section)."""
+        self._xs_cache.clear()
 
     def _build_filter(self, filters):
         if not filters:
@@ -238,23 +288,50 @@ class ComputedStore:
         return {s: pd.Timestamp(d) for (s, d) in rows if d is not None}
 
     def ensure_fresh(self, ids) -> None:
-        """Recompute any of ``ids`` that have no materialized history yet.
+        """Recompute any of ``ids`` that are missing OR stale (spec §7, finding F1-5).
 
-        Self-describes freshness via ``MAX(date)`` (spec §7): an id with no history
-        row is stale and handed to the refresher (the Writer). A richer
-        last-bar-date diff against the raw panel is the Writer's job; here a missing
-        symbol is the cold-miss this layer must trigger (spec §5.3).
+        Freshness is self-described via ``MAX(date)``:
+
+        - An id with **no** materialized history is stale (the cold-miss this layer
+          must trigger — spec §5.3).
+        - When a ``last_bar_provider`` is wired (the DataSource's ``last_bar_date``),
+          an id whose stored ``MAX(date)`` **lags** the source last bar is *also*
+          stale — so a symbol that has prior data but a newer price bar is refreshed,
+          not treated as fresh forever (the original bug: ``ensure_fresh`` only caught
+          zero-history symbols).
+
+        Without a ``last_bar_provider`` the staleness diff is out of scope here and
+        relies on external scheduling (the Writer's run); only missing ids refresh.
         """
         if self._refresher is None:
             return
         ids = list(ids)
         if not ids:
             return
-        have = set(self.last_bar_dates(ids))
-        stale = [i for i in ids if i not in have]
+        stored = self.last_bar_dates(ids)            # {sym: stored MAX(date)}
+        source = self._source_last_bars(ids)         # {sym: source last bar} or {}
+        stale = []
+        for i in ids:
+            have = stored.get(i)
+            if have is None:
+                stale.append(i)                      # no history → cold miss
+                continue
+            src = source.get(i)
+            if src is not None and pd.Timestamp(src) > pd.Timestamp(have):
+                stale.append(i)                      # stored lags source → stale
         if stale:
             logger.debug("ensure_fresh: %d stale → refresher", len(stale))
             self._refresher(stale)
+
+    def _source_last_bars(self, ids) -> Dict:
+        if self._last_bar_provider is None:
+            return {}
+        try:
+            mapping = self._last_bar_provider(ids)
+            return mapping or {}
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("ensure_fresh: last_bar_provider failed", exc_info=True)
+            return {}
 
     def _maybe_refresh(self, ids) -> None:
         if self._refresher is None:
@@ -265,18 +342,32 @@ class ComputedStore:
     # ------------------------------------------------------------------ #
     # upsert (spec §7) — history append + current upsert in ONE txn
     # ------------------------------------------------------------------ #
-    def upsert(self, panel: pd.DataFrame) -> Dict[str, int]:
+    def upsert(self, panel: pd.DataFrame, incremental: bool = True) -> Dict[str, int]:
         """Materialize a kernel+classifier ``symbol × date`` panel.
 
-        Writes every row to ``classification_history`` (append/upsert by PK) and
-        the **latest** row per symbol to ``classification_current`` (upsert by
-        symbol) — both in ONE transaction (spec §7). Returns row counts written.
+        Writes to ``classification_history`` and upserts the **latest** row per
+        symbol to ``classification_current`` — both in ONE transaction (spec §7).
+        Returns row counts written.
+
+        ``classification_history`` is **append-only by date** (PK ``symbol,date``).
+        When ``incremental`` (default), only rows **strictly newer** than each
+        symbol's stored ``MAX(date)`` are written, so a re-run does not rewrite all
+        ~6.5M rows via ``ON CONFLICT`` (review finding F1-2). ``classification_current``
+        is *always* upserted (latest row per symbol) so the Screener cross-section
+        stays current even when no new history bar exists. Pass ``incremental=False``
+        to force a full history upsert (e.g. a backfill / repair).
 
         The panel index is ``symbol × date``; only :data:`VALUE_COLUMNS` present in
         the panel are written (absent ones stored NULL).
         """
-        history_rows = self._panel_rows(panel)
         current_rows = self._latest_rows(panel)
+
+        if incremental:
+            symbols = self._panel_symbols(panel)
+            since = self.last_bar_dates(symbols) if symbols else {}
+            history_rows = self._panel_rows(panel, newer_than=since)
+        else:
+            history_rows = self._panel_rows(panel)
 
         conn = self._conn_factory()
         counts: Dict[str, int] = {}
@@ -291,25 +382,67 @@ class ComputedStore:
             raise
         finally:
             conn.close()
-        logger.debug("upsert: %s", counts)
+        # the cross-section changed — drop the read cache so it is not served stale.
+        self.invalidate_cross_section_cache()
+        logger.debug("upsert: %s (incremental=%s)", counts, incremental)
         return counts
 
     # ---- row shaping -------------------------------------------------- #
-    def _panel_rows(self, panel: pd.DataFrame) -> List[Dict]:
+    @staticmethod
+    def _panel_symbols(panel: pd.DataFrame) -> List[str]:
         if panel is None or len(panel) == 0:
             return []
-        rows = []
-        for (sym, date), row in panel.iterrows():
-            rows.append(self._row_dict(sym, date, row))
+        return list(dict.fromkeys(panel.index.get_level_values("symbol")))
+
+    def _panel_rows(self, panel: pd.DataFrame, newer_than: Optional[Dict] = None) -> List[Dict]:
+        """Shape panel rows for history via ``itertuples`` (fast — finding F1-2).
+
+        When ``newer_than`` is given (``{symbol: stored_max_date}``), only rows with
+        ``date > stored_max_date`` are emitted — history is append-only by date, so
+        re-running over already-stored bars is skipped instead of re-upserted.
+        """
+        if panel is None or len(panel) == 0:
+            return []
+        cols = [c for c in VALUE_COLUMNS if c in panel.columns]
+        col_pos = {c: i for i, c in enumerate(cols)}
+        cutoffs = {}
+        if newer_than:
+            for s, d in newer_than.items():
+                if d is not None:
+                    cutoffs[s] = pd.Timestamp(d).date()
+        sub = panel[cols] if cols else panel.iloc[:, :0]
+        rows: List[Dict] = []
+        # itertuples(index=True) → (Index(symbol,date), v0, v1, …); name=None keeps it light.
+        for tup in sub.itertuples(index=True, name=None):
+            sym, date = tup[0]
+            d = pd.Timestamp(date).date()
+            cutoff = cutoffs.get(sym)
+            if cutoff is not None and d <= cutoff:
+                continue
+            rec = {"symbol": sym, "date": d}
+            vals = tup[1:]
+            for c in VALUE_COLUMNS:
+                v = vals[col_pos[c]] if c in col_pos else None
+                rec[c] = self._coerce(c, v)
+            rows.append(rec)
         return rows
 
     def _latest_rows(self, panel: pd.DataFrame) -> List[Dict]:
         if panel is None or len(panel) == 0:
             return []
         last = panel.groupby(level="symbol", sort=False).tail(1)
-        rows = []
-        for (sym, date), row in last.iterrows():
-            rows.append(self._row_dict(sym, date, row))
+        cols = [c for c in VALUE_COLUMNS if c in last.columns]
+        col_pos = {c: i for i, c in enumerate(cols)}
+        sub = last[cols] if cols else last.iloc[:, :0]
+        rows: List[Dict] = []
+        for tup in sub.itertuples(index=True, name=None):
+            sym, date = tup[0]
+            rec = {"symbol": sym, "date": pd.Timestamp(date).date()}
+            vals = tup[1:]
+            for c in VALUE_COLUMNS:
+                v = vals[col_pos[c]] if c in col_pos else None
+                rec[c] = self._coerce(c, v)
+            rows.append(rec)
         return rows
 
     def _row_dict(self, sym, date, row) -> Dict:

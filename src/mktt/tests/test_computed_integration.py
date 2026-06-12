@@ -151,3 +151,87 @@ def test_last_bar_dates(schema):
     lbd = store.last_bar_dates(["AAA", "ZZZ"])
     assert lbd["AAA"] == pd.Timestamp(dates[-1].date())
     assert "ZZZ" not in lbd
+
+
+# --------------------------------------------------------------------------- #
+# incremental history upsert (finding F1-2)
+# --------------------------------------------------------------------------- #
+def test_upsert_incremental_writes_only_newer_history(schema):
+    store = _store(schema)
+    panel, dates = _panel(symbols=("AAA",), n=4)   # dates 01-01 .. 01-04
+    c1 = store.upsert(panel)
+    assert c1["classification_history"] == 4
+
+    # re-running the SAME panel writes ZERO history rows (all dates already stored)
+    # but still upserts current (latest row per symbol).
+    c2 = store.upsert(panel)
+    assert c2["classification_history"] == 0
+    assert c2["classification_current"] == 1
+
+    # extending with two newer dates writes only the 2 new bars.
+    dates2 = pd.date_range("2024-01-01", periods=6)
+    idx = pd.MultiIndex.from_product([["AAA"], dates2], names=["symbol", "date"])
+    grown = pd.DataFrame(index=idx)
+    for i, col in enumerate(VALUE_COLUMNS):
+        grown[col] = float(i + 1)
+    c3 = store.upsert(grown)
+    assert c3["classification_history"] == 2
+    # full history is intact (6 rows total — no loss, no dup).
+    assert len(store.history("AAA")) == 6
+
+
+def test_upsert_full_mode_writes_all_history(schema):
+    store = _store(schema)
+    panel, _ = _panel(symbols=("AAA",), n=4)
+    store.upsert(panel)
+    # incremental=False forces a full re-upsert (backfill/repair path).
+    c = store.upsert(panel, incremental=False)
+    assert c["classification_history"] == 4
+
+
+# --------------------------------------------------------------------------- #
+# cross_section cache (finding F1-3)
+# --------------------------------------------------------------------------- #
+def test_cross_section_cache_hit_and_invalidate(schema):
+    store = _store(schema)
+    panel, _ = _panel()
+    store.upsert(panel)
+
+    first = store.cross_section()
+    assert len(first) == 5
+    # second call within TTL is served from cache (consistent rows, same content).
+    second = store.cross_section()
+    pd.testing.assert_frame_equal(first, second)
+    # returned frames are copies — mutating one must not poison the cache.
+    second.loc[second.index[0], "stage"] = -999
+    third = store.cross_section()
+    assert (third["stage"] == 4).all()
+
+    # a Writer upsert invalidates the cache so a fresh write is never served stale.
+    grown, _ = _panel(symbols=("AAA", "BBB", "CCC", "DDD", "EEE", "FFF"), n=4)
+    store.upsert(grown)
+    after = store.cross_section()
+    assert len(after) == 6
+
+
+# --------------------------------------------------------------------------- #
+# stale (not just empty) freshness diff (finding F1-5)
+# --------------------------------------------------------------------------- #
+def test_ensure_fresh_diffs_stored_max_against_source_last_bar(schema):
+    store = _store(schema)
+    panel, dates = _panel(symbols=("AAA",), n=4)    # stored MAX(date) = 2024-01-04
+    store.upsert(panel)
+
+    seen = []
+    store.set_refresher(lambda ids: seen.append(sorted(ids)))
+
+    # source says AAA has a NEWER bar than stored → AAA is stale despite having history.
+    store.set_last_bar_provider(lambda ids: {"AAA": pd.Timestamp("2024-01-10")})
+    store.ensure_fresh(["AAA"])
+    assert seen == [["AAA"]]
+
+    # source bar == stored bar → fresh, no refresh.
+    seen.clear()
+    store.set_last_bar_provider(lambda ids: {"AAA": pd.Timestamp(dates[-1].date())})
+    store.ensure_fresh(["AAA"])
+    assert seen == []

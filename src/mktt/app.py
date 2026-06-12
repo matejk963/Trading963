@@ -80,7 +80,25 @@ class _PooledConnection:
         return self._conn.__exit__(exc_type, exc, tb)
 
 
-def build_pooled_conn_factory(dsn: str, minconn: int = 0, maxconn: int = 10):
+#: Default pool ceiling (finding F1-4) — was 10, which could exhaust under a few
+#: concurrent slow renders and 500 a route. Raised + made env-configurable via
+#: ``MKTT_DB_MAXCONN`` so it can scale to expected concurrency without a code change.
+DEFAULT_MAXCONN = 20
+
+
+def _resolve_maxconn(maxconn: int | None) -> int:
+    if maxconn is not None:
+        return maxconn
+    raw = os.environ.get("MKTT_DB_MAXCONN")
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            logger.warning("MKTT_DB_MAXCONN=%r not an int — using default %d", raw, DEFAULT_MAXCONN)
+    return DEFAULT_MAXCONN
+
+
+def build_pooled_conn_factory(dsn: str, minconn: int = 0, maxconn: int | None = None):
     """Build ONE shared ``ThreadedConnectionPool`` and return a zero-arg factory
     that hands out pooled connections (spec §8 DI: factory shape is unchanged, so
     every store keeps reading via ``conn_factory()`` — they just stop opening a
@@ -89,12 +107,17 @@ def build_pooled_conn_factory(dsn: str, minconn: int = 0, maxconn: int = 10):
     ``minconn=0`` keeps the pool lazy — no socket is opened until the first request
     needs one (so ``import app`` / ``create_app()`` never touches the DB).
 
+    ``maxconn`` defaults to ``MKTT_DB_MAXCONN`` env → :data:`DEFAULT_MAXCONN` (20),
+    up from the old hard-coded 10 that could exhaust under concurrent slow renders
+    and 500 a route (finding F1-4).
+
     Returns ``(factory, pool)`` so the caller can close the pool on shutdown.
     """
     from psycopg2.pool import ThreadedConnectionPool
 
-    pool = ThreadedConnectionPool(minconn, maxconn, dsn)
-    logger.debug("connection pool built (min=%d max=%d) for %s", minconn, maxconn, dsn)
+    resolved_max = _resolve_maxconn(maxconn)
+    pool = ThreadedConnectionPool(minconn, resolved_max, dsn)
+    logger.debug("connection pool built (min=%d max=%d) for %s", minconn, resolved_max, dsn)
 
     def _factory():
         return _PooledConnection(pool, pool.getconn())
@@ -139,7 +162,18 @@ def _inject_shared_providers(data, conn_factory) -> None:
         mod._PROVIDERS["data"] = data
 
     # Pool-backed stores shared across requests (one each, reused).
-    computed = ComputedStore(conn_factory=conn_factory)
+    # Wire the DataSource's last-bar-date as the staleness signal (finding F1-5) so
+    # ensure_fresh flags a symbol whose stored MAX(date) lags the source last bar,
+    # not only zero-history symbols.
+    last_bar = getattr(data, "last_bar_date", None)
+    if not callable(last_bar):
+        # the provider doesn't re-export it — fall through to the equity submodule.
+        equity = getattr(data, "_equity", None)
+        last_bar = getattr(equity, "last_bar_date", None)
+    computed = ComputedStore(
+        conn_factory=conn_factory,
+        last_bar_provider=last_bar if callable(last_bar) else None,
+    )
     list_store = ListStore(conn_factory=conn_factory)
     for mod in (screener_routes, monitor_routes):
         if "computed" in mod._PROVIDERS:
@@ -210,7 +244,62 @@ def create_app() -> Flask:
     def _inject_now():
         return {"now": datetime.utcnow()}
 
+    _register_db_error_handler(app)
+
     return app
+
+
+def _register_db_error_handler(app: Flask) -> None:
+    """Turn a pool-exhaustion / DB error into a graceful error ViewModel, not a 500
+    (finding F1-4).
+
+    Under concurrent slow renders ``pool.getconn()`` raises ``PoolError`` and any
+    other DB hiccup raises ``psycopg2.Error``; with no handler these propagate out of
+    the store read and 500 the route. This catch-all maps those failures to:
+
+    - **JSON/API routes** (``/api/*`` or an XHR ``Accept: application/json``): a
+      spec §5.1 ``vm(status='error', …)`` envelope with HTTP 503, so the generic
+      client renderer shows the error banner instead of a broken page.
+    - **page routes**: a small plain-text 503 so the browser shows a soft failure.
+
+    Other exception types are left to Flask's default 500 (real bugs stay loud).
+    """
+    from flask import jsonify, request
+    from viewmodel import vm
+
+    try:
+        from psycopg2 import Error as _PgError
+        from psycopg2.pool import PoolError as _PoolError
+        _DB_ERRORS = (_PoolError, _PgError)
+    except Exception:  # pragma: no cover - psycopg2 always present in prod
+        _DB_ERRORS = ()
+
+    if not _DB_ERRORS:
+        return
+
+    def _wants_json() -> bool:
+        path = request.path or ""
+        if path.startswith("/api/") or "/api/" in path or path.endswith("/api"):
+            return True
+        accept = request.headers.get("Accept", "")
+        return "application/json" in accept and "text/html" not in accept
+
+    def _on_db_error(err):  # noqa: ANN001
+        logger.warning("DB/pool error on %s: %s", request.path, err)
+        message = "Data store temporarily unavailable — please retry."
+        if _wants_json():
+            envelope = vm(status="error", message=message,
+                          title="Service unavailable",
+                          context={"path": request.path})
+            resp = jsonify(envelope)
+            resp.status_code = 503
+            return resp
+        return (message, 503, {"Content-Type": "text/plain; charset=utf-8"})
+
+    # Flask wants one registration per exception class (no tuples).
+    for exc_cls in _DB_ERRORS:
+        app.register_error_handler(exc_cls, _on_db_error)
+    return
 
 
 # Module-level app so `flask run` / WSGI servers find `app`.

@@ -91,3 +91,65 @@ def test_options_api_route_registered(client):
         resp = client.get(path)
         assert resp.status_code != 404, f"{path} -> 404 (options route not registered)"
         assert resp.status_code != 500, f"{path} -> 500: {resp.get_data(as_text=True)[:200]}"
+
+
+# --------------------------------------------------------------------------- #
+# pool maxconn env-configurable (finding F1-4)
+# --------------------------------------------------------------------------- #
+def test_resolve_maxconn_default_and_env(monkeypatch):
+    import app as app_module
+    monkeypatch.delenv("MKTT_DB_MAXCONN", raising=False)
+    assert app_module._resolve_maxconn(None) == app_module.DEFAULT_MAXCONN
+    assert app_module.DEFAULT_MAXCONN >= 20         # raised from the old hard-coded 10
+    assert app_module._resolve_maxconn(7) == 7      # explicit wins
+    monkeypatch.setenv("MKTT_DB_MAXCONN", "55")
+    assert app_module._resolve_maxconn(None) == 55
+    monkeypatch.setenv("MKTT_DB_MAXCONN", "not-an-int")
+    assert app_module._resolve_maxconn(None) == app_module.DEFAULT_MAXCONN
+
+
+# --------------------------------------------------------------------------- #
+# graceful DB/pool-error ViewModel instead of a bare 500 (finding F1-4)
+# --------------------------------------------------------------------------- #
+def test_db_error_returns_error_viewmodel_not_500():
+    """A PoolError raised inside a route is mapped to a 503 + error ViewModel for a
+    JSON/API route, not a bare 500."""
+    import app as app_module
+    from flask import Flask
+    from psycopg2.pool import PoolError
+
+    flask_app = Flask("dberr_test")
+    app_module._register_db_error_handler(flask_app)
+
+    @flask_app.route("/api/boom")
+    def _boom():
+        raise PoolError("connection pool exhausted")
+
+    flask_app.config.update(TESTING=False, PROPAGATE_EXCEPTIONS=False)
+    with flask_app.test_client() as c:
+        resp = c.get("/api/boom")
+    assert resp.status_code == 503
+    body = resp.get_json()
+    assert body is not None
+    assert body["meta"]["status"] == "error"
+    assert "unavailable" in (body["meta"]["message"] or "").lower()
+
+
+def test_db_error_page_route_soft_503():
+    """A page (non-API) route degrades to a plain 503, not a 500."""
+    import app as app_module
+    from flask import Flask
+    from psycopg2 import OperationalError
+
+    flask_app = Flask("dberr_page_test")
+    app_module._register_db_error_handler(flask_app)
+
+    @flask_app.route("/screener")
+    def _boom():
+        raise OperationalError("db gone")
+
+    flask_app.config.update(TESTING=False, PROPAGATE_EXCEPTIONS=False)
+    with flask_app.test_client() as c:
+        resp = c.get("/screener")
+    assert resp.status_code == 503
+    assert "unavailable" in resp.get_data(as_text=True).lower()

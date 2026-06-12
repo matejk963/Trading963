@@ -87,31 +87,100 @@ class Writer:
     # run — the recipe (spec §7)
     # ------------------------------------------------------------------ #
     def run(self, stale_ids: Sequence[str]) -> dict:
-        """Recompute and materialize ``stale_ids`` (returns the upsert row counts)."""
+        """Recompute and materialize ``stale_ids`` (returns the upsert row counts).
+
+        **Cross-sectional correctness (rs_rank):** ``rs_rank`` and the PCA regime are
+        *cross-sectional* — a symbol's percentile is defined relative to the **whole
+        universe**, not the stale subset handed to this call. Ranking over only the
+        stale ids would make ``rs_rank`` a percentile-within-subset and silently shift
+        stage thresholds on an incremental run (review finding F1-1). So the enrichment
+        pipeline runs over the **full universe panel**, and only the stale-symbol rows
+        are upserted. When the universe cannot be resolved (e.g. a test stub without a
+        universe seam) the call falls back to ranking over ``stale_ids`` alone.
+        """
         ids = list(stale_ids)
         if not ids:
             logger.debug("Writer.run: no stale ids — nothing to do")
             return {}
 
-        # ① read raw (DataSource) — universe + benchmark in one call.
-        panel = self.data.time_series(ids + [self.benchmark], fields=_FIELDS)
+        # ① resolve the cross-sectional universe — superset of the stale ids so the
+        #    rank/regime see the full panel even on an incremental run.
+        universe = self._cross_section_universe(ids)
+
+        # ② read raw (DataSource) — universe + benchmark in one call.
+        panel = self.data.time_series(universe + [self.benchmark], fields=_FIELDS)
         bench = self.data.time_series([self.benchmark], fields=("close",))
         # the benchmark is not a classified symbol — drop it from the universe panel.
         panel = self._drop_symbol(panel, self.benchmark)
 
-        # ② kernel enrichment pipeline (spec §5.2) — no recompute, columns added.
+        # ③ kernel enrichment pipeline (spec §5.2) — no recompute, columns added.
+        #    rank/regime are cross-sectional → run over the FULL universe panel.
         panel = self.kernel.indicators.compute(panel)
         panel = self.kernel.relative_strength.compute(panel, bench)
         panel = self.kernel.relative_strength.rank(panel, by="returns_6m")
         panel = self.kernel.stage.compute(panel)
 
-        # ③ Writer-fed classifiers — per-symbol latest columns, merged onto panel.
-        panel = self._apply_classifiers(panel, ids)
+        # ④ Writer-fed classifiers — per-symbol latest columns, merged onto panel.
+        #    pca_regime is cross-sectional too → pass the full panel, classify over it.
+        panel = self._apply_classifiers(panel, universe)
 
-        # ④ materialize (history append + current upsert, one txn).
-        counts = self.computed.upsert(panel)
-        logger.debug("Writer.run: ids=%d counts=%s", len(ids), counts)
+        # ⑤ narrow the enriched panel back to the stale ids — we only persist those
+        #    rows, but their cross-sectional values were computed universe-wide.
+        write_panel = self._restrict_to(panel, ids)
+
+        # ⑥ materialize (history append + current upsert, one txn).
+        counts = self.computed.upsert(write_panel)
+        logger.debug(
+            "Writer.run: stale=%d universe=%d counts=%s", len(ids), len(universe), counts
+        )
         return counts
+
+    # ------------------------------------------------------------------ #
+    # cross-sectional universe resolution (rs_rank correctness, finding F1-1)
+    # ------------------------------------------------------------------ #
+    def _cross_section_universe(self, stale_ids) -> list:
+        """The full universe to rank against — a superset of ``stale_ids``.
+
+        Resolves the materialized universe from the DataSource (every symbol with a
+        last bar). Falls back to the stale ids alone when no universe seam exists
+        (test stubs), preserving the old single-subset behaviour in that case.
+        """
+        resolved = self._resolve_universe()
+        if not resolved:
+            return list(stale_ids)
+        # union: stale ids must be present even if absent from the materialized list.
+        universe = list(dict.fromkeys(list(resolved) + list(stale_ids)))
+        return [s for s in universe if s != self.benchmark]
+
+    def _resolve_universe(self) -> list:
+        getter = self._last_bar_getter()
+        if getter is not None:
+            try:
+                mapping = getter()
+                if mapping:
+                    return list(mapping.keys())
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("Writer._resolve_universe: last_bar_date failed", exc_info=True)
+        return []
+
+    def _last_bar_getter(self):
+        """The DataSource's per-symbol last-bar-date callable, on the provider OR its
+        equity submodule (the provider doesn't re-export it — datasource/provider.py)."""
+        getter = getattr(self.data, "last_bar_date", None)
+        if callable(getter):
+            return getter
+        equity = getattr(self.data, "_equity", None)
+        eq_getter = getattr(equity, "last_bar_date", None)
+        return eq_getter if callable(eq_getter) else None
+
+    @staticmethod
+    def _restrict_to(panel: pd.DataFrame, ids) -> pd.DataFrame:
+        if panel is None or len(panel) == 0:
+            return panel
+        keep = set(ids)
+        syms = panel.index.get_level_values("symbol")
+        mask = pd.Series(syms, index=panel.index).isin(keep).to_numpy()
+        return panel[mask]
 
     # ------------------------------------------------------------------ #
     # classifier dispatch — orchestration only (no formulas here)
