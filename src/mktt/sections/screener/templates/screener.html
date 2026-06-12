@@ -1,55 +1,316 @@
 {% extends "base.html" %}
 {#
-  screener.html — the Screener section shell (spec §4.1, §5.1; adr/0002 chrome).
+  screener.html — the revived Screener page (adr/0002).
 
-  Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
-  The page holds NO render logic: placeholder divs keyed by the ids the section
-  emits + a fetch->renderViewModel call. The generic renderer
-  (static/js/viewmodel.js) consumes the ViewModel envelope `/api/screener` returns.
+  Server-rendered (Jinja fed by `screener.handle_page`): the rich filter form +
+  the colored, sortable results table. Charts are NOT rendered here (the screener
+  is a tabular section). The page POSTs nothing — every filter is a GET param the
+  form re-submits, so the URL is the request and bookmarkable.
 
-  Section figures/tables ids (must match service.py):
-    tables[0].id == "screener_results"   -> #screener_results
-  meta sinks: title, status banner, readout badges (universe_total / passed).
-
-  Input controls (filters) build the typed request as a query string and reload;
-  they are NOT renderer consumers (spec §5.1) — they bind handlers / build the URL.
+  Template context (from handle_page):
+    filters       — flat dict (filters.preset / filters.pe_min / filters.pca_regime…)
+    sectors       — list[str] for the sector dropdown
+    results       — list of row dicts (symbol, price, change, pe, rs_rank, stage_label…)
+    universe_total / passed — status-bar counts
+    as_of_date / fetch_time — freshness readouts
 #}
 {% block title_suffix %}// Screener{% endblock %}
-{% block head %}
-  <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
-{% endblock %}
 
 {% block content %}
-  <h2 id="vm-title">Screener</h2>
-  <div id="vm-status" class="vm-banner" style="display:none"></div>
-  <div id="vm-readouts" class="vm-readouts"></div>
+<h2 class="page-title">Market Screener</h2>
 
-  {# Filter controls build the query string; submitting reloads with the params. #}
-  <form id="screener-filters" onsubmit="return false;">
-    <label>Preset <input name="preset" value="all"></label>
-    <label>Sector <input name="sector" value="All"></label>
-    <label>Sort <input name="sort_by" value="turnover"></label>
-    <label>Min turnover <input name="min_turnover" value="500000"></label>
-    <label>Min price <input name="min_price" value="0"></label>
-    <button id="apply-filters" type="button">Apply</button>
-  </form>
+<form method="GET" action="{{ url_for('screener.screener_page') }}">
+    <div class="filter-panel">
+        <div class="filter-group">
+            <label>Preset</label>
+            <select name="preset" onchange="this.form.submit()">
+                <option value="all" {% if filters.preset == 'all' %}selected{% endif %}>All Stocks</option>
+                <option value="stage2" {% if filters.preset == 'stage2' %}selected{% endif %}>Stage 2 — Uptrend (Long)</option>
+                <option value="stage1" {% if filters.preset == 'stage1' %}selected{% endif %}>Stage 1 — Basing (Watch)</option>
+                <option value="stage3" {% if filters.preset == 'stage3' %}selected{% endif %}>Stage 3 — Topping (Reduce)</option>
+                <option value="stage4" {% if filters.preset == 'stage4' %}selected{% endif %}>Stage 4 — Declining (Short)</option>
+                <option value="trans12" {% if filters.preset == 'trans12' %}selected{% endif %}>Transition 1→2 (Leaders)</option>
+            </select>
+        </div>
 
-  {# One host div per table id the section emits. #}
-  <div id="screener_results" class="vm-table-host"></div>
-{% endblock %}
+        <div class="filter-group">
+            <label>Min Turnover</label>
+            <select name="min_turnover">
+                <option value="500000" {% if filters.min_turnover == 500000 %}selected{% endif %}>500K</option>
+                <option value="1000000" {% if filters.min_turnover == 1000000 %}selected{% endif %}>1M</option>
+                <option value="5000000" {% if filters.min_turnover == 5000000 %}selected{% endif %}>5M</option>
+                <option value="10000000" {% if filters.min_turnover == 10000000 %}selected{% endif %}>10M</option>
+                <option value="20000000" {% if filters.min_turnover == 20000000 %}selected{% endif %}>20M</option>
+                <option value="50000000" {% if filters.min_turnover == 50000000 %}selected{% endif %}>50M</option>
+            </select>
+        </div>
 
-{% block scripts %}
-  <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
-  <script>
-    (function () {
-      function buildUrl() {
-        var form = document.getElementById('screener-filters');
-        var params = new URLSearchParams(new FormData(form));
-        return '/api/screener?' + params.toString();
-      }
-      function load() { ViewModel.fetchAndRender(buildUrl()); }
-      document.getElementById('apply-filters').addEventListener('click', load);
-      document.addEventListener('DOMContentLoaded', load);
-    })();
-  </script>
+        <div class="filter-group">
+            <label>Sector</label>
+            <select name="sector">
+                <option value="All">All Sectors</option>
+                {% for s in sectors %}
+                <option value="{{ s }}" {% if filters.sector == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>Min Price</label>
+            <input type="number" name="min_price" value="{{ filters.min_price }}" step="0.01" min="0">
+        </div>
+
+        <div class="filter-group">
+            <label>Sort By</label>
+            <select name="sort_by">
+                <option value="turnover" {% if filters.sort_by == 'turnover' %}selected{% endif %}>Turnover</option>
+                <option value="change" {% if filters.sort_by == 'change' %}selected{% endif %}>Day Change %</option>
+                <option value="rs" {% if filters.sort_by == 'rs' %}selected{% endif %}>RS Rank</option>
+                <option value="mansfield" {% if filters.sort_by == 'mansfield' %}selected{% endif %}>Mansfield RS</option>
+                <option value="dist_high" {% if filters.sort_by == 'dist_high' %}selected{% endif %}>Dist to 52w High</option>
+                <option value="pe" {% if filters.sort_by == 'pe' %}selected{% endif %}>PE</option>
+                <option value="fwdpe" {% if filters.sort_by == 'fwdpe' %}selected{% endif %}>Fwd PE</option>
+                <option value="opmgn" {% if filters.sort_by == 'opmgn' %}selected{% endif %}>Op Margin</option>
+                <option value="roic" {% if filters.sort_by == 'roic' %}selected{% endif %}>ROIC</option>
+                <option value="evebitda" {% if filters.sort_by == 'evebitda' %}selected{% endif %}>EV/EBITDA</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn">Scan</button>
+        </div>
+    </div>
+
+    {# ===== ADVANCED FILTERS (single collapsible) ===== #}
+    <style>
+    .filter-section { border:1px solid var(--border); border-radius:8px; margin-bottom:6px; background:var(--bg-light); }
+    .filter-section-header { display:flex; justify-content:space-between; align-items:center; padding:8px 14px; cursor:pointer; }
+    .filter-section-header h3 { font-size:13px; font-weight:600; color:var(--text-dim); margin:0; }
+    .filter-section-body { display:none; padding:8px 14px 12px; border-top:1px solid var(--border); }
+    .filter-section.open .filter-section-body { display:block; }
+    .filter-section .active-tags { display:flex; gap:4px; flex-wrap:wrap; }
+    .filter-section .tag { font-size:11px; padding:2px 8px; border-radius:4px; background:var(--primary); color:white; }
+    .filter-row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; padding:6px 0; }
+    .filter-row-label { font-size:11px; font-weight:600; color:var(--text-faint); width:100%; padding-bottom:2px; border-bottom:1px solid var(--border); margin-bottom:2px; }
+    .section-apply { font-size:12px; padding:5px 18px; background:var(--accent); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; }
+    .section-clear { font-size:11px; padding:4px 8px; background:none; color:var(--text-faint); border:1px solid var(--border); border-radius:4px; cursor:pointer; margin-left:6px; }
+    .cb-dropdown { position:relative; display:inline-block; }
+    .cb-dropdown .cb-toggle { font-size:11px; padding:3px 8px; background:var(--bg-card); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; min-width:100px; display:flex; justify-content:space-between; align-items:center; gap:4px; }
+    .cb-dropdown .cb-toggle::after { content:'▾'; font-size:9px; color:var(--text-faint); }
+    .cb-dropdown .cb-menu { display:none; position:absolute; top:100%; left:0; z-index:100; background:var(--bg-card,#1a1a2a); border:1px solid var(--border,#333); border-radius:4px; padding:4px 0; min-width:140px; box-shadow:0 4px 12px rgba(0,0,0,0.5); max-height:200px; overflow-y:auto; }
+    .cb-dropdown.open .cb-menu { display:block; }
+    .cb-dropdown .cb-item { display:flex; align-items:center; gap:6px; padding:3px 10px; font-size:11px; cursor:pointer; color:var(--text); }
+    .cb-dropdown .cb-item:hover { background:var(--bg,#111); }
+    .cb-dropdown .cb-item input { accent-color:var(--primary); cursor:pointer; }
+    </style>
+
+    {% set has_any_filter = filters.has_class_filters or filters.has_tech_filters or filters.has_fund_filters %}
+    <div class="filter-section {% if has_any_filter %}open{% endif %}">
+        <div class="filter-section-header" onclick="this.parentElement.classList.toggle('open')">
+            <h3>Advanced Filters ▾</h3>
+            <div class="active-tags">
+                {% if filters.pca_regime %}<span class="tag">PCA: {{ filters.pca_regime|join(', ') }}</span>{% endif %}
+                {% if filters.stage_class %}<span class="tag">{{ filters.stage_class|join(', ') }}</span>{% endif %}
+                {% if filters.eps_accel %}<span class="tag">EPS: {{ filters.eps_accel|join(', ') }}</span>{% endif %}
+                {% if filters.ma_screen %}<span class="tag">MA: {{ filters.ma_screen|join(', ') }}</span>{% endif %}
+                {% if filters.ma_setup %}<span class="tag">Setup: {{ filters.ma_setup }}</span>{% endif %}
+                {% if filters.rs_min %}<span class="tag">RS≥{{ filters.rs_min|int }}</span>{% endif %}
+                {% if filters.from52h_min or filters.from52h_max %}<span class="tag">52H: {{ filters.from52h_min or '' }}/{{ filters.from52h_max or '' }}</span>{% endif %}
+                {% if filters.pe_min or filters.pe_max %}<span class="tag">PE: {{ filters.pe_min or '' }}-{{ filters.pe_max or '' }}</span>{% endif %}
+                {% if filters.opmgn_min %}<span class="tag">OpMgn≥{{ filters.opmgn_min }}</span>{% endif %}
+                {% if filters.roic_min %}<span class="tag">ROIC≥{{ filters.roic_min }}</span>{% endif %}
+                {% if filters.eps_growth %}<span class="tag">EPS: {{ filters.eps_growth }}</span>{% endif %}
+                {% if filters.eps_accel_filter %}<span class="tag">Accel: {{ filters.eps_accel_filter }}</span>{% endif %}
+                {% if filters.rev_growth %}<span class="tag">Rev: {{ filters.rev_growth }}</span>{% endif %}
+            </div>
+        </div>
+        <div class="filter-section-body">
+            <script>
+    function cbUpdate(name) {
+        var checks = document.querySelectorAll('input[name="'+name+'"]:checked');
+        var lbl = document.querySelector('.cb-label[data-name="'+name+'"]');
+        if (lbl) lbl.textContent = checks.length > 0 ? checks.length + ' sel' : 'Any';
+    }
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.cb-dropdown')) {
+            document.querySelectorAll('.cb-dropdown.open').forEach(function(d) { d.classList.remove('open'); });
+        }
+    });
+    </script>
+    {# Classification row #}
+            <div class="filter-row">
+                <div class="filter-row-label">Classification</div>
+                {% macro cb_dropdown(name, label, options, selected) %}
+                <div class="filter-group"><label>{{ label }}</label>
+                    <div class="cb-dropdown" onclick="this.classList.toggle('open')">
+                        <div class="cb-toggle"><span class="cb-label" data-name="{{ name }}">{% if selected %}{{ selected|length }} sel{% else %}Any{% endif %}</span></div>
+                        <div class="cb-menu" onclick="event.stopPropagation()">
+                            {% for val, lbl in options %}
+                            <label class="cb-item"><input type="checkbox" name="{{ name }}" value="{{ val }}" {% if val in selected %}checked{% endif %} onchange="cbUpdate('{{ name }}')">{{ lbl }}</label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endmacro %}
+                {{ cb_dropdown('pca_regime', 'PCA Regime', [
+                    ('1', 'Strong Leader'), ('2', 'Quiet Uptrend'),
+                    ('5', 'Erupting'), ('3', 'Distributing'), ('4', 'Declining')
+                ], filters.pca_regime) }}
+                {{ cb_dropdown('stage_class', 'Stage', [
+                    ('2', 'S2 Uptrend'), ('1', 'S1 Basing'),
+                    ('3', 'S3 Topping'), ('4', 'S4 Declining')
+                ], filters.stage_class) }}
+                {{ cb_dropdown('ma_screen', 'MA Position', [
+                    ('3', 'Above Both'), ('2', 'Above 200 Below 50'),
+                    ('1', 'Below 200 Above 50'), ('0', 'Below Both')
+                ], filters.ma_screen) }}
+            </div>
+            {# Technical row #}
+            <div class="filter-row">
+                <div class="filter-row-label">Technical</div>
+                <div class="filter-group"><label>% vs MA50</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pct50_min" value="{{ filters.pct50_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="pct50_max" value="{{ filters.pct50_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>% vs MA200</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pct200_min" value="{{ filters.pct200_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="pct200_max" value="{{ filters.pct200_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>% from 52H</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="from52h_min" value="{{ filters.from52h_min or '' }}" placeholder="Min" step="1" style="width:55px"><input type="number" name="from52h_max" value="{{ filters.from52h_max or '' }}" placeholder="Max" step="1" style="width:55px"></div></div>
+                <div class="filter-group"><label>% from 52L</label>
+                    <input type="number" name="from52l_min" value="{{ filters.from52l_min or '' }}" placeholder="Min" step="1" style="width:55px"></div>
+                <div class="filter-group"><label>MA Setup</label>
+                    <select name="ma_setup"><option value="">Any</option>
+                        <option value="above_all" {% if filters.ma_setup == 'above_all' %}selected{% endif %}>Price > All MAs</option>
+                        <option value="above_50" {% if filters.ma_setup == 'above_50' %}selected{% endif %}>Price > MA50</option>
+                        <option value="below_50" {% if filters.ma_setup == 'below_50' %}selected{% endif %}>Price < MA50</option>
+                        <option value="below_all" {% if filters.ma_setup == 'below_all' %}selected{% endif %}>Price < All MAs</option>
+                        <option value="golden_cross" {% if filters.ma_setup == 'golden_cross' %}selected{% endif %}>Golden Cross</option>
+                        <option value="death_cross" {% if filters.ma_setup == 'death_cross' %}selected{% endif %}>Death Cross</option>
+                        <option value="stacked_bull" {% if filters.ma_setup == 'stacked_bull' %}selected{% endif %}>Stacked Bull</option>
+                    </select></div>
+                <div class="filter-group"><label>Min RS</label>
+                    <input type="number" name="rs_min" value="{{ filters.rs_min or '' }}" placeholder="0-100" step="1" style="width:55px"></div>
+            </div>
+            {# Fundamental row #}
+            <div class="filter-row">
+                <div class="filter-row-label">Fundamental</div>
+                <div class="filter-group"><label>PE</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pe_min" value="{{ filters.pe_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_max" value="{{ filters.pe_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>Fwd PE</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="fwdpe_min" value="{{ filters.fwdpe_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="fwdpe_max" value="{{ filters.fwdpe_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>OpMgn%</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="opmgn_min" value="{{ filters.opmgn_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="opmgn_max" value="{{ filters.opmgn_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>ROIC%</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="roic_min" value="{{ filters.roic_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="roic_max" value="{{ filters.roic_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>EV/EBITDA</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="evebitda_min" value="{{ filters.evebitda_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="evebitda_max" value="{{ filters.evebitda_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>ND/EBITDA</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="ndebitda_min" value="{{ filters.ndebitda_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="ndebitda_max" value="{{ filters.ndebitda_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>Analysts</label>
+                    <input type="number" name="analysts_min" value="{{ filters.analysts_min or '' }}" placeholder="Min" step="1" style="width:55px"></div>
+                <div class="filter-group"><label>PE/Sector</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pe_sect_min" value="{{ filters.pe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_sect_max" value="{{ filters.pe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>PE/Industry</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="pe_ind_min" value="{{ filters.pe_ind_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_ind_max" value="{{ filters.pe_ind_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+            </div>
+            <div style="padding:8px 0 2px;display:flex;align-items:center;">
+                <button type="submit" class="section-apply">Apply Filters</button>
+                <button type="button" class="section-clear" onclick="window.location='{{ url_for('screener.screener_page') }}?preset=all&min_turnover='+document.querySelector('[name=min_turnover]').value">Clear All</button>
+            </div>
+        </div>
+    </div>
+</form>
+
+<div class="status-bar" style="gap:12px;flex-wrap:wrap;">
+    <span>Universe: <span class="count">{{ universe_total }}</span></span>
+    <span>| Results: <span class="count">{{ passed }}</span></span>
+    {% if as_of_date %}<span>| Date: <strong>{{ as_of_date }}</strong></span>{% endif %}
+    <span style="margin-left:auto">{{ fetch_time }}</span>
+</div>
+
+{% if results %}
+<div class="table-wrap" style="margin-top:6px;">
+    <table id="screener-table">
+        <thead>
+            <tr>
+                <th data-cid="sym" style="text-align:left;cursor:pointer" onclick="sortTable(0,'str')">Symbol</th>
+                <th style="text-align:left;cursor:pointer" onclick="sortTable(1,'str')">Sector</th>
+                <th style="text-align:left;cursor:pointer" onclick="sortTable(2,'str')">Industry</th>
+                <th data-cid="price" style="cursor:pointer" onclick="sortTable(3,'num')">Price</th>
+                <th data-cid="chg" style="cursor:pointer" onclick="sortTable(4,'num')">Chg%</th>
+                <th data-cid="turnover" style="cursor:pointer" onclick="sortTable(5,'num')">Turnover</th>
+                <th data-cid="rs" style="cursor:pointer" onclick="sortTable(6,'num')">RS</th>
+                <th data-cid="stage" style="text-align:left;cursor:pointer" onclick="sortTable(7,'str')">Stage</th>
+                <th data-cid="regime" style="text-align:left;cursor:pointer" onclick="sortTable(8,'str')">PCA Regime</th>
+                <th data-cid="ma" style="text-align:left;cursor:pointer" onclick="sortTable(9,'str')">MA Pos</th>
+                <th data-cid="pct50" style="cursor:pointer" onclick="sortTable(10,'num')">%MA50</th>
+                <th data-cid="pct200" style="cursor:pointer" onclick="sortTable(11,'num')">%MA200</th>
+                <th data-cid="from52h" style="cursor:pointer" onclick="sortTable(12,'num')">52H%</th>
+                <th data-cid="from52l" style="cursor:pointer" onclick="sortTable(13,'num')">52L%</th>
+                <th data-cid="pe" style="cursor:pointer" onclick="sortTable(14,'num')">PE</th>
+                <th data-cid="fwdpe" style="cursor:pointer" onclick="sortTable(15,'num')">Fwd PE</th>
+                <th data-cid="pesect" style="cursor:pointer" onclick="sortTable(16,'num')">PE/Sec</th>
+                <th data-cid="opmgn" style="cursor:pointer" onclick="sortTable(17,'num')">OpMgn%</th>
+                <th data-cid="roic" style="cursor:pointer" onclick="sortTable(18,'num')">ROIC%</th>
+                <th data-cid="evebitda" style="cursor:pointer" onclick="sortTable(19,'num')">EV/EBITDA</th>
+                <th data-cid="target" style="cursor:pointer" onclick="sortTable(20,'num')">Target</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for st in results %}
+            {%- set rz = 'padding:3px 8px;font-size:12px' -%}
+            <tr onclick="toggleStockChart('{{ st.symbol }}', this)" style="cursor:pointer;border-bottom:1px solid var(--border);">
+                <td data-cid="sym" style="text-align:left;{{rz}};font-weight:600">{{ st.symbol }}</td>
+                <td style="{{rz}};color:var(--text-dim)">{{ st.sector or '—' }}</td>
+                <td style="{{rz}};color:var(--text-dim)">{{ st.industry or '—' }}</td>
+                <td data-cid="price" style="{{rz}}">{{ "%.2f"|format(st.price) if st.price is not none else '—' }}</td>
+                <td data-cid="chg" style="{{rz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change is not none else '—' }}</td>
+                <td data-cid="turnover" style="{{rz}}">{{ "%.1fM"|format(st.turnover/1e6) if st.turnover else '—' }}</td>
+                <td data-cid="rs" style="{{rz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank is not none else '—' }}</td>
+                <td data-cid="stage" style="text-align:left;{{rz}};{% if st.stage == 2 %}color:var(--phosphor-bright,var(--green));{% elif st.stage == 4 %}color:var(--red,#ff3333);{% elif st.stage == 1 %}color:var(--amber,#ffb000);{% elif st.stage == 3 %}color:var(--orange,#ff6e27);{% endif %}">{{ st.stage_label or '—' }}</td>
+                <td data-cid="regime" style="text-align:left;{{rz}};color:var(--text-dim)">{{ st.regime_label or '—' }}</td>
+                <td data-cid="ma" style="text-align:left;{{rz}};color:var(--text-dim)">{{ st.ma_screen_label or '—' }}</td>
+                <td data-cid="pct50" style="{{rz}}" class="{{ 'positive' if st.pct50 and st.pct50 > 0 else 'negative' if st.pct50 and st.pct50 < 0 else '' }}">{{ "%+.1f"|format(st.pct50) if st.pct50 is not none else '—' }}</td>
+                <td data-cid="pct200" style="{{rz}}" class="{{ 'positive' if st.pct200 and st.pct200 > 0 else 'negative' if st.pct200 and st.pct200 < 0 else '' }}">{{ "%+.1f"|format(st.pct200) if st.pct200 is not none else '—' }}</td>
+                <td data-cid="from52h" style="{{rz}}">{{ "%+.1f"|format(st.from52h) if st.from52h is not none else '—' }}</td>
+                <td data-cid="from52l" style="{{rz}}">{{ "%+.1f"|format(st.from52l) if st.from52l is not none else '—' }}</td>
+                <td data-cid="pe" style="{{rz}}">{{ "%.1f"|format(st.pe) if st.pe is not none else '—' }}</td>
+                <td data-cid="fwdpe" style="{{rz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe is not none else '—' }}</td>
+                <td data-cid="pesect" style="{{rz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector is not none else '—' }}</td>
+                <td data-cid="opmgn" style="{{rz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin is not none else '—' }}</td>
+                <td data-cid="roic" style="{{rz}}">{{ "%.1f"|format(st.roic) if st.roic is not none else '—' }}</td>
+                <td data-cid="evebitda" style="{{rz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda is not none else '—' }}</td>
+                <td data-cid="target" style="{{rz}}">{{ "%.0f"|format(st.target) if st.target is not none else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div style="padding:40px 0;text-align:center;color:var(--text-dim);">No symbols passed the filters.</div>
+{% endif %}
+
+<script>
+// Client-side column sort on the flat results table (original terminal behavior).
+function sortTable(col, type) {
+    var table = document.getElementById('screener-table');
+    var tbody = table.tBodies[0];
+    var rows = Array.prototype.slice.call(tbody.rows);
+    var th = table.tHead.rows[0].cells[col];
+    var asc = th.getAttribute('data-asc') !== 'true';
+    Array.prototype.forEach.call(table.tHead.rows[0].cells, function(c){ c.removeAttribute('data-asc'); });
+    th.setAttribute('data-asc', asc);
+    rows.sort(function(a, b) {
+        var x = a.cells[col].textContent.trim(), y = b.cells[col].textContent.trim();
+        if (type === 'num') {
+            var nx = parseFloat(x.replace(/[%,M]/g,'')), ny = parseFloat(y.replace(/[%,M]/g,''));
+            nx = isNaN(nx) ? -Infinity : nx; ny = isNaN(ny) ? -Infinity : ny;
+            return asc ? nx - ny : ny - nx;
+        }
+        return asc ? x.localeCompare(y) : y.localeCompare(x);
+    });
+    rows.forEach(function(r){ tbody.appendChild(r); });
+}
+// Placeholder chart toggle (Monitor section owns the real chart wiring).
+function toggleStockChart(sym, row) { /* watchlist context-menu lives in base.html */ }
+</script>
 {% endblock %}

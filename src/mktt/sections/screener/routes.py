@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, render_template, request
 
-from .service import ScreenRequest, handle
+from .service import ScreenRequest, handle, handle_page
 
 screener_bp = Blueprint(
     "screener", __name__, template_folder="templates"
@@ -43,8 +43,12 @@ def _providers():
 @screener_bp.route("/")
 @screener_bp.route("/screener")
 def screener_page():
-    """Render the screener shell — the page is a placeholder + fetch->renderViewModel."""
-    return render_template("screener.html", active_section="screener")
+    """Server-render the screener (adr/0002): parse -> handle_page -> render the
+    revived Jinja template with the colored results table + rich filter form."""
+    req = ScreenRequest.from_query(request.args)
+    data, computed = _providers()
+    ctx = handle_page(req, data, computed)
+    return render_template("screener.html", **ctx)
 
 
 @screener_bp.route("/api/screener")

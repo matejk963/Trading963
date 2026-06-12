@@ -27,6 +27,7 @@ order), wrapped in the NEW ViewModel envelope.
 """
 from __future__ import annotations
 
+import datetime
 import logging
 import math
 import os
@@ -351,6 +352,74 @@ class ScreenRequest:
 
 
 # --------------------------------------------------------------------------- #
+# 7b — pipeline (shared by the JSON API `handle` and the page `handle_page`)
+# --------------------------------------------------------------------------- #
+@dataclass
+class _PipelineResult:
+    """Outcome of the join→enrich→filter→sort recipe (one producer, two views)."""
+
+    context: Dict[str, Any]
+    universe_total: int
+    rows: List[Dict[str, Any]]       # every joined+enriched row (pre-filter)
+    passed: List[Dict[str, Any]]     # filtered + sorted rows
+    asof: Optional[str]
+
+
+def _pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
+    """The single Screener recipe: cross_section ⨝ fundamentals ⨝ live time_series,
+    then filter + sort. ``handle`` shapes its result into the ViewModel; the page
+    route adapts the SAME result into the server-rendered template (adr/0002 §3 —
+    one data producer, two presentations)."""
+    context = {
+        "preset": req.preset,
+        "sector": req.sector,
+        "sort_by": req.sort_by,
+        "min_turnover": req.min_turnover,
+        "min_price": req.min_price,
+    }
+    logger.debug("screener.pipeline preset=%s sector=%s sort=%s", req.preset,
+                 req.sector, req.sort_by)
+
+    cross = computed.cross_section()
+    universe = _index_ids(cross)
+    universe_total = len(universe)
+    asof = _asof(computed)
+
+    if universe_total == 0:
+        return _PipelineResult(context, 0, [], [], asof)
+
+    funds = data.fundamentals(universe)
+
+    # Build the joined rows (one dict per symbol). PE/FwdPE derive from the
+    # fundamental price_close here (parity), BEFORE live price overrides Price.
+    rows = _join(cross, funds)
+
+    # Live technicals from data.time_series (adr/0002 §5): turnover/price/
+    # day-change/%-from-52w-high+low/%-above-MA50+200, matching the original which
+    # derived these live. Guarded so stub providers (no time_series) keep the
+    # precomputed-only path (ADV_Dollar carried on the cross-section in tests).
+    if hasattr(data, "time_series"):
+        _apply_live_technicals(rows, data, universe)
+
+    # Median-PE premium over the FULL (unfiltered) universe (app.py:592-639).
+    sector_med, industry_med = _median_pe(rows)
+    for r in rows:
+        r["PE_vs_Sector"] = _pe_premium(r.get("PE"), r.get("Sector"), sector_med)
+        r["PE_vs_Industry"] = _pe_premium(r.get("PE"), r.get("Industry"), industry_med)
+        # %-above-MA from live Price vs computed MA50/MA200 (only fill when unset,
+        # so a precomputed PctAbove* carried on the cross-section still wins).
+        if r.get("PctAbove50") is None:
+            r["PctAbove50"] = _pct_above(r.get("Price"), r.get("MA50"))
+        if r.get("PctAbove200") is None:
+            r["PctAbove200"] = _pct_above(r.get("Price"), r.get("MA200"))
+
+    # Apply filters (order mirrors the route: min_price/turnover/sector, then
+    # classification, fundamental, technical), then sort.
+    passed = _sort([r for r in rows if _passes(r, req)], req.sort_by)
+    return _PipelineResult(context, universe_total, rows, passed, asof)
+
+
+# --------------------------------------------------------------------------- #
 # 7b — handle (the recipe)
 # --------------------------------------------------------------------------- #
 def handle(req: ScreenRequest, data, computed) -> dict:
@@ -367,48 +436,21 @@ def handle(req: ScreenRequest, data, computed) -> dict:
         A `ComputedStore` (or stub) exposing ``cross_section(filters=None) ->
         CrossSection`` (symbol-indexed frame) and (optionally) ``asof``.
     """
-    context = {
-        "preset": req.preset,
-        "sector": req.sector,
-        "sort_by": req.sort_by,
-        "min_turnover": req.min_turnover,
-        "min_price": req.min_price,
-    }
-    logger.debug("screener.handle preset=%s sector=%s sort=%s", req.preset,
-                 req.sector, req.sort_by)
+    res = _pipeline(req, data, computed)
+    context = res.context
 
-    cross = computed.cross_section()
-    universe = _index_ids(cross)
-    universe_total = len(universe)
-
-    if universe_total == 0:
+    if res.universe_total == 0:
         return vm(status="empty", message="No computed universe available.",
                   title="Screener", context=context,
                   readouts={"universe_total": 0, "passed": 0})
 
-    funds = data.fundamentals(universe)
-
-    # Build the joined rows (one dict per symbol).
-    rows = _join(cross, funds)
-
-    # Median-PE premium over the FULL (unfiltered) universe (app.py:592-639).
-    sector_med, industry_med = _median_pe(rows)
-    for r in rows:
-        r["PE_vs_Sector"] = _pe_premium(r.get("PE"), r.get("Sector"), sector_med)
-        r["PE_vs_Industry"] = _pe_premium(r.get("PE"), r.get("Industry"), industry_med)
-
-    # Apply filters (order mirrors the route: min_price/turnover/sector, then
-    # classification, fundamental, technical).
-    passed = [r for r in rows if _passes(r, req)]
-
-    asof = _asof(computed)
-    passed = _sort(passed, req.sort_by)
-
-    if not passed:
+    if not res.passed:
         return vm(status="empty", message="No symbols passed the filters.",
-                  asof=asof, title="Screener", context=context,
-                  readouts={"universe_total": universe_total, "passed": 0})
+                  asof=res.asof, title="Screener", context=context,
+                  readouts={"universe_total": res.universe_total, "passed": 0})
 
+    universe_total, passed, asof = res.universe_total, res.passed, res.asof
+    rows = res.rows
     return vm(
         tables=[_results_table(passed)],
         status="ok",
@@ -486,6 +528,101 @@ def _join(cross, funds) -> List[Dict[str, Any]]:
                                          and fy1 > 0) else None
         out.append(row)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# live technicals from data.time_series (adr/0002 §5)
+# --------------------------------------------------------------------------- #
+#: Rolling windows (trading days) for the live derivations.
+_ADV_WINDOW = 50        # avg dollar volume lookback
+_52W_WINDOW = 252       # 52-week high/low lookback
+_TS_LOOKBACK_DAYS = 420  # calendar days fetched (covers ~252 trading days)
+
+
+def _apply_live_technicals(rows: List[Dict[str, Any]], data, universe) -> None:
+    """Override ``Price`` and add live technicals on each joined row in place.
+
+    Derives, per symbol, from the ``symbol × date`` (close, volume) panel:
+
+    - ``Price``       — latest close (replaces the fundamental ``price_close``),
+    - ``Change%``     — latest close vs the prior close (day change),
+    - ``ADV_Dollar``  — latest close × mean volume over the last ``_ADV_WINDOW`` days
+                        (the screener's turnover figure → the ``min_turnover`` gate),
+    - ``From52H``     — % the latest close sits below the trailing 52-week high (≤ 0),
+    - ``From52L``     — % the latest close sits above the trailing 52-week low (≥ 0),
+    - ``PctAbove50`` / ``PctAbove200`` — % the close is above the (computed) MA50/MA200.
+
+    Symbols absent from the panel keep their pre-existing (fundamental) values.
+    The whole step is best-effort: any failure leaves the precomputed/fundamental
+    rows untouched (the page still renders, just without live turnover).
+    """
+    try:
+        start = (datetime.date.today()
+                 - datetime.timedelta(days=_TS_LOOKBACK_DAYS)).isoformat()
+        panel = data.time_series(universe, start=start)
+    except Exception:  # noqa: BLE001 — never let a fetch hiccup blank the page
+        logger.exception("screener live technicals: time_series fetch failed")
+        return
+    if panel is None or getattr(panel, "empty", True):
+        logger.debug("screener live technicals: empty time_series panel")
+        return
+
+    tech = _derive_panel_technicals(panel)
+    enriched = 0
+    for r in rows:
+        t = tech.get(r["Symbol"])
+        if not t:
+            continue
+        r.update(t)
+        enriched += 1
+    logger.debug("screener live technicals: enriched %d/%d rows", enriched, len(rows))
+
+
+def _derive_panel_technicals(panel) -> Dict[str, Dict[str, Any]]:
+    """``symbol × date`` (close, volume) panel -> {symbol: {derived columns}}.
+
+    Vectorized per symbol via groupby; tolerant of short histories (a symbol with
+    a single row still yields Price + ADV, with day-change/52w left None).
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    if "close" not in panel.columns:
+        return out
+    has_vol = "volume" in panel.columns
+
+    for sym, grp in panel.groupby(level="symbol"):
+        closes = grp["close"].dropna()
+        if closes.empty:
+            continue
+        price = float(closes.iloc[-1])
+        rec: Dict[str, Any] = {"Price": price}
+
+        if len(closes) >= 2:
+            prev = float(closes.iloc[-2])
+            if prev:
+                rec["Change%"] = (price / prev - 1.0) * 100.0
+
+        if has_vol:
+            vols = grp["volume"].dropna()
+            if not vols.empty:
+                adv_vol = float(vols.tail(_ADV_WINDOW).mean())
+                rec["ADV_Dollar"] = price * adv_vol
+
+        window = closes.tail(_52W_WINDOW)
+        hi, lo = float(window.max()), float(window.min())
+        if hi > 0:
+            rec["From52H"] = (price / hi - 1.0) * 100.0   # ≤ 0
+        if lo > 0:
+            rec["From52L"] = (price / lo - 1.0) * 100.0   # ≥ 0
+
+        out[str(sym)] = rec
+    return out
+
+
+def _pct_above(price, ma) -> Optional[float]:
+    p, m = _f(price), _f(ma)
+    if p is None or m is None or m <= 0:
+        return None
+    return (p / m - 1.0) * 100.0
 
 
 # --------------------------------------------------------------------------- #
@@ -678,3 +815,141 @@ def _asof(computed) -> Optional[str]:
         except Exception:  # noqa: BLE001
             return None
     return asof
+
+
+# --------------------------------------------------------------------------- #
+# 7c — page rendering (adr/0002: server-render the original Jinja table)
+# --------------------------------------------------------------------------- #
+#: Integer stage code (cross_section ``stage``) -> the original display label.
+_STAGE_LABELS = {
+    1: "Stage 1 Basing", 2: "Stage 2 Uptrend",
+    3: "Stage 3 Topping", 4: "Stage 4 Declining",
+}
+#: Integer ``ma_screen`` code -> the original display label.
+_MA_SCREEN_LABELS = {
+    0: "Below Both", 1: "Below 200 Above 50",
+    2: "Above 200 Below 50", 3: "Above Both",
+}
+#: Integer ``regime`` code -> the original PCA-regime label.
+_REGIME_LABELS = {
+    1: "Strong Leader", 2: "Quiet Uptrend",
+    3: "Distributing", 4: "Declining", 5: "Erupting",
+}
+
+
+def _filters_dict(req: ScreenRequest) -> Dict[str, Any]:
+    """Map the typed :class:`ScreenRequest` back to the flat ``filters`` dict the
+    original ``screener.html`` reads (``filters.preset`` / ``filters.pe_min`` /
+    ``filters.pca_regime`` list / ``filters.has_*_filters`` …)."""
+    def _lo(stem, table):
+        return table.get(stem, (None, None))[0]
+
+    def _hi(stem, table):
+        return table.get(stem, (None, None))[1]
+
+    f: Dict[str, Any] = {
+        "preset": req.preset,
+        "min_turnover": req.min_turnover,
+        "sector": req.sector,
+        "min_price": req.min_price,
+        "sort_by": req.sort_by,
+        "as_of": req.as_of,
+        "eps_growth": req.eps_growth,
+        "rev_growth": req.rev_growth,
+        "eps_accel_filter": req.eps_accel_filter,
+        "ma_setup": req.ma_setup,
+        # classification multi-selects (lists)
+        "pca_regime": req.class_multi.get("pca_regime") or [],
+        "stage_class": req.class_multi.get("stage_class") or [],
+        "eps_accel": req.class_multi.get("eps_accel") or [],
+        "ma_screen": req.class_multi.get("ma_screen") or [],
+        # has_* flags (drive the "advanced filters open" + active tags)
+        "has_fund_filters": req.has_fund_filters,
+        "has_tech_filters": req.has_tech_filters,
+        "has_class_filters": req.has_class_filters,
+        # min-only bounds
+        "rs_min": req.fund_mins.get("rs"),
+        "analysts_min": req.fund_mins.get("analysts"),
+        "from52l_min": req.tech_mins.get("from52l"),
+    }
+    # fundamental ranges -> *_min / *_max keys.
+    for stem in FUND_RANGE_COLUMNS:
+        f[f"{stem}_min"] = _lo(stem, req.fund_ranges)
+        f[f"{stem}_max"] = _hi(stem, req.fund_ranges)
+    # technical ranges -> *_min / *_max keys.
+    for stem in TECH_RANGE_COLUMNS:
+        f[f"{stem}_min"] = _lo(stem, req.tech_ranges)
+        f[f"{stem}_max"] = _hi(stem, req.tech_ranges)
+    return f
+
+
+def _page_row(r: Dict[str, Any]) -> Dict[str, Any]:
+    """One screener row shaped for the server-rendered template (snake_case keys
+    + decoded classification labels)."""
+    stage = _int(r.get("Stage_Class"))
+    ma_screen = _int(r.get("MA_Screen"))
+    regime = _int(r.get("PCA_Regime"))
+    return {
+        "symbol": r.get("Symbol"),
+        "sector": r.get("Sector"),
+        "industry": r.get("Industry"),
+        "price": _f(r.get("Price")),
+        "change": _f(r.get("Change%")),
+        "turnover": _f(r.get("ADV_Dollar")),
+        "pe": _f(r.get("PE")),
+        "fwd_pe": _f(r.get("FwdPE")),
+        "pe_vs_sector": _f(r.get("PE_vs_Sector")),
+        "pe_vs_industry": _f(r.get("PE_vs_Industry")),
+        "eps_act": _f(r.get("EPS_Act")),
+        "op_margin": _f(r.get("OpMargin")),
+        "net_margin": _f(r.get("NetMargin")),
+        "roic": _f(r.get("ROIC")),
+        "fcf": _f(r.get("FCF")),
+        "nd_ebitda": _f(r.get("ND_EBITDA")),
+        "ev_ebitda": _f(r.get("EV_EBITDA")),
+        "rs_rank": _f(r.get("RS_Rank")),
+        "mansfield_rs": _f(r.get("Mansfield_RS")),
+        "target": _f(r.get("Target")),
+        "pct50": _f(r.get("PctAbove50")),
+        "pct200": _f(r.get("PctAbove200")),
+        "from52h": _f(r.get("From52H")),
+        "from52l": _f(r.get("From52L")),
+        "stage": stage,
+        "stage_label": _STAGE_LABELS.get(stage, ""),
+        "ma_screen_label": _MA_SCREEN_LABELS.get(ma_screen, ""),
+        "regime_label": _REGIME_LABELS.get(regime, ""),
+    }
+
+
+def _int(v) -> Optional[int]:
+    f = _f(v)
+    return int(f) if f is not None else None
+
+
+def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
+    """Adapt the shared pipeline into the original ``screener.html`` template
+    context (adr/0002 §3: same producer, server-rendered presentation).
+
+    Returns the variables the revived template reads: ``filters`` (flat dict),
+    ``sectors`` (dropdown), ``results`` (the colored flat table rows),
+    ``universe_total`` / ``passed`` (status bar), ``as_of_date``, ``fetch_time``.
+    """
+    import time
+
+    t0 = time.time()
+    res = _pipeline(req, data, computed)
+    sectors = sorted({r["Sector"] for r in res.rows if r.get("Sector")})
+    results = [_page_row(r) for r in res.passed]
+    fetch_ms = (time.time() - t0) * 1000.0
+    logger.debug("screener.handle_page passed=%d/%d in %.0fms",
+                 len(results), res.universe_total, fetch_ms)
+    return {
+        "active_section": "screener",
+        "filters": _filters_dict(req),
+        "sectors": sectors,
+        "results": results,
+        "universe_total": res.universe_total,
+        "passed": len(results),
+        "as_of_date": res.asof,
+        "fetch_time": f"{fetch_ms:.0f} ms",
+    }
