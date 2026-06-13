@@ -1293,6 +1293,99 @@ def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# sector map — sector × dimension composition (revived "Map" view)
+# port of app.py /api/sector_map (_sector_map_impl)
+# --------------------------------------------------------------------------- #
+#: Map dimension key -> (display label, ordered categories). The category order
+#: is the matrix column order; labels mirror the original cutoff buckets.
+_MAP_DIMENSIONS = {
+    "pca_regime":   ("PCA Regime",
+                     ["Strong Leader", "Quiet Uptrend", "Erupting", "Distributing", "Declining"]),
+    "stage":        ("Weinstein Stage",
+                     ["Stage 2 Uptrend", "Stage 1 Basing", "Stage 3 Topping", "Stage 4 Declining"]),
+    "eps_momentum": ("EPS Momentum", ["Accelerating", "Decelerating"]),
+    "eps_growth":   ("EPS Growth", ["Growing", "Flat", "Declining"]),
+    "rs_bucket":    ("RS Rank Bucket", ["RS 80+", "RS 60-80", "RS 40-60", "RS 20-40", "RS 0-20"]),
+    "rs_momentum":  ("RS Momentum (1M)", ["Improving", "Stable", "Deteriorating"]),
+    "pe_vs_sector": ("PE vs Sector",
+                     ["Deep Discount", "Discount", "Fair", "Premium", "High Premium", "No PE"]),
+}
+
+
+def _map_category(dim: str, row: Dict[str, Any]) -> Optional[str]:
+    """The category a row falls into for a Map ``dim`` (port of the bucket logic in
+    app.py ``_sector_map_impl``). ``None`` excludes the row from that dimension."""
+    if dim == "pca_regime":
+        v = _int(row.get("PCA_Regime"))
+        return _REGIME_LABELS.get(v) if v is not None else None
+    if dim == "stage":
+        v = _int(row.get("Stage_Class"))
+        return _STAGE_LABELS.get(v) if v is not None else None
+    if dim == "eps_momentum":
+        v = _f(row.get("EPS_Accel"))            # acceleration = (FY2-FY1) − (FY1-TTM)
+        return None if v is None else ("Accelerating" if v > 0 else "Decelerating")
+    if dim == "eps_growth":
+        fy1, ttm = _f(row.get("EPS_FY1")), _f(row.get("EPS_Act"))
+        if fy1 is None or ttm is None:
+            return None
+        return "Growing" if fy1 > ttm else "Declining" if fy1 < ttm else "Flat"
+    if dim == "rs_bucket":
+        v = _f(row.get("RS_Rank"))
+        if v is None:
+            return None
+        return ("RS 80+" if v >= 80 else "RS 60-80" if v >= 60 else "RS 40-60"
+                if v >= 40 else "RS 20-40" if v >= 20 else "RS 0-20")
+    if dim == "rs_momentum":
+        v = _f(row.get("RS_Chg1M"))
+        if v is None:
+            return None
+        return "Improving" if v > 5 else "Stable" if v > -5 else "Deteriorating"
+    if dim == "pe_vs_sector":
+        v = _f(row.get("PE_vs_Sector"))         # row premium = PE / sector-median PE
+        if v is None or v <= 0:
+            return "No PE"
+        return ("Deep Discount" if v < 0.7 else "Discount" if v < 0.9 else "Fair"
+                if v < 1.1 else "Premium" if v < 1.3 else "High Premium")
+    return None
+
+
+def _sector_map_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Sector × dimension composition for the "Map" view (port of /api/sector_map).
+
+    For every dimension, returns a per-(sector, category) ``summary`` count list +
+    the ``overall`` category distribution — shaped exactly like the original AJAX
+    response so the original renderer consumes it unchanged. Computed over the
+    **passed** rows (the Map reflects the active filter) and keyed by dimension so
+    the selector switches client-side with no extra round-trip.
+    """
+    out: Dict[str, Any] = {}
+    for dim, (label, categories) in _MAP_DIMENSIONS.items():
+        counts: Dict[tuple, int] = {}
+        overall: Dict[str, int] = {}
+        total = 0
+        for r in rows:
+            sec = r.get("Sector")
+            if not sec:
+                continue
+            cat = _map_category(dim, r)
+            if cat is None:
+                continue
+            counts[(sec, cat)] = counts.get((sec, cat), 0) + 1
+            overall[cat] = overall.get(cat, 0) + 1
+            total += 1
+        out[dim] = {
+            "dimension": dim,
+            "label": label,
+            "categories": categories,
+            "summary": [{"sector": s, "dimension": c, "count": n}
+                        for (s, c), n in counts.items()],
+            "overall": overall,
+            "total_stocks": total,
+        }
+    return out
+
+
 def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
     """Adapt the shared pipeline into the original ``screener.html`` template
     context (adr/0002 §3: same producer, server-rendered presentation).
@@ -1320,6 +1413,10 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
     # original parity — see _sector_stats). res.rows supplies full-universe counts.
     sector_stats = _sector_stats(res.passed, res.rows)
 
+    # Sector × dimension composition for the "Map" view (regime/stage/eps/rs/pe),
+    # computed over the passed set and embedded for client-side dimension switching.
+    sector_map = _sector_map_summary(res.passed)
+
     fetch_ms = (time.time() - t0) * 1000.0
     logger.debug("screener.handle_page passed=%d/%d in %.0fms",
                  len(results), res.universe_total, fetch_ms)
@@ -1329,6 +1426,7 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
         "sectors": sectors,
         "results": results,
         "sector_stats": sector_stats,
+        "sector_map": sector_map,
         "stage_dist": stage_dist,
         "market_regime": market_regime,
         "universe_total": res.universe_total,

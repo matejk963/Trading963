@@ -582,3 +582,30 @@ def test_stage_preset_filters_table_to_that_stage():
     assert syms("stage1") == {"DDD"}
     # "all" keeps every base-passing symbol (no stage filter).
     assert syms("all") == {"AAA", "BBB", "CCC", "DDD"}
+
+
+def test_sector_map_summary_buckets_each_dimension():
+    """Map view: sector × dimension composition over the passed rows, with the
+    original bucket cutoffs (port of app.py /api/sector_map)."""
+    from sections.screener.service import _sector_map_summary
+    rows = [
+        {"Sector": "Tech", "PCA_Regime": 4, "Stage_Class": 2, "EPS_Accel": 5.0,
+         "EPS_FY1": 8, "EPS_Act": 6, "RS_Rank": 90, "RS_Chg1M": 7, "PE_vs_Sector": 0.8},
+        {"Sector": "Tech", "PCA_Regime": 3, "Stage_Class": 2, "EPS_Accel": -2.0,
+         "EPS_FY1": 5, "EPS_Act": 6, "RS_Rank": 65, "RS_Chg1M": -8, "PE_vs_Sector": 1.4},
+        {"Sector": "Energy", "PCA_Regime": 0, "Stage_Class": 4, "EPS_Accel": 1.0,
+         "EPS_FY1": 6, "EPS_Act": 6, "RS_Rank": 15, "RS_Chg1M": 0, "PE_vs_Sector": None},
+    ]
+    m = _sector_map_summary(rows)
+    assert set(m) == {"pca_regime", "stage", "eps_momentum", "eps_growth",
+                      "rs_bucket", "rs_momentum", "pe_vs_sector"}
+    assert m["pca_regime"]["overall"] == {"Strong Leader": 1, "Quiet Uptrend": 1, "Declining": 1}
+    assert m["rs_bucket"]["overall"] == {"RS 80+": 1, "RS 60-80": 1, "RS 0-20": 1}
+    assert m["rs_momentum"]["overall"] == {"Improving": 1, "Deteriorating": 1, "Stable": 1}
+    assert m["eps_momentum"]["overall"] == {"Accelerating": 2, "Decelerating": 1}
+    assert m["eps_growth"]["overall"] == {"Growing": 1, "Declining": 1, "Flat": 1}
+    assert m["pe_vs_sector"]["overall"] == {"Discount": 1, "High Premium": 1, "No PE": 1}
+    assert m["stage"]["overall"] == {"Stage 2 Uptrend": 2, "Stage 4 Declining": 1}
+    assert m["pca_regime"]["total_stocks"] == 3
+    # summary carries per-(sector,category) counts
+    assert {"sector": "Energy", "dimension": "Declining", "count": 1} in m["pca_regime"]["summary"]
