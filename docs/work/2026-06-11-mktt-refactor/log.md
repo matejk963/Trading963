@@ -281,3 +281,15 @@ Combined with the prior fix (medians over the **passed** set), the sector table'
 **Verified:** browser screenshot (Energy expanded, By-Industry → stock rows, all median columns populated); `#sector-table` present, 11 sectors, By-Industry/All-Stocks tabs live; 319 tests green (template-only + `_page_row` additive change — no test changes needed).
 
 **Note (minor, not blocking):** the flat-table column-picker does not drive `#sector-table` (the original wired both; here the sector table always shows all columns). Logged as a small follow-up if column-hiding parity on the sector table is wanted.
+
+## 2026-06-12 · orchestrator · REPORT — column picker now drives the sector table
+**Trigger:** user — "hook up the column picker to the sector table" (the follow-up flagged in the prior REPORT).
+
+**Did (template/JS only):**
+- `_allCols()` now returns the **union** of `data-cid`s across `#screener-table` and `#sector-table` (de-duped, document order — the richer sector set leads), so the picker lists every column either view shows (29 total, incl. the sector-only `peind/eps/fy1/fy2/netmgn/fcf/ndebitda/rschg1w/1m/3m`).
+- `applyColVisibility()` applies the hidden set to **both** tables; for `#sector-table` the `[data-cid]` selector also reaches the nested industry/all-stocks sub-tables, so a hidden column disappears consistently across the whole hierarchy.
+- `_colLabel()` resolves labels from either table; added the **Debt** group button + updated `COL_GROUPS` (valuation→+peind, earnings→eps/fy1/fy2, quality→+netmgn/fcf, debt→ndebitda/evebitda) to cover the sector columns.
+
+**Verified (browser):** hiding `pe` → flat 463→0 visible + sector 1078→0 visible (nested rows included); `minimal` group hides `roic` in both, keeps `rs`; `valuation` group leaves only PE/FwdPE/PE-Sec/PE-Ind/EV-EBITDA/Target in the sector view (col-count "7/29"); picker exposes all 29 union columns. Screenshot captured. Template compiles; 319 tests unaffected.
+
+This closes the minor follow-up from the sector-table-restore REPORT — sector "Sectors" view is now at full original parity (rich stats table + tabs + sort + column picker).

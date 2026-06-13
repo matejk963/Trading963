@@ -353,6 +353,7 @@
         <button type="button" onclick="toggleColGroup('valuation')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Valuation</button>
         <button type="button" onclick="toggleColGroup('earnings')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Earnings</button>
         <button type="button" onclick="toggleColGroup('quality')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Quality</button>
+        <button type="button" onclick="toggleColGroup('debt')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Debt</button>
         <button type="button" onclick="toggleColGroup('all')" style="font-size:11px;padding:3px 8px;background:var(--primary);border:none;color:white;border-radius:4px;cursor:pointer">All</button>
         <button type="button" onclick="toggleColGroup('minimal')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Minimal</button>
     </div>
@@ -742,18 +743,26 @@ function switchView(v) {
 
 // ---- column picker (per-col toggles + group presets), persisted in localStorage ----
 var COL_GROUPS = {
-    price: ['price','chg','turnover','rs','stage','regime','ma','pct50','pct200','from52h','from52l'],
-    valuation: ['pe','fwdpe','pesect','evebitda','target'],
-    earnings: ['pe','fwdpe','target'],
-    quality: ['opmgn','roic'],
+    price: ['price','chg','turnover','rs','rschg1w','rschg1m','rschg3m','stage','regime','ma','pct50','pct200','from52h','from52l'],
+    valuation: ['pe','fwdpe','pesect','peind','evebitda','target'],
+    earnings: ['eps','fy1','fy2','pe','fwdpe','target'],
+    quality: ['opmgn','netmgn','roic','fcf'],
+    debt: ['ndebitda','evebitda'],
     minimal: ['sym','price','chg','rs','stage']
 };
+// Union of data-cids across BOTH the flat (#screener-table) and the sector
+// (#sector-table) views, so one picker drives both tables. De-duped, document
+// order (sector table renders first, so its richer column set leads).
 function _allCols() {
-    var ths = document.querySelectorAll('#screener-table thead th[data-cid]');
-    return Array.prototype.map.call(ths, function(t){ return t.getAttribute('data-cid'); });
+    var seen = {}, out = [];
+    document.querySelectorAll('#sector-table thead th[data-cid], #screener-table thead th[data-cid]').forEach(function(t){
+        var cid = t.getAttribute('data-cid');
+        if (cid && !seen[cid]) { seen[cid] = true; out.push(cid); }
+    });
+    return out;
 }
 function _colLabel(cid) {
-    var th = document.querySelector('#screener-table thead th[data-cid="'+cid+'"]');
+    var th = document.querySelector('#screener-table thead th[data-cid="'+cid+'"], #sector-table thead th[data-cid="'+cid+'"]');
     return th ? th.textContent.trim() : cid;
 }
 function applyColVisibility() {
@@ -761,13 +770,18 @@ function applyColVisibility() {
     document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
         if (!cb.checked) hidden[cb.value] = true;
     });
-    var table = document.getElementById('screener-table');
-    if (!table) return;
     var cols = _allCols();
-    cols.forEach(function(cid, i){
-        var sel = '[data-cid="'+cid+'"]';
-        table.querySelectorAll('thead '+sel+', tbody td'+sel).forEach(function(el){
-            el.style.display = hidden[cid] ? 'none' : '';
+    // Apply to both tables. For #sector-table the selector also catches the nested
+    // industry/all-stocks sub-tables (their th/td carry the same data-cid), so a
+    // hidden column disappears consistently across the whole hierarchy.
+    ['screener-table','sector-table'].forEach(function(tid){
+        var table = document.getElementById(tid);
+        if (!table) return;
+        cols.forEach(function(cid){
+            var hide = !!hidden[cid];
+            table.querySelectorAll('[data-cid="'+cid+'"]').forEach(function(el){
+                if (el.tagName === 'TH' || el.tagName === 'TD') el.style.display = hide ? 'none' : '';
+            });
         });
     });
     var shown = cols.length - Object.keys(hidden).length;
