@@ -265,3 +265,19 @@ No re-materialize needed (current store data already full-universe-correct; FwdP
 - **Tests: 319 passed** (+3: `stage_preset_filters_table`, `sector_stats_medians_over_passed_not_full_universe`, `stage_transitions_detects_prev_to_current`).
 
 **Bearing on Open-item (2):** this is the **second** user-found, review-missed wrong-answer bug (after the label-scramble). The systematic value-parity pass (old↔new diff per section) is now clearly warranted — these were found by spot-check, not coverage.
+
+## 2026-06-12 · orchestrator · REPORT — restore original sector-stats table (screener "Sectors" view)
+**Trigger:** user — the screener Sectors tab "is not matching original; there should be stats of each stage / selected filter for the sector." Confirmed via AskUserQuestion: **restore the original stats table**.
+
+**Found:** the revived screener kept a *simplified* sector view — a card layout showing only `count/total` + a one-line `PE·FwdPE·OpMgn·ROIC·RS` per sector and `symbol + RS` per stock. The original (app.py @9631169 `templates/screener.html`) is a rich, single expandable **`#sector-table`**: each sector row carries the full median set (PE, FwdPE, PE/Sec, PE/Ind, EPS, FY1, FY2, OpMgn, NetMgn, ROIC, FCF, ND/EBITDA, EV/EBITDA, RS, RS 1W/1M/3M, Target) and expands into **By-Industry / All-Stocks** tabs; industries expand to full per-stock stat rows. The data layer already produced every median (`_sector_stats` / `_group_medians`) — the gap was purely the template + its JS.
+
+**Did:**
+1. **Ported the original `#sector-table` verbatim** into the `view-sectors` block (sector → industry → stock, By-Industry/All-Stocks tabs). Field names matched the new `_page_row` 1:1 (`fmt_number` is a registered Jinja global).
+2. **Added the sector JS** the table needs: `sortSectorTable`, `sortSubTable`, `switchSectorTab`, `toggleIndustry`, `toggleSectorStocks`, `_parseCell` + `sectorSortDir`/`_subSortDir` globals.
+3. **`_page_row` gained `rs_chg1w/1m/3m`** (the per-stock RS-momentum columns the sector/industry/stock rows display) — sourced from the RS_Chg* columns already attached in `_pipeline`.
+
+Combined with the prior fix (medians over the **passed** set), the sector table's stats now reflect the **selected stage/filter** — exactly the user's ask. Under `stage2` the sector-row median RS reads 73-94 (leaders); per-stock RS 1W/1M/3M render with +/- coloring.
+
+**Verified:** browser screenshot (Energy expanded, By-Industry → stock rows, all median columns populated); `#sector-table` present, 11 sectors, By-Industry/All-Stocks tabs live; 319 tests green (template-only + `_page_row` additive change — no test changes needed).
+
+**Note (minor, not blocking):** the flat-table column-picker does not drive `#sector-table` (the original wired both; here the sector table always shows all columns). Logged as a small follow-up if column-hiding parity on the sector table is wanted.

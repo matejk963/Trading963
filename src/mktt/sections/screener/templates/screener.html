@@ -361,30 +361,279 @@
 
 {% if sector_stats %}
 <div id="view-sectors" style="display:none;margin-top:6px">
-    {% for sec in sector_stats %}
-    <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;background:var(--bg-card)">
-        <div style="padding:8px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);cursor:pointer" onclick="this.parentElement.querySelector('.sec-body').style.display=this.parentElement.querySelector('.sec-body').style.display==='none'?'block':'none'">
-            <strong style="font-size:14px">{{ sec.sector }}</strong>
-            <span style="font-size:12px;color:var(--text-dim)">{{ sec.count }}/{{ sec.total }} ({{ "%.0f"|format(sec.pct_of_sector) }}% of sector)</span>
-            <span style="font-size:12px;color:var(--text-faint)">PE {{ "%.1f"|format(sec.median_pe) if sec.median_pe is not none else '—' }} · FwdPE {{ "%.1f"|format(sec.median_fwd_pe) if sec.median_fwd_pe is not none else '—' }} · OpMgn {{ "%.1f"|format(sec.median_op_margin) if sec.median_op_margin is not none else '—' }} · ROIC {{ "%.1f"|format(sec.median_roic) if sec.median_roic is not none else '—' }} · RS {{ "%.0f"|format(sec.median_rs) if sec.median_rs is not none else '—' }}</span>
-        </div>
-        <div class="sec-body" style="display:none;padding:4px 14px 10px">
-            {% for ind in sec.industries %}
-            <div style="padding:6px 0;border-bottom:1px solid var(--border)">
-                <div style="font-size:12px;color:var(--text-dim);display:flex;gap:10px;flex-wrap:wrap">
-                    <strong>{{ ind.industry }}</strong>
-                    <span>{{ ind.count }} stk</span>
-                    <span>PE {{ "%.1f"|format(ind.median_pe) if ind.median_pe is not none else '—' }}{% if ind.pe_vs_sector is not none %} ({{ "%.2f"|format(ind.pe_vs_sector) }}× sec){% endif %}</span>
-                    <span>FwdPE {{ "%.1f"|format(ind.median_fwd_pe) if ind.median_fwd_pe is not none else '—' }}</span>
-                </div>
-                <div style="font-size:12px;color:var(--text-faint);padding-left:8px">
-                    {% for stk in ind.stocks %}<span style="margin-right:10px"><strong>{{ stk.symbol }}</strong> RS{{ "%.0f"|format(stk.rs_rank) if stk.rs_rank is not none else '—' }}</span>{% endfor %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
+    <div class="table-wrap">
+        <table id="sector-table">
+            <thead>
+                <tr>
+                    <th data-cid="sym" style="text-align:left;cursor:pointer" onclick="sortSectorTable(this,0,'str')">Name</th>
+                    <th style="cursor:pointer" onclick="sortSectorTable(this,1,'num')">Count</th>
+                    <th style="cursor:pointer" onclick="sortSectorTable(this,2,'num')">%Sector</th>
+                    <th data-cid="price" style="cursor:pointer" onclick="sortSectorTable(this,3,'num')">Price</th>
+                    <th data-cid="chg" style="cursor:pointer" onclick="sortSectorTable(this,4,'num')">Chg%</th>
+                    <th data-cid="pe" style="cursor:pointer" onclick="sortSectorTable(this,5,'num')">PE</th>
+                    <th data-cid="fwdpe" style="cursor:pointer" onclick="sortSectorTable(this,6,'num')">Fwd PE</th>
+                    <th data-cid="pesect" style="cursor:pointer" onclick="sortSectorTable(this,7,'num')">PE/Sec</th>
+                    <th data-cid="peind" style="cursor:pointer" onclick="sortSectorTable(this,8,'num')">PE/Ind</th>
+                    <th data-cid="eps" style="cursor:pointer" onclick="sortSectorTable(this,9,'num')">EPS</th>
+                    <th data-cid="fy1" style="cursor:pointer" onclick="sortSectorTable(this,10,'num')">FY1</th>
+                    <th data-cid="fy2" style="cursor:pointer" onclick="sortSectorTable(this,11,'num')">FY2</th>
+                    <th data-cid="opmgn" style="cursor:pointer" onclick="sortSectorTable(this,12,'num')">OpMgn%</th>
+                    <th data-cid="netmgn" style="cursor:pointer" onclick="sortSectorTable(this,13,'num')">NetMgn%</th>
+                    <th data-cid="roic" style="cursor:pointer" onclick="sortSectorTable(this,14,'num')">ROIC%</th>
+                    <th data-cid="fcf" style="cursor:pointer" onclick="sortSectorTable(this,15,'num')">FCF</th>
+                    <th data-cid="ndebitda" style="cursor:pointer" onclick="sortSectorTable(this,16,'num')">ND/EBITDA</th>
+                    <th data-cid="evebitda" style="cursor:pointer" onclick="sortSectorTable(this,17,'num')">EV/EBITDA</th>
+                    <th data-cid="rs" style="cursor:pointer" onclick="sortSectorTable(this,18,'num')">RS</th>
+                    <th data-cid="rschg1w" style="cursor:pointer" onclick="sortSectorTable(this,19,'num')">RS 1W</th>
+                    <th data-cid="rschg1m" style="cursor:pointer" onclick="sortSectorTable(this,20,'num')">RS 1M</th>
+                    <th data-cid="rschg3m" style="cursor:pointer" onclick="sortSectorTable(this,21,'num')">RS 3M</th>
+                    <th data-cid="target" style="cursor:pointer" onclick="sortSectorTable(this,22,'num')">Target</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sector_stats %}
+                {% set sector_idx = loop.index %}
+                {%- macro sg(d, k, fmt='%.1f') -%}{{ fmt|format(d.get(k)) if d.get(k) is not none else '—' }}{%- endmacro -%}
+                {%- macro sgn(d, k) -%}{{ fmt_number(d.get(k)) if d.get(k) else '—' }}{%- endmacro -%}
+                <tr onclick="toggleSectorStocks('sector-{{ sector_idx }}')" style="cursor:pointer;background:var(--bg-card);">
+                    <td data-cid="sym" style="text-align:left;font-weight:700">
+                        <span id="sector-arrow-{{ loop.index }}" style="display:inline-block;width:14px;transition:transform 0.2s;">▶</span>
+                        {{ s.sector }}
+                    </td>
+                    <td>{{ s.count }}</td>
+                    <td>{{ "%.1f%%"|format(s.pct_of_sector) }}</td>
+                    <td data-cid="price"></td>
+                    <td data-cid="chg"></td>
+                    <td data-cid="pe">{{ sg(s, 'median_pe') }}</td>
+                    <td data-cid="fwdpe">{{ sg(s, 'median_fwd_pe') }}</td>
+                    <td data-cid="pesect">—</td>
+                    <td data-cid="peind">—</td>
+                    <td data-cid="eps">{{ sg(s, 'median_eps', '%.2f') }}</td>
+                    <td data-cid="fy1">{{ sg(s, 'median_fy1', '%.2f') }}</td>
+                    <td data-cid="fy2">{{ sg(s, 'median_fy2', '%.2f') }}</td>
+                    <td data-cid="opmgn">{{ sg(s, 'median_op_margin') }}</td>
+                    <td data-cid="netmgn">{{ sg(s, 'median_net_margin') }}</td>
+                    <td data-cid="roic">{{ sg(s, 'median_roic') }}</td>
+                    <td data-cid="fcf">{{ sgn(s, 'median_fcf') }}</td>
+                    <td data-cid="ndebitda">{{ sg(s, 'median_nd_ebitda') }}</td>
+                    <td data-cid="evebitda">{{ sg(s, 'median_ev_ebitda') }}</td>
+                    <td data-cid="rs">{{ sg(s, 'median_rs', '%.0f') }}</td>
+                    <td data-cid="rschg1w">—</td>
+                    <td data-cid="rschg1m">—</td>
+                    <td data-cid="rschg3m">—</td>
+                    <td data-cid="target">{{ sg(s, 'median_target', '%.0f') }}</td>
+                </tr>
+                <tr id="sector-{{ loop.index }}" style="display: none;">
+                    <td colspan="23" style="padding: 4px 0;">
+                        {# Tabs #}
+                        <div style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border-solid, #2a4a00);">
+                            <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'ind')" id="tab-ind-sector-{{ loop.index }}" class="sector-tab sector-tab-active" style="padding: 3px 12px; cursor: pointer; font-size: 13px;">By Industry</span>
+                            <span onclick="event.stopPropagation(); switchSectorTab('sector-{{ loop.index }}', 'all')" id="tab-all-sector-{{ loop.index }}" class="sector-tab" style="padding: 3px 12px; cursor: pointer; font-size: 13px; color: var(--text-dim, #555);">All Stocks ({{ s.count }})</span>
+                        </div>
+
+                        {# Tab 1: By Industry #}
+                        <div id="panel-ind-sector-{{ loop.index }}" style="display: block;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background:var(--bg,#0c0c14);font-size:11px">
+                                        {%- set hs = 'padding:3px 8px;cursor:pointer' -%}
+                                        <th data-cid="sym" style="{{hs}};text-align:left" onclick="sortSubTable(this,0,'str','ind')">Industry</th>
+                                        <th style="{{hs}}" onclick="sortSubTable(this,1,'num','ind')">Count</th>
+                                        <th style="padding:3px 8px"></th>
+                                        <th data-cid="price" style="padding:3px 8px"></th>
+                                        <th data-cid="chg" style="padding:3px 8px"></th>
+                                        <th data-cid="pe" style="{{hs}}" onclick="sortSubTable(this,5,'num','ind')">PE</th>
+                                        <th data-cid="fwdpe" style="{{hs}}" onclick="sortSubTable(this,6,'num','ind')">FwdPE</th>
+                                        <th data-cid="pesect" style="{{hs}}" onclick="sortSubTable(this,7,'num','ind')">PE/Sec</th>
+                                        <th data-cid="peind" style="{{hs}}" onclick="sortSubTable(this,8,'num','ind')">PE/Ind</th>
+                                        <th data-cid="eps" style="{{hs}}" onclick="sortSubTable(this,9,'num','ind')">EPS</th>
+                                        <th data-cid="fy1" style="{{hs}}" onclick="sortSubTable(this,10,'num','ind')">FY1</th>
+                                        <th data-cid="fy2" style="{{hs}}" onclick="sortSubTable(this,11,'num','ind')">FY2</th>
+                                        <th data-cid="opmgn" style="{{hs}}" onclick="sortSubTable(this,12,'num','ind')">OpMgn</th>
+                                        <th data-cid="netmgn" style="{{hs}}" onclick="sortSubTable(this,13,'num','ind')">NetMgn</th>
+                                        <th data-cid="roic" style="{{hs}}" onclick="sortSubTable(this,14,'num','ind')">ROIC</th>
+                                        <th data-cid="fcf" style="{{hs}}" onclick="sortSubTable(this,15,'num','ind')">FCF</th>
+                                        <th data-cid="ndebitda" style="{{hs}}" onclick="sortSubTable(this,16,'num','ind')">ND/EB</th>
+                                        <th data-cid="evebitda" style="{{hs}}" onclick="sortSubTable(this,17,'num','ind')">EV/EB</th>
+                                        <th data-cid="rs" style="{{hs}}" onclick="sortSubTable(this,18,'num','ind')">RS</th>
+                                        <th data-cid="rschg1w" style="{{hs}}" onclick="sortSubTable(this,19,'num','ind')">1W</th>
+                                        <th data-cid="rschg1m" style="{{hs}}" onclick="sortSubTable(this,20,'num','ind')">1M</th>
+                                        <th data-cid="rschg3m" style="{{hs}}" onclick="sortSubTable(this,21,'num','ind')">3M</th>
+                                        <th data-cid="target" style="{{hs}}" onclick="sortSubTable(this,22,'num','ind')">Tgt</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for ind in s.industries %}
+                                    {%- set isz = 'padding:3px 8px;font-size:12px' -%}
+                                    <tr onclick="event.stopPropagation(); toggleIndustry('ind-{{ sector_idx }}-{{ loop.index }}')" style="cursor:pointer;border-bottom:1px solid var(--border);background:var(--bg-light);">
+                                        {%- set isz = 'padding:3px 8px;font-size:12px' -%}
+                                        {%- macro ig(d, k, fmt='%.1f') -%}{{ fmt|format(d.get(k)) if d.get(k) is not none else '—' }}{%- endmacro -%}
+                                        {%- macro ign(d, k) -%}{{ fmt_number(d.get(k)) if d.get(k) else '—' }}{%- endmacro -%}
+                                        <td data-cid="sym" style="text-align:left;{{isz}};font-weight:600">
+                                            <span id="ind-arrow-{{ sector_idx }}-{{ loop.index }}" style="display:inline-block;width:12px;font-size:10px;transition:transform 0.2s;">▶</span>
+                                            {{ ind.industry }}
+                                        </td>
+                                        <td style="{{isz}}">{{ ind.count }}</td>
+                                        <td style="{{isz}}"></td>
+                                        <td data-cid="price" style="{{isz}}"></td>
+                                        <td data-cid="chg" style="{{isz}}"></td>
+                                        <td data-cid="pe" style="{{isz}}">{{ ig(ind, 'median_pe') }}</td>
+                                        <td data-cid="fwdpe" style="{{isz}}">{{ ig(ind, 'median_fwd_pe') }}</td>
+                                        <td data-cid="pesect" style="{{isz}}">—</td>
+                                        <td data-cid="peind" style="{{isz}}">—</td>
+                                        <td data-cid="eps" style="{{isz}}">{{ ig(ind, 'median_eps', '%.2f') }}</td>
+                                        <td data-cid="fy1" style="{{isz}}">{{ ig(ind, 'median_fy1', '%.2f') }}</td>
+                                        <td data-cid="fy2" style="{{isz}}">{{ ig(ind, 'median_fy2', '%.2f') }}</td>
+                                        <td data-cid="opmgn" style="{{isz}}">{{ ig(ind, 'median_op_margin') }}</td>
+                                        <td data-cid="netmgn" style="{{isz}}">{{ ig(ind, 'median_net_margin') }}</td>
+                                        <td data-cid="roic" style="{{isz}}">{{ ig(ind, 'median_roic') }}</td>
+                                        <td data-cid="fcf" style="{{isz}}">{{ ign(ind, 'median_fcf') }}</td>
+                                        <td data-cid="ndebitda" style="{{isz}}">{{ ig(ind, 'median_nd_ebitda') }}</td>
+                                        <td data-cid="evebitda" style="{{isz}}">{{ ig(ind, 'median_ev_ebitda') }}</td>
+                                        <td data-cid="rs" style="{{isz}}">{{ ig(ind, 'median_rs', '%.0f') }}</td>
+                                        <td data-cid="rschg1w" style="{{isz}}">—</td>
+                                        <td data-cid="rschg1m" style="{{isz}}">—</td>
+                                        <td data-cid="rschg3m" style="{{isz}}">—</td>
+                                        <td data-cid="target" style="{{isz}}">{{ ig(ind, 'median_target', '%.0f') }}</td>
+                                    </tr>
+                                    <tr id="ind-{{ sector_idx }}-{{ loop.index }}" style="display: none;">
+                                        <td colspan="23" style="padding: 0 0 0 20px;">
+                                            <table style="width: 100%; border-collapse: collapse;">
+                                                <thead>
+                                                    <tr style="background: var(--bg, #0c0c14);">
+                                                        {%- set ss = 'font-size:11px;padding:3px 8px;cursor:pointer' -%}
+                                                        <th data-cid="sym" style="{{ss}};text-align:left" onclick="sortSubTable(this,0,'str','stk')">Symbol</th>
+                                                        <th style="font-size:11px;padding:3px 8px"></th>
+                                                        <th style="font-size:11px;padding:3px 8px"></th>
+                                                        <th data-cid="price" style="{{ss}}" onclick="sortSubTable(this,3,'num','stk')">Price</th>
+                                                        <th data-cid="chg" style="{{ss}}" onclick="sortSubTable(this,4,'num','stk')">Chg%</th>
+                                                        <th data-cid="pe" style="{{ss}}" onclick="sortSubTable(this,5,'num','stk')">PE</th>
+                                                        <th data-cid="fwdpe" style="{{ss}}" onclick="sortSubTable(this,6,'num','stk')">Fwd PE</th>
+                                                        <th data-cid="pesect" style="{{ss}}" onclick="sortSubTable(this,7,'num','stk')">PE/Sec</th>
+                                                        <th data-cid="peind" style="{{ss}}" onclick="sortSubTable(this,8,'num','stk')">PE/Ind</th>
+                                                        <th data-cid="eps" style="{{ss}}" onclick="sortSubTable(this,9,'num','stk')">EPS</th>
+                                                        <th data-cid="fy1" style="{{ss}}" onclick="sortSubTable(this,10,'num','stk')">FY1</th>
+                                                        <th data-cid="fy2" style="{{ss}}" onclick="sortSubTable(this,11,'num','stk')">FY2</th>
+                                                        <th data-cid="opmgn" style="{{ss}}" onclick="sortSubTable(this,12,'num','stk')">OpMgn%</th>
+                                                        <th data-cid="netmgn" style="{{ss}}" onclick="sortSubTable(this,13,'num','stk')">NetMgn%</th>
+                                                        <th data-cid="roic" style="{{ss}}" onclick="sortSubTable(this,14,'num','stk')">ROIC%</th>
+                                                        <th data-cid="fcf" style="{{ss}}" onclick="sortSubTable(this,15,'num','stk')">FCF</th>
+                                                        <th data-cid="ndebitda" style="{{ss}}" onclick="sortSubTable(this,16,'num','stk')">ND/EBITDA</th>
+                                                        <th data-cid="evebitda" style="{{ss}}" onclick="sortSubTable(this,17,'num','stk')">EV/EBITDA</th>
+                                                        <th data-cid="rs" style="{{ss}}" onclick="sortSubTable(this,18,'num','stk')">RS</th>
+                                                        <th data-cid="rschg1w" style="{{ss}}" onclick="sortSubTable(this,19,'num','stk')">1W</th>
+                                                        <th data-cid="rschg1m" style="{{ss}}" onclick="sortSubTable(this,20,'num','stk')">1M</th>
+                                                        <th data-cid="rschg3m" style="{{ss}}" onclick="sortSubTable(this,21,'num','stk')">3M</th>
+                                                        <th data-cid="target" style="{{ss}}" onclick="sortSubTable(this,22,'num','stk')">Target</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for st in ind.stocks %}
+                                                    <tr onclick="event.stopPropagation(); toggleStockChart('{{ st.symbol }}', this)" style="cursor: pointer; border-bottom: 1px solid rgba(51,255,0,0.03);">
+                                                        {%- set sz = 'padding:2px 8px;font-size:12px' -%}
+                                                        <td data-cid="sym" style="text-align:left;{{sz}}">{{ st.symbol }}</td>
+                                                        <td style="{{sz}}"></td>
+                                                        <td style="{{sz}}"></td>
+                                                        <td data-cid="price" style="{{sz}}">{{ "%.2f"|format(st.price) if st.price else '—' }}</td>
+                                                        <td data-cid="chg" style="{{sz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
+                                                        <td data-cid="pe" style="{{sz}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
+                                                        <td data-cid="fwdpe" style="{{sz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                                        <td data-cid="pesect" style="{{sz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
+                                                        <td data-cid="peind" style="{{sz}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
+                                                        <td data-cid="eps" style="{{sz}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                                                        <td data-cid="fy1" style="{{sz}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
+                                                        <td data-cid="fy2" style="{{sz}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                                                        <td data-cid="opmgn" style="{{sz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
+                                                        <td data-cid="netmgn" style="{{sz}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
+                                                        <td data-cid="roic" style="{{sz}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
+                                                        <td data-cid="fcf" style="{{sz}}">{{ fmt_number(st.fcf) if st.fcf else '—' }}</td>
+                                                        <td data-cid="ndebitda" style="{{sz}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
+                                                        <td data-cid="evebitda" style="{{sz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
+                                                        <td data-cid="rs" style="{{sz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                                        <td data-cid="rschg1w" style="{{sz}}" class="{{ 'positive' if st.rs_chg1w and st.rs_chg1w > 0 else 'negative' if st.rs_chg1w and st.rs_chg1w < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1w) if st.rs_chg1w else '—' }}</td>
+                                                        <td data-cid="rschg1m" style="{{sz}}" class="{{ 'positive' if st.rs_chg1m and st.rs_chg1m > 0 else 'negative' if st.rs_chg1m and st.rs_chg1m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1m) if st.rs_chg1m else '—' }}</td>
+                                                        <td data-cid="rschg3m" style="{{sz}}" class="{{ 'positive' if st.rs_chg3m and st.rs_chg3m > 0 else 'negative' if st.rs_chg3m and st.rs_chg3m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg3m) if st.rs_chg3m else '—' }}</td>
+                                                        <td data-cid="target" style="{{sz}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {# Tab 2: All Stocks #}
+                        <div id="panel-all-sector-{{ loop.index }}" style="display: none;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background: var(--bg, #0c0c14);">
+                                        {%- set sa = 'font-size:13px;padding:5px 10px;cursor:pointer' -%}
+                                        <th data-cid="sym" style="{{sa}};text-align:left" onclick="sortSubTable(this,0,'str','stk')">Symbol</th>
+                                        <th style="font-size:13px;padding:5px 10px"></th>
+                                        <th style="font-size:13px;padding:5px 10px"></th>
+                                        <th data-cid="price" style="{{sa}}" onclick="sortSubTable(this,3,'num','stk')">Price</th>
+                                        <th data-cid="chg" style="{{sa}}" onclick="sortSubTable(this,4,'num','stk')">Chg%</th>
+                                        <th data-cid="pe" style="{{sa}}" onclick="sortSubTable(this,5,'num','stk')">PE</th>
+                                        <th data-cid="fwdpe" style="{{sa}}" onclick="sortSubTable(this,6,'num','stk')">Fwd PE</th>
+                                        <th data-cid="pesect" style="{{sa}}" onclick="sortSubTable(this,7,'num','stk')">PE/Sec</th>
+                                        <th data-cid="peind" style="{{sa}}" onclick="sortSubTable(this,8,'num','stk')">PE/Ind</th>
+                                        <th data-cid="eps" style="{{sa}}" onclick="sortSubTable(this,9,'num','stk')">EPS</th>
+                                        <th data-cid="fy1" style="{{sa}}" onclick="sortSubTable(this,10,'num','stk')">FY1</th>
+                                        <th data-cid="fy2" style="{{sa}}" onclick="sortSubTable(this,11,'num','stk')">FY2</th>
+                                        <th data-cid="opmgn" style="{{sa}}" onclick="sortSubTable(this,12,'num','stk')">OpMgn%</th>
+                                        <th data-cid="netmgn" style="{{sa}}" onclick="sortSubTable(this,13,'num','stk')">NetMgn%</th>
+                                        <th data-cid="roic" style="{{sa}}" onclick="sortSubTable(this,14,'num','stk')">ROIC%</th>
+                                        <th data-cid="fcf" style="{{sa}}" onclick="sortSubTable(this,15,'num','stk')">FCF</th>
+                                        <th data-cid="ndebitda" style="{{sa}}" onclick="sortSubTable(this,16,'num','stk')">ND/EBITDA</th>
+                                        <th data-cid="evebitda" style="{{sa}}" onclick="sortSubTable(this,17,'num','stk')">EV/EBITDA</th>
+                                        <th data-cid="rs" style="{{sa}}" onclick="sortSubTable(this,18,'num','stk')">RS</th>
+                                        <th data-cid="rschg1w" style="{{sa}}" onclick="sortSubTable(this,19,'num','stk')">1W</th>
+                                        <th data-cid="rschg1m" style="{{sa}}" onclick="sortSubTable(this,20,'num','stk')">1M</th>
+                                        <th data-cid="rschg3m" style="{{sa}}" onclick="sortSubTable(this,21,'num','stk')">3M</th>
+                                        <th data-cid="target" style="{{sa}}" onclick="sortSubTable(this,22,'num','stk')">Target</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for st in s.stocks %}
+                                    <tr onclick="event.stopPropagation(); toggleStockChart('{{ st.symbol }}', this)" style="cursor: pointer; border-bottom: 1px solid rgba(51,255,0,0.05);">
+                                        {%- set sz2 = 'padding:2px 8px;font-size:12px' -%}
+                                        <td data-cid="sym" style="text-align:left;{{sz2}}">{{ st.symbol }}</td>
+                                        <td style="{{sz2}}"></td>
+                                        <td style="{{sz2}}"></td>
+                                        <td data-cid="price" style="{{sz2}}">{{ "%.2f"|format(st.price) if st.price else '—' }}</td>
+                                        <td data-cid="chg" style="{{sz2}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change else '—' }}</td>
+                                        <td data-cid="pe" style="{{sz2}}">{{ "%.1f"|format(st.pe) if st.pe else '—' }}</td>
+                                        <td data-cid="fwdpe" style="{{sz2}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe else '—' }}</td>
+                                        <td data-cid="pesect" style="{{sz2}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector else '—' }}</td>
+                                        <td data-cid="peind" style="{{sz2}}">{{ "%.2f"|format(st.pe_vs_industry) if st.pe_vs_industry else '—' }}</td>
+                                        <td data-cid="eps" style="{{sz2}}">{{ "%.2f"|format(st.eps_act) if st.eps_act else '—' }}</td>
+                                        <td data-cid="fy1" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy1) if st.eps_fy1 else '—' }}</td>
+                                        <td data-cid="fy2" style="{{sz2}}">{{ "%.2f"|format(st.eps_fy2) if st.eps_fy2 else '—' }}</td>
+                                        <td data-cid="opmgn" style="{{sz2}}">{{ "%.1f"|format(st.op_margin) if st.op_margin else '—' }}</td>
+                                        <td data-cid="netmgn" style="{{sz2}}">{{ "%.1f"|format(st.net_margin) if st.net_margin else '—' }}</td>
+                                        <td data-cid="roic" style="{{sz2}}">{{ "%.1f"|format(st.roic) if st.roic else '—' }}</td>
+                                        <td data-cid="fcf" style="{{sz2}}">{{ fmt_number(st.fcf) if st.fcf else '—' }}</td>
+                                        <td data-cid="ndebitda" style="{{sz2}}">{{ "%.1f"|format(st.nd_ebitda) if st.nd_ebitda else '—' }}</td>
+                                        <td data-cid="evebitda" style="{{sz2}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda else '—' }}</td>
+                                        <td data-cid="rs" style="{{sz2}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank else '—' }}</td>
+                                        <td data-cid="rschg1w" style="{{sz2}}" class="{{ 'positive' if st.rs_chg1w and st.rs_chg1w > 0 else 'negative' if st.rs_chg1w and st.rs_chg1w < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1w) if st.rs_chg1w else '—' }}</td>
+                                        <td data-cid="rschg1m" style="{{sz2}}" class="{{ 'positive' if st.rs_chg1m and st.rs_chg1m > 0 else 'negative' if st.rs_chg1m and st.rs_chg1m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg1m) if st.rs_chg1m else '—' }}</td>
+                                        <td data-cid="rschg3m" style="{{sz2}}" class="{{ 'positive' if st.rs_chg3m and st.rs_chg3m > 0 else 'negative' if st.rs_chg3m and st.rs_chg3m < 0 else '' }}">{{ "%+.0f"|format(st.rs_chg3m) if st.rs_chg3m else '—' }}</td>
+                                        <td data-cid="target" style="{{sz2}}">{{ "%.0f"|format(st.target) if st.target else '—' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
-    {% endfor %}
 </div>
 {% endif %}
 
@@ -591,5 +840,134 @@ document.addEventListener('click', function(e){
         var dd = document.getElementById('ticker-dropdown'); if (dd) dd.style.display='none';
     }
 });
+
+// ===== Sector stats table (revived original): expand/collapse + tabs + sort =====
+var sectorSortDir = {};
+var _subSortDir = {};
+
+function _parseCell(text, type) {
+    var v = text.replace(/[%▶,]/g, '').replace('—', '').trim();
+    if (type === 'num') {
+        var f = parseFloat(v);
+        return isNaN(f) ? -Infinity : f;
+    }
+    return v;
+}
+
+// expand/collapse a sector's detail row (industry/all-stocks tabs)
+function toggleSectorStocks(id) {
+    var row = document.getElementById(id);
+    var arrow = document.getElementById(id.replace('sector-', 'sector-arrow-'));
+    if (row.style.display === 'none') {
+        row.style.display = 'table-row';
+        if (arrow) arrow.style.transform = 'rotate(90deg)';
+    } else {
+        row.style.display = 'none';
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
+// expand/collapse an industry's stock list inside a sector
+function toggleIndustry(id) {
+    var row = document.getElementById(id);
+    var arrow = document.getElementById('ind-arrow-' + id.replace('ind-', ''));
+    if (row.style.display === 'none') {
+        row.style.display = 'table-row';
+        if (arrow) arrow.style.transform = 'rotate(90deg)';
+    } else {
+        row.style.display = 'none';
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
+// switch a sector's "By Industry" / "All Stocks" tabs
+function switchSectorTab(sectorId, tab) {
+    var indPanel = document.getElementById('panel-ind-' + sectorId);
+    var allPanel = document.getElementById('panel-all-' + sectorId);
+    var indTab = document.getElementById('tab-ind-' + sectorId);
+    var allTab = document.getElementById('tab-all-' + sectorId);
+    if (tab === 'ind') {
+        indPanel.style.display = 'block'; allPanel.style.display = 'none';
+        indTab.classList.add('sector-tab-active'); indTab.style.color = '';
+        allTab.classList.remove('sector-tab-active'); allTab.style.color = 'var(--text-dim, #555)';
+    } else {
+        indPanel.style.display = 'none'; allPanel.style.display = 'block';
+        allTab.classList.add('sector-tab-active'); allTab.style.color = '';
+        indTab.classList.remove('sector-tab-active'); indTab.style.color = 'var(--text-dim, #555)';
+    }
+}
+
+// sort the top-level sector rows (keeping each sector's detail row paired + collapsed)
+function sortSectorTable(th, col, type) {
+    var table = document.getElementById('sector-table');
+    var tbody = table.querySelector('tbody');
+    var key = 'sec_' + col;
+    sectorSortDir[key] = !(sectorSortDir[key] || false);
+    var asc = sectorSortDir[key];
+    var pairs = [];
+    var rows = Array.from(tbody.children);
+    for (var i = 0; i < rows.length; i++) {
+        if (!rows[i].id || !rows[i].id.startsWith('sector-')) {
+            pairs.push({ header: rows[i], detail: rows[i + 1] || null });
+            i++;
+        }
+    }
+    pairs.forEach(function(p) {
+        if (p.detail) p.detail.style.display = 'none';
+        var arrow = p.header.querySelector('[id^="sector-arrow-"]');
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    });
+    pairs.sort(function(a, b) {
+        var aVal = _parseCell(a.header.cells[col].textContent, type);
+        var bVal = _parseCell(b.header.cells[col].textContent, type);
+        if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
+        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+    pairs.forEach(function(p) {
+        tbody.appendChild(p.header);
+        if (p.detail) tbody.appendChild(p.detail);
+    });
+}
+
+// sort the industry sub-table (paired rows) or a flat stock sub-table
+function sortSubTable(th, col, type, level) {
+    event.stopPropagation();
+    var table = th.closest('table');
+    var tbody = table.querySelector('tbody');
+    var key = table.id + '_' + level + '_' + col;
+    _subSortDir[key] = !(_subSortDir[key] || false);
+    var asc = _subSortDir[key];
+    if (level === 'ind') {
+        var pairs = [];
+        var rows = Array.from(tbody.children);
+        for (var i = 0; i < rows.length; i++) {
+            var nextRow = rows[i + 1];
+            if (nextRow && nextRow.id && nextRow.id.startsWith('ind-')) {
+                pairs.push({ header: rows[i], detail: nextRow }); i++;
+            } else {
+                pairs.push({ header: rows[i], detail: null });
+            }
+        }
+        pairs.sort(function(a, b) {
+            var aVal = _parseCell(a.header.cells[col] ? a.header.cells[col].textContent : '', type);
+            var bVal = _parseCell(b.header.cells[col] ? b.header.cells[col].textContent : '', type);
+            if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
+            return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+        });
+        pairs.forEach(function(p) {
+            tbody.appendChild(p.header);
+            if (p.detail) tbody.appendChild(p.detail);
+        });
+    } else {
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort(function(a, b) {
+            var aVal = _parseCell(a.cells[col] ? a.cells[col].textContent : '', type);
+            var bVal = _parseCell(b.cells[col] ? b.cells[col].textContent : '', type);
+            if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
+            return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+    }
+}
 </script>
 {% endblock %}
