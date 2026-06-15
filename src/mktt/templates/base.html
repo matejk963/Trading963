@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MKTT {% block title_suffix %}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -16,7 +16,7 @@
             <a href="{{ url_for('macro.macro_page', view='liquidity') }}" class="tab {% if active_section|default('') in ('liquidity', 'macro') %}active{% endif %}">LIQUIDITY</a>
             <a href="{{ url_for('rrg.rrg_page') }}" class="tab {% if active_section|default('') == 'rrg' %}active{% endif %}">RRG</a>
             <a href="{{ url_for('options.options_page') }}" class="tab {% if active_section|default('') == 'options' %}active{% endif %}">OPTIONS</a>
-            <a href="{{ url_for('monitor.watchlist_page') }}" class="tab {% if active_section|default('') == 'watchlist' %}active{% endif %}">WATCHLIST<span id="wl-badge" style="font-size:9px;background:var(--primary);color:white;border-radius:50%;padding:1px 5px;margin-left:4px;display:none;"></span></a>
+            <a href="{{ url_for('monitor.monitor_page') }}" class="tab {% if active_section|default('') == 'monitor' %}active{% endif %}">MONITOR<span id="wl-badge" style="font-size:9px;background:var(--primary);color:white;border-radius:50%;padding:1px 5px;margin-left:4px;display:none;"></span></a>
             <span style="margin-left:auto;cursor:pointer;font-size:12px;color:var(--text-faint,#666);padding:6px 10px;" onclick="showFreshness()" title="Data freshness">&#9202; DATA</span>
         </div>
         <div id="freshness-panel" style="display:none;position:fixed;top:40px;right:10px;z-index:900;background:var(--bg-card,#1a1a2a);border:1px solid var(--border,#333);border-radius:8px;padding:14px 18px;width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-size:12px;">

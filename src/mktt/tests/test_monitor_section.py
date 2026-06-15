@@ -61,12 +61,24 @@ def _price_panel(symbol, n=260, start=100.0, benchmark=False):
 class StubData:
     """Returns canned time_series / fundamentals; records the requested ids."""
 
-    def __init__(self, panels=None, bench=None, funds=None):
+    def __init__(self, panels=None, bench=None, funds=None, fund_series=None):
         self._panels = panels or {}
         self._bench = bench
         self._funds = funds
+        self._fund_series = fund_series
         self.ts_calls = []
         self.fund_calls = []
+        self.fund_series_calls = []
+
+    def fundamental_series(self, symbol, asof=None):
+        """Canned structured fundamental series; records the (symbol, asof) call.
+
+        Returns the deterministic dict passed at construction (the
+        ``quarterly``/``ttm``/``annual``/``forward_q`` blend the pkl port emits)."""
+        self.fund_series_calls.append((symbol, asof))
+        if self._fund_series is None:
+            return {}
+        return self._fund_series
 
     def time_series(self, ids, start=None, end=None, fields=("close", "volume")):
         ids = [ids] if isinstance(ids, str) else list(ids)
@@ -114,19 +126,42 @@ class StubComputed:
 
 
 class StubLists:
-    """In-memory ListStore stand-in (same surface as lists.ListStore)."""
+    """In-memory ListStore stand-in (same surface as lists.ListStore).
+
+    Stores each member as ``{symbol: (note, added_at)}``. ``added_at`` is a
+    monotonic incrementing int (real ``now()`` is unavailable in tests — ordering
+    only), so ``members_detailed`` can preserve / expose add order."""
 
     def __init__(self):
         self._d = {}
+        self._seq = 0
 
     def add(self, list_name, symbol, note=None):
-        self._d.setdefault(list_name, {})[symbol] = note
+        bucket = self._d.setdefault(list_name, {})
+        if symbol in bucket:
+            # re-add refreshes the note, keeps the original added_at (PK semantics).
+            bucket[symbol] = (note, bucket[symbol][1])
+        else:
+            self._seq += 1
+            bucket[symbol] = (note, self._seq)
 
     def remove(self, list_name, symbol):
         self._d.get(list_name, {}).pop(symbol, None)
 
     def members(self, list_name):
         return sorted(self._d.get(list_name, {}).keys())
+
+    def members_with_notes(self, list_name):
+        return [
+            (sym, note)
+            for sym, (note, _added) in sorted(self._d.get(list_name, {}).items())
+        ]
+
+    def members_detailed(self, list_name):
+        return [
+            (sym, note, added)
+            for sym, (note, added) in sorted(self._d.get(list_name, {}).items())
+        ]
 
     def lists(self):
         return sorted(self._d.keys())
@@ -218,15 +253,17 @@ def test_handle_single_symbol_live_kernel_shape():
     assert vm["meta"]["title"]
     assert vm["meta"]["context"]["symbol"] == "AAA"
 
-    # a price+MA figure exists, keyed by id.
+    # a price figure exists, keyed by id, rendered as Lightweight-Charts OHLC.
     fig_ids = {f["id"] for f in vm["figures"]}
     assert "monitor_price" in fig_ids
 
-    # the price figure carries close + the three MAs as traces.
+    # the price figure is an OHLC figure (LWC path, NOT Plotly) — no traces key.
     price_fig = next(f for f in vm["figures"] if f["id"] == "monitor_price")
-    trace_names = {t.get("name") for t in price_fig["traces"]}
-    assert "Close" in trace_names
-    assert {"MA50", "MA150", "MA200"} <= trace_names
+    assert price_fig["kind"] == "ohlc"
+    assert "traces" not in price_fig
+    # MA50/150/200 ride as named overlay series.
+    series_names = {s["name"] for s in price_fig["series"]}
+    assert {"MA50", "MA150", "MA200"} <= series_names
 
     # kernel ran live: rs_rank for ONE symbol is null from the kernel, so the
     # readout is taken from computed.cross_section (88.0).
@@ -243,6 +280,86 @@ def test_handle_single_symbol_live_kernel_shape():
     assert ["SPY"] in data.ts_calls
     # fundamentals requested for the symbol.
     assert ["AAA"] in data.fund_calls
+
+
+def _ohlc_fig(panels=None):
+    """Run handle() for AAA and return its monitor_price (ohlc) figure."""
+    panel = panels["AAA"] if panels else _price_panel("AAA")
+    bench = _price_panel("SPY", start=400.0)
+    data = StubData(panels={"AAA": panel}, bench=bench, funds=_funds_frame())
+    computed = StubComputed(cross=None)
+    vm = handle(MonitorRequest.from_symbol("AAA"), data, computed, KERNEL, StubLists())
+    return next(f for f in vm["figures"] if f["id"] == "monitor_price"), panel
+
+
+def test_ohlc_bars_open_is_prior_close():
+    """Behavior 2 — bars carry t/o/h/l/c; open == prior bar's close; the first
+    bar's open == its own close (FORK-1: universe has no open)."""
+    fig, panel = _ohlc_fig()
+    bars = fig["bars"]
+    assert len(bars) == len(panel)
+    # shape of a bar.
+    assert set(bars[0]) >= {"time", "open", "high", "low", "close"}
+    # first bar: open == its own close.
+    assert bars[0]["open"] == bars[0]["close"]
+    # every subsequent bar: open == prior bar's close.
+    for i in range(1, len(bars)):
+        assert bars[i]["open"] == bars[i - 1]["close"]
+
+
+def test_ohlc_series_ma_aligned_to_bars():
+    """Behavior 3 — series carries MA50/150/200, each a {time,value} array
+    aligned 1:1 with bars by time."""
+    fig, _ = _ohlc_fig()
+    bar_times = [b["time"] for b in fig["bars"]]
+    by_name = {s["name"]: s for s in fig["series"]}
+    assert {"MA50", "MA150", "MA200"} <= set(by_name)
+    for name in ("MA50", "MA150", "MA200"):
+        pts = by_name[name]["data"]
+        assert [p["time"] for p in pts] == bar_times
+        assert all(set(p) == {"time", "value"} for p in pts)
+
+
+def test_ohlc_volume_present_as_time_value():
+    """Behavior 4 — volume block present, each entry {time,value}."""
+    fig, _ = _ohlc_fig()
+    vol = fig["volume"]
+    assert len(vol) == len(fig["bars"])
+    assert all(set(v) == {"time", "value"} for v in vol)
+    # the stub panel has constant volume 1_000_000.
+    assert vol[0]["value"] == 1_000_000.0
+
+
+def test_ohlc_nan_values_serialize_to_none():
+    """Behavior 5 — NaN MA values (warm-up window) serialize to None (JSON-safe)."""
+    fig, _ = _ohlc_fig()
+    # MA200 over a 260-bar walk has a long NaN warm-up at the head.
+    ma200 = next(s for s in fig["series"] if s["name"] == "MA200")["data"]
+    assert ma200[0]["value"] is None
+    # and resolves to a number once the window fills.
+    assert ma200[-1]["value"] is not None
+
+
+def test_ohlc_notes_flag_synthetic_open():
+    """Behavior 6 — notes.synthetic_open is True (FORK-1 UX flag)."""
+    fig, _ = _ohlc_fig()
+    assert fig["notes"]["synthetic_open"] is True
+
+
+def test_ohlc_benchmark_aligned_to_bars():
+    """Slice 3 / #10 — the ohlc figure carries a non-empty ``benchmark`` series
+    (SPY close) aligned 1:1 with ``bars`` by ``time`` (the client recomputes
+    Mansfield RS on the displayed timeframe from this)."""
+    fig, _ = _ohlc_fig()
+    bench = fig["benchmark"]
+    # non-empty, one point per bar, same time axis.
+    assert len(bench) == len(fig["bars"])
+    assert len(bench) > 0
+    assert [b["time"] for b in bench] == [bar["time"] for bar in fig["bars"]]
+    assert all(set(b) == {"time", "value"} for b in bench)
+    # carries real benchmark closes (the SPY panel starts at 400.0).
+    assert any(b["value"] is not None for b in bench)
+    assert bench[0]["value"] == 400.0
 
 
 def test_handle_rs_rank_null_when_kernel_only_one_symbol():
@@ -288,9 +405,16 @@ def test_handle_history_figure_from_computed():
     fig_ids = {f["id"] for f in vm["figures"]}
     assert "monitor_history" in fig_ids
     hfig = next(f for f in vm["figures"] if f["id"] == "monitor_history")
-    names = {t.get("name") for t in hfig["traces"]}
-    # RS-rank / stage evolution traces present.
-    assert "RS Rank" in names or "Stage" in names
+    # Slice 6: the indicators panel is now a non-Plotly LWC pane (kind:"indicators"
+    # carrying `series`), not a Plotly 3-axis figure.
+    assert hfig["kind"] == "indicators"
+    assert "traces" not in hfig
+    names = {s.get("name") for s in hfig["series"]}
+    # RS Rank / Mansfield RS / Stage indicator series present (names exact so the
+    # .ind-tog checkboxes match by data-ind).
+    assert "RS Rank" in names
+    assert "Mansfield RS" in names
+    assert "Stage" in names
 
 
 def test_handle_missing_symbol_is_empty_status():
@@ -406,6 +530,190 @@ def test_blueprint_chart_route_is_thin(monkeypatch):
     assert any(f["id"] == "monitor_price" for f in payload["figures"])
 
 
+# --------------------------------------------------------------------------- #
+# rail — the saved-instrument rail VM (Slice 1: workspace spine + rail)
+# --------------------------------------------------------------------------- #
+def _rail_cross():
+    cross = pd.DataFrame.from_dict(
+        {
+            "AAA": {"stage": 2, "rs_rank": 88.0},
+            "BBB": {"stage": 4, "rs_rank": 12.0},
+        },
+        orient="index",
+    )
+    cross.index.name = "symbol"
+    return cross
+
+
+def test_members_detailed_preserves_add_order():
+    """Behavior 1 — members_detailed returns (symbol, note, added_at); added_at
+    is monotonic in add order (it's the recently-added sort key)."""
+    lists = StubLists()
+    lists.add("default", "AAA", note="long")
+    lists.add("default", "BBB", note="short")
+    detailed = {sym: (note, added) for sym, note, added in lists.members_detailed("default")}
+    assert set(detailed) == {"AAA", "BBB"}
+    assert detailed["AAA"][0] == "long"
+    # BBB was added after AAA -> strictly larger added_at.
+    assert detailed["BBB"][1] > detailed["AAA"][1]
+
+
+def test_rail_enriches_entries_with_stage_and_rs_rank():
+    """Behavior 2 — rail joins each member against computed.cross_section()."""
+    lists = StubLists()
+    lists.add("default", "AAA", note="long")
+    lists.add("default", "BBB", note="short")
+    computed = StubComputed(cross=_rail_cross())
+
+    out = svc.rail(lists, computed, "default")
+    entries = {e["symbol"]: e for e in out["meta"]["context"]["entries"]}
+    assert entries["AAA"]["stage"] == 2
+    assert entries["AAA"]["rs_rank"] == 88.0
+    assert entries["BBB"]["stage"] == 4
+    assert entries["BBB"]["rs_rank"] == 12.0
+
+
+def test_rail_side_defaults_long_reads_short_from_note():
+    """Behavior 3 — side defaults to "long" with no note; "short" read from note."""
+    lists = StubLists()
+    lists.add("default", "AAA")  # no note -> long
+    lists.add("default", "BBB", note="short")
+    computed = StubComputed(cross=_rail_cross())
+
+    out = svc.rail(lists, computed, "default")
+    entries = {e["symbol"]: e for e in out["meta"]["context"]["entries"]}
+    assert entries["AAA"]["side"] == "long"
+    assert entries["BBB"]["side"] == "short"
+
+
+def test_rail_default_orders_recently_added_first():
+    """Behavior 4 — entries default-ordered by added_at desc (recent first)."""
+    lists = StubLists()
+    lists.add("default", "AAA")
+    lists.add("default", "BBB")
+    lists.add("default", "CCC")
+    computed = StubComputed(cross=_rail_cross())
+
+    out = svc.rail(lists, computed, "default")
+    order = [e["symbol"] for e in out["meta"]["context"]["entries"]]
+    assert order == ["CCC", "BBB", "AAA"]
+
+
+def test_rail_row_for_symbol_missing_from_cross_section():
+    """Behavior 5 — a member absent from the cross-section still renders, with
+    stage=None, rs_rank=None."""
+    lists = StubLists()
+    lists.add("default", "ZZZ")
+    computed = StubComputed(cross=_rail_cross())  # no ZZZ row
+
+    out = svc.rail(lists, computed, "default")
+    entries = out["meta"]["context"]["entries"]
+    assert len(entries) == 1
+    assert entries[0]["symbol"] == "ZZZ"
+    assert entries[0]["stage"] is None
+    assert entries[0]["rs_rank"] is None
+
+
+def test_rail_empty_list():
+    """Behavior 6 — an empty list -> status="empty", count==0, entries==[]."""
+    out = svc.rail(StubLists(), StubComputed(cross=_rail_cross()), "default")
+    assert out["meta"]["status"] == "empty"
+    assert out["meta"]["readouts"]["count"] == 0
+    assert out["meta"]["context"]["entries"] == []
+
+
+# --------------------------------------------------------------------------- #
+# blueprint — workspace shell + rail API + redirects (Slice 1)
+# --------------------------------------------------------------------------- #
+def _monitor_app(monkeypatch, lists=None, computed=None):
+    """A minimal Flask app that renders the workspace shell + base chrome.
+
+    base.html references ``url_for`` for every section tab and a ``now`` value, so
+    the app registers light stub blueprints for the other sections' page endpoints
+    and a ``now`` context — enough for the template to render without spinning the
+    DB-backed ``create_app``. The monitor blueprint is the real one under test."""
+    import os
+
+    from flask import Blueprint, Flask
+    from sections.monitor import routes
+
+    monkeypatch.setitem(routes._PROVIDERS, "lists", lists if lists is not None else StubLists())
+    if computed is not None:
+        monkeypatch.setitem(routes._PROVIDERS, "computed", computed)
+
+    base_templates = os.path.join(os.path.dirname(__file__), "..", "templates")
+    app = Flask(__name__, template_folder=base_templates)
+    app.register_blueprint(routes.monitor_bp)
+
+    # Stub the sibling-section page endpoints base.html links to (url_for targets).
+    for name, endpoint in (
+        ("screener", "screener_page"),
+        ("options", "options_page"),
+        ("rrg", "rrg_page"),
+        ("macro", "macro_page"),
+    ):
+        bp = Blueprint(name, name)
+        bp.add_url_rule(f"/_{name}", endpoint, lambda: "")
+        app.register_blueprint(bp)
+
+    @app.context_processor
+    def _inject_now():
+        import datetime
+        return {"now": datetime.datetime.utcnow()}
+
+    return app
+
+
+def test_blueprint_monitor_page(monkeypatch):
+    """Behavior 7 — GET /monitor -> 200, renders the workspace shell."""
+    app = _monitor_app(monkeypatch)
+    resp = app.test_client().get("/monitor")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # the workspace shell carries the rail host (not the retired watchlist page).
+    assert "monitor-rail" in body
+
+
+def test_blueprint_monitor_page_with_symbol(monkeypatch):
+    """Behavior 8 — GET /monitor/AAA -> 200, shell carries symbol="AAA"."""
+    app = _monitor_app(monkeypatch)
+    resp = app.test_client().get("/monitor/AAA")
+    assert resp.status_code == 200
+    assert "AAA" in resp.get_data(as_text=True)
+
+
+def test_blueprint_chart_redirects_to_monitor(monkeypatch):
+    """Behavior 9 — GET /chart/AAA -> 302 -> /monitor/AAA."""
+    app = _monitor_app(monkeypatch)
+    resp = app.test_client().get("/chart/AAA")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/monitor/AAA")
+
+
+def test_blueprint_watchlist_redirects_to_monitor(monkeypatch):
+    """Behavior 10 — GET /watchlist -> 302 -> /monitor."""
+    app = _monitor_app(monkeypatch)
+    resp = app.test_client().get("/watchlist")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/monitor")
+
+
+def test_blueprint_monitor_rail_api(monkeypatch):
+    """Behavior 11 — GET /api/monitor/rail?list=default -> 200, JSON envelope
+    with context.entries."""
+    lists = StubLists()
+    lists.add("default", "AAA", note="long")
+    app = _monitor_app(monkeypatch, lists=lists, computed=StubComputed(cross=_rail_cross()))
+    resp = app.test_client().get("/api/monitor/rail?list=default")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["meta"]["status"] == "ok"
+    entries = payload["meta"]["context"]["entries"]
+    assert [e["symbol"] for e in entries] == ["AAA"]
+    assert entries[0]["stage"] == 2
+    assert entries[0]["rs_rank"] == 88.0
+
+
 def test_blueprint_watchlist_get_post(monkeypatch):
     from flask import Flask
     from sections.monitor import routes
@@ -424,3 +732,371 @@ def test_blueprint_watchlist_get_post(monkeypatch):
     r = client.get("/api/watchlist?list=default")
     payload = r.get_json()
     assert payload["meta"]["readouts"]["members"] == ["AAA"]
+
+
+# --------------------------------------------------------------------------- #
+# fundamental pane — EPS + Sales (actual + forecast + band) · Slice 4 / #11
+# --------------------------------------------------------------------------- #
+def _fund_series_fixture():
+    """A small deterministic structured fundamental series (the shape the pkl
+    port emits): quarterly actuals, rolling TTM, annual FY actual + FY1/FY2
+    forward, and the forward-quarterly mean/high/low fan."""
+    return {
+        "quarterly": {
+            "dates": ["2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"],
+            "eps": [1.0, 1.1, 1.2, 1.3],
+            "revenue": [100.0, 110.0, 120.0, 130.0],
+        },
+        "ttm": {
+            "dates": ["2024-09-30", "2024-12-31"],
+            "eps": [4.2, 4.6],
+            "revenue": [420.0, 460.0],
+        },
+        "annual": {
+            "fy_dates": ["2022-12-31", "2023-12-31", "2024-12-31"],
+            "eps": [3.0, 4.0, 4.6],
+            "fwd_dates": ["2025-12-31", "2026-12-31"],
+            "eps_mean": [5.0, 5.6],
+            "eps_high": [5.4, 6.2],
+            "eps_low": [4.6, 5.0],
+            "rev": [380.0, 420.0, 460.0],
+            "rev_mean": [500.0, 560.0],
+            "rev_high": [540.0, 620.0],
+            "rev_low": [460.0, 500.0],
+        },
+        "forward_q": {
+            "dates": ["2025-03-31", "2025-06-30", "2025-09-30"],
+            "eps_mean": [1.4, 1.5, 1.6],
+            "eps_high": [1.5, 1.7, 1.9],
+            "eps_low": [1.3, 1.3, 1.3],
+            "rev_mean": [140.0, 150.0, 160.0],
+            "rev_high": [150.0, 170.0, 190.0],
+            "rev_low": [130.0, 130.0, 130.0],
+        },
+    }
+
+
+def _fund_data(series=None):
+    return StubData(fund_series=series if series is not None else _fund_series_fixture())
+
+
+# --- PE/PS basis fixtures (Slice 5 / #12) ----------------------------------- #
+#: distinct period-end closes at each quarterly report_date, and a DIFFERENT
+#: current (last) close, so the period-end vs current basis is observable.
+_PERIOD_END_CLOSE = {
+    "2024-03-31": 200.0,
+    "2024-06-30": 210.0,
+    "2024-09-30": 220.0,
+    "2024-12-31": 230.0,
+}
+_CURRENT_CLOSE = 300.0  # the last bar's close (forward & TTM basis).
+_SHARES = 50.0  # shares_outstanding (PS uses it).
+
+
+def _ratio_price_panel(symbol="AAA"):
+    """A daily close panel: a close on each quarterly report_date (period-end) plus
+    a final, distinct current close two months past the last report (last bar)."""
+    rows = sorted(_PERIOD_END_CLOSE.items())
+    dates = [pd.Timestamp(d) for d, _ in rows]
+    closes = [c for _, c in rows]
+    # append a current bar AFTER the last report date with a distinct close.
+    dates.append(pd.Timestamp("2025-02-28"))
+    closes.append(_CURRENT_CLOSE)
+    df = pd.DataFrame(
+        {"close": closes, "high": closes, "low": closes,
+         "volume": [1.0] * len(closes)},
+        index=pd.MultiIndex.from_product([[symbol], dates], names=["symbol", "date"]),
+    )
+    return df
+
+
+def _ratio_funds(shares=_SHARES):
+    df = pd.DataFrame.from_dict(
+        {"AAA": {"price_close": _CURRENT_CLOSE, "shares_outstanding": shares,
+                 "eps_actual": 10.0, "gics_sector": "Tech"}},
+        orient="index",
+    )
+    df.index.name = "symbol"
+    return df
+
+
+def _ratio_data(series=None, shares=_SHARES):
+    """StubData wired for PE/PS: fund_series blend + price panel + funds (shares)."""
+    return StubData(
+        panels={"AAA": _ratio_price_panel()},
+        funds=_ratio_funds(shares),
+        fund_series=series if series is not None else _fund_series_fixture(),
+    )
+
+
+def test_fundamentals_view_emits_pe_and_ps_figures():
+    """Behavior 1 (#12) — fundamentals_view ALSO emits fund_pe + fund_ps."""
+    out = svc.fundamentals_view("AAA", _ratio_data())
+    fig_ids = {f["id"] for f in out["figures"]}
+    assert {"fund_pe", "fund_ps"} <= fig_ids
+
+
+def test_fundamentals_view_pe_historical_period_end_forward_current():
+    """Behavior 2 (#12) — historical PE uses the PERIOD-END price (close at each
+    report_date); the forward forecast uses the CURRENT (last close) price."""
+    fix = _fund_series_fixture()
+    out = svc.fundamentals_view("AAA", _ratio_data(), granularity="Q")
+    fig = _fund_fig(out, "fund_pe")
+    actual = fig["traces"][0]
+    # each historical quarter's PE = period-end close / that quarter's EPS.
+    expected_actual = [
+        _PERIOD_END_CLOSE[d] / eps
+        for d, eps in zip(fix["quarterly"]["dates"], fix["quarterly"]["eps"])
+    ]
+    assert actual["y"] == expected_actual
+    # forecast PE = CURRENT price / forward EPS mean (not the period-end basis).
+    forecast = next(t for t in fig["traces"] if t.get("name") == "Forecast")
+    expected_fwd = [_CURRENT_CLOSE / v for v in fix["forward_q"]["eps_mean"]]
+    assert forecast["y"] == expected_fwd
+
+
+def test_fundamentals_view_ttm_uses_current_price():
+    """Behavior 2 (#12) — the whole TTM domain (actual + forward) uses the CURRENT
+    price, not a period-end price."""
+    fix = _fund_series_fixture()
+    out = svc.fundamentals_view("AAA", _ratio_data(), granularity="TTM")
+    fig = _fund_fig(out, "fund_pe")
+    actual = fig["traces"][0]
+    expected = [_CURRENT_CLOSE / eps for eps in fix["ttm"]["eps"]]
+    assert actual["y"] == expected
+
+
+def test_fundamentals_view_emits_eps_and_sales_figures():
+    """Behavior 1 — fundamentals_view emits both fund_eps and fund_sales."""
+    data = _fund_data()
+    out = svc.fundamentals_view("AAA", data)
+    assert out["meta"]["status"] == "ok"
+    fig_ids = {f["id"] for f in out["figures"]}
+    assert {"fund_eps", "fund_sales"} <= fig_ids
+
+
+def _fund_fig(out, fig_id):
+    return next(f for f in out["figures"] if f["id"] == fig_id)
+
+
+def test_fundamentals_view_actual_forecast_band_per_figure():
+    """Behavior 2 — each figure has an actual trace + a dashed forecast trace + a
+    high/low band (fill)."""
+    out = svc.fundamentals_view("AAA", _fund_data())
+    for fig_id in ("fund_eps", "fund_sales"):
+        fig = _fund_fig(out, fig_id)
+        by_name = {t.get("name"): t for t in fig["traces"]}
+        # an actual (solid) trace.
+        assert "Actual" in by_name
+        assert by_name["Actual"].get("line", {}).get("dash") != "dash"
+        # a forecast trace, dashed.
+        assert "Forecast" in by_name
+        assert by_name["Forecast"]["line"]["dash"] == "dash"
+        # a high/low band: a filled trace exists.
+        assert any(t.get("fill") for t in fig["traces"])
+
+
+def test_fundamentals_view_granularity_switches_series_set():
+    """Behavior 3 — Q/Y/TTM select distinct series sets (different actual + forecast
+    points per granularity)."""
+    data = _fund_data()
+    fix = _fund_series_fixture()
+
+    def actual(out, fig_id="fund_eps"):
+        return _fund_fig(out, fig_id)["traces"][0]  # the Actual trace is first.
+
+    q = svc.fundamentals_view("AAA", data, granularity="Q")
+    y = svc.fundamentals_view("AAA", data, granularity="Y")
+    ttm = svc.fundamentals_view("AAA", data, granularity="TTM")
+
+    # Q EPS actual == the quarterly actuals.
+    assert actual(q)["y"] == fix["quarterly"]["eps"]
+    assert actual(q)["x"] == fix["quarterly"]["dates"]
+    # Y EPS actual == the annual FY actuals.
+    assert actual(y)["y"] == fix["annual"]["eps"]
+    assert actual(y)["x"] == fix["annual"]["fy_dates"]
+    # TTM EPS actual == the rolling-TTM series.
+    assert actual(ttm)["y"] == fix["ttm"]["eps"]
+    assert actual(ttm)["x"] == fix["ttm"]["dates"]
+
+    # forecast also differs: Q forecast uses the forward-quarterly fan dates.
+    def forecast(out, fig_id="fund_eps"):
+        return next(t for t in _fund_fig(out, fig_id)["traces"] if t.get("name") == "Forecast")
+
+    assert forecast(q)["x"] == fix["forward_q"]["dates"]
+    assert forecast(y)["x"] == fix["annual"]["fwd_dates"]
+    assert forecast(q)["x"] != forecast(y)["x"]
+
+
+def test_fundamentals_view_ps_uses_shares_outstanding():
+    """Behavior 3 (#12) — PS = market cap / sales = price*shares/revenue_dollars,
+    using shares_outstanding from data.fundamentals.
+
+    ``revenue`` from data.fundamental_series is in $ MILLIONS while shares is a raw
+    count, so revenue is scaled to dollars (``* 1e6``) before dividing — the units
+    must match (see the PS unit-bug fix)."""
+    fix = _fund_series_fixture()
+    out = svc.fundamentals_view("AAA", _ratio_data(), granularity="Q")
+    fig = _fund_fig(out, "fund_ps")
+    actual = fig["traces"][0]
+    expected = [
+        _PERIOD_END_CLOSE[d] * _SHARES / (rev * 1e6)
+        for d, rev in zip(fix["quarterly"]["dates"], fix["quarterly"]["revenue"])
+    ]
+    assert actual["y"] == expected
+
+
+def test_fundamentals_view_ps_units_are_a_sane_ratio_not_inflated():
+    """Regression guard (PS unit bug) — with a realistic stub (raw share count in
+    the billions, revenue in $ MILLIONS) the resulting P/S must be a small multiple,
+    NOT inflated by ~1e6.
+
+    Reproduces the INTC symptom: revenue in $m divided into a raw share count gave a
+    P/S of ~1e7. Pins the expected P/S for a known stub so the unit can't silently
+    regress."""
+    # INTC-like stub: price 125, ~4.3e9 shares, ~$53.4B annual revenue expressed in
+    # $ MILLIONS (4 quarters of 13350) -> P/S = 125 * 4.3e9 / 53.4e9 ≈ 10.07.
+    price = 125.0
+    shares = 4.3e9
+    rev_m = 13_350.0  # one quarter's revenue in $ millions ($13.35B)
+
+    ps = svc._ps(price, rev_m, shares)
+    assert ps is not None
+    assert 0 < ps < 1000, f"P/S should be a small multiple, got {ps!r} (unit bug?)"
+    # pinned expectation for this exact stub.
+    assert ps == pytest.approx(125.0 * 4.3e9 / (13_350.0 * 1e6))
+    assert ps == pytest.approx(40.262172, rel=1e-6)
+
+
+def test_fundamentals_view_ratio_guards_nonpositive_to_none():
+    """Behavior 3 (#12) — divide-by-zero / non-positive EPS or revenue -> None (no
+    fabricated point); missing shares -> PS None."""
+    fix = _fund_series_fixture()
+    # zero + negative EPS in the quarterly actuals -> PE None at those periods.
+    fix["quarterly"]["eps"] = [0.0, -1.1, 1.2, 1.3]
+    # zero revenue at the first period -> PS None there.
+    fix["quarterly"]["revenue"] = [0.0, 110.0, 120.0, 130.0]
+    out = svc.fundamentals_view("AAA", _ratio_data(series=fix), granularity="Q")
+    pe_actual = _fund_fig(out, "fund_pe")["traces"][0]["y"]
+    assert pe_actual[0] is None and pe_actual[1] is None  # zero + negative EPS.
+    assert pe_actual[2] is not None
+    ps_actual = _fund_fig(out, "fund_ps")["traces"][0]["y"]
+    assert ps_actual[0] is None  # zero revenue.
+    assert ps_actual[1] is not None
+
+    # missing shares_outstanding -> PS None everywhere.
+    out2 = svc.fundamentals_view("AAA", _ratio_data(shares=None), granularity="Q")
+    assert all(v is None for v in _fund_fig(out2, "fund_ps")["traces"][0]["y"])
+
+
+def test_fundamentals_view_pe_ps_honor_toggle_divider_asof():
+    """Behavior 4 (#12) — PE/PS honor the same Q/Y/TTM toggle + today-divider, and
+    asof threads through to data.fundamental_series (as #11)."""
+    fix = _fund_series_fixture()
+
+    def actual_x(out, fig_id):
+        return _fund_fig(out, fig_id)["traces"][0]["x"]
+
+    q = svc.fundamentals_view("AAA", _ratio_data(), granularity="Q")
+    y = svc.fundamentals_view("AAA", _ratio_data(), granularity="Y")
+    ttm = svc.fundamentals_view("AAA", _ratio_data(), granularity="TTM")
+    for fig_id in ("fund_pe", "fund_ps"):
+        # toggle selects the actual-period dates (Q quarterly / Y FY / TTM rolling).
+        assert actual_x(q, fig_id) == fix["quarterly"]["dates"]
+        assert actual_x(y, fig_id) == fix["annual"]["fy_dates"]
+        assert actual_x(ttm, fig_id) == fix["ttm"]["dates"]
+        # a today-divider shape at the forecast boundary, per granularity.
+        for out, boundary in (
+            (q, fix["forward_q"]["dates"][0]),
+            (y, fix["annual"]["fwd_dates"][0]),
+        ):
+            shapes = _fund_fig(out, fig_id)["layout"].get("shapes", [])
+            assert len(shapes) >= 1
+            assert shapes[0]["x0"] == shapes[0]["x1"] == boundary
+            assert shapes[0]["yref"] == "paper"
+
+    # asof threads through (same plumbing as #11).
+    data = _ratio_data()
+    svc.fundamentals_view("AAA", data, asof="2024-09-30")
+    assert ("AAA", "2024-09-30") in data.fund_series_calls
+
+
+def test_fundamentals_view_today_divider_shape():
+    """Behavior 4 — each figure's layout carries a vertical today-divider shape at
+    the actual/forecast boundary (the first forecast date)."""
+    out = svc.fundamentals_view("AAA", _fund_data(), granularity="Q")
+    boundary = _fund_series_fixture()["forward_q"]["dates"][0]
+    for fig_id in ("fund_eps", "fund_sales"):
+        shapes = _fund_fig(out, fig_id)["layout"].get("shapes", [])
+        assert len(shapes) >= 1
+        div = shapes[0]
+        # a full-height (paper-referenced) vertical line at the boundary date.
+        assert div["x0"] == div["x1"] == boundary
+        assert div["type"] == "line"
+        assert div.get("yref") == "paper"
+
+
+def test_fundamentals_view_asof_passes_through_and_defaults_none():
+    """Behavior 5 — asof threads into data.fundamental_series(asof=…); omitted ->
+    None (latest)."""
+    data = _fund_data()
+    # explicit asof is forwarded verbatim.
+    svc.fundamentals_view("AAA", data, asof="2024-09-30")
+    assert ("AAA", "2024-09-30") in data.fund_series_calls
+    # omitted -> defaults to None (latest).
+    data2 = _fund_data()
+    svc.fundamentals_view("AAA", data2)
+    assert data2.fund_series_calls == [("AAA", None)]
+
+
+def test_fundamentals_view_forecast_only_as_deep_as_data():
+    """Behavior 6 — forward points render only as deep as the data holds; no
+    fabricated points for thin names (the forecast length tracks the forward dates,
+    never padded out to a fixed horizon)."""
+    thin = _fund_series_fixture()
+    # a thin name: only TWO forward quarters of EPS estimates.
+    thin["forward_q"] = {
+        "dates": ["2025-03-31", "2025-06-30"],
+        "eps_mean": [1.4, 1.5],
+        "eps_high": [1.5, 1.7],
+        "eps_low": [1.3, 1.3],
+        "rev_mean": [140.0, 150.0],
+        "rev_high": [150.0, 170.0],
+        "rev_low": [130.0, 130.0],
+    }
+    out = svc.fundamentals_view("AAA", _fund_data(thin), granularity="Q")
+    fig = _fund_fig(out, "fund_eps")
+    forecast = next(t for t in fig["traces"] if t.get("name") == "Forecast")
+    assert forecast["x"] == thin["forward_q"]["dates"]
+    assert len(forecast["y"]) == 2  # not padded out to 8.
+    # the band tracks the same depth.
+    for t in fig["traces"]:
+        if t.get("fill"):
+            assert len(t["y"]) == 2
+
+
+def test_blueprint_fundamentals_route_is_thin(monkeypatch):
+    """Behavior — GET /api/monitor/fundamentals/<sym>?granularity=&asof= ->
+    fundamentals_view -> jsonify (focused 2x2 payload; granularity + asof forwarded)."""
+    from flask import Flask
+    from sections.monitor import routes
+
+    data = _fund_data()
+    monkeypatch.setitem(routes._PROVIDERS, "data", data)
+    monkeypatch.setitem(routes._PROVIDERS, "computed", StubComputed())
+    monkeypatch.setitem(routes._PROVIDERS, "kernel", KERNEL)
+    monkeypatch.setitem(routes._PROVIDERS, "lists", StubLists())
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.monitor_bp)
+    client = app.test_client()
+
+    resp = client.get("/api/monitor/fundamentals/AAA?granularity=Y&asof=2024-09-30")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["meta"]["status"] == "ok"
+    assert payload["meta"]["context"]["granularity"] == "Y"
+    fig_ids = {f["id"] for f in payload["figures"]}
+    assert {"fund_eps", "fund_sales"} <= fig_ids
+    # the route forwarded granularity + asof to the service (via the stub).
+    assert ("AAA", "2024-09-30") in data.fund_series_calls

@@ -121,6 +121,27 @@ def test_note_is_persisted(store):
 
 
 # --------------------------------------------------------------------------- #
+# members_detailed — (symbol, note, added_at) for the Monitor rail
+# --------------------------------------------------------------------------- #
+
+def test_members_detailed_returns_symbol_note_added_at(store):
+    store.add("watch", "AAPL", note="long")
+    store.add("watch", "MSFT", note="short")
+    detailed = store.members_detailed("watch")
+    by_sym = {row[0]: row for row in detailed}
+    assert set(by_sym) == {"AAPL", "MSFT"}
+    # note round-trips and added_at is populated (DB default now()).
+    assert by_sym["AAPL"][1] == "long"
+    assert by_sym["MSFT"][1] == "short"
+    assert by_sym["AAPL"][2] is not None
+    assert by_sym["MSFT"][2] is not None
+
+
+def test_members_detailed_empty_list(store):
+    assert store.members_detailed("does-not-exist") == []
+
+
+# --------------------------------------------------------------------------- #
 # remove
 # --------------------------------------------------------------------------- #
 

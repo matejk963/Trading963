@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from .service import (
     MonitorRequest,
+    fundamentals_view,
     handle,
+    rail,
     watchlist_add,
     watchlist_members,
     watchlist_remove,
@@ -17,7 +19,9 @@ from .service import (
 
 __all__ = [
     "MonitorRequest",
+    "fundamentals_view",
     "handle",
+    "rail",
     "watchlist_members",
     "watchlist_add",
     "watchlist_remove",

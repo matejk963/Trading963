@@ -19,7 +19,7 @@ stays method-agnostic and testable with stubs.
 """
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 from . import service
 from .service import MonitorRequest, handle
@@ -57,10 +57,20 @@ def _providers():
 # ------------------------------------------------------------------ #
 # per-security view
 # ------------------------------------------------------------------ #
+@monitor_bp.route("/monitor")
+@monitor_bp.route("/monitor/<symbol>")
+def monitor_page(symbol=None):
+    """Render the unified workspace shell (detail pane left + rail right).
+
+    ``/monitor`` is the bare workspace; ``/monitor/<symbol>`` deep-links a name
+    into the detail pane (Slice 1)."""
+    return render_template("monitor.html", symbol=symbol, active_section="monitor")
+
+
 @monitor_bp.route("/chart/<symbol>")
 def chart_page(symbol):
-    """Render the Monitor shell — placeholder divs + fetch->renderViewModel."""
-    return render_template("monitor.html", symbol=symbol, active_section="monitor")
+    """Deep-link retired -> 302 to the workspace (old bookmarks don't 404)."""
+    return redirect(url_for("monitor.monitor_page", symbol=symbol))
 
 
 @monitor_bp.route("/api/chart/<symbol>")
@@ -85,13 +95,35 @@ def monitor_multi_api():
     return jsonify(vm_out)
 
 
+@monitor_bp.route("/api/monitor/fundamentals/<symbol>")
+def monitor_fundamentals_api(symbol):
+    """Focused fundamental 2x2 payload (Slice 4 / #11) -> jsonify.
+
+    A separate endpoint from the full monitor envelope so a granularity toggle
+    re-renders ONLY the EPS/Sales (PE/PS later) figures, never the candle chart.
+    ``?granularity=Q|Y|TTM`` (default ``Q``) + ``?asof=YYYY-MM-DD`` (default latest)
+    thread straight into ``fundamentals_view`` (the thin parse->service route)."""
+    data, _, _, _ = _providers()
+    granularity = request.args.get("granularity") or "Q"
+    asof = request.args.get("asof") or None
+    return jsonify(service.fundamentals_view(symbol, data, granularity=granularity, asof=asof))
+
+
+@monitor_bp.route("/api/monitor/rail")
+def monitor_rail_api():
+    """Saved-instrument rail VM (Slice 1) -> jsonify (the thin parse->service route)."""
+    _, computed, _, lists = _providers()
+    list_name = request.args.get("list") or service.DEFAULT_LIST
+    return jsonify(service.rail(lists, computed, list_name))
+
+
 # ------------------------------------------------------------------ #
 # watchlist — Monitor reads the shared lists; add/remove proxy to the store
 # ------------------------------------------------------------------ #
 @monitor_bp.route("/watchlist")
 def watchlist_page():
-    """Render the watchlist shell (MKLists-backed — adr/0002 §4)."""
-    return render_template("watchlist.html", active_section="watchlist")
+    """Standalone watchlist retired -> 302 to the unified workspace (Slice 1)."""
+    return redirect(url_for("monitor.monitor_page"))
 
 
 @monitor_bp.route("/api/watchlist", methods=["GET", "POST"])

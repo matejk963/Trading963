@@ -146,6 +146,20 @@ class ListStore:
         )
         return [(r[0], r[1]) for r in rows]
 
+    def members_detailed(self, list_name: str) -> List[tuple]:
+        """`(symbol, note, added_at)` triples in `list_name`, ordered by symbol.
+
+        Adds `added_at` (the Monitor rail's `recently-added` sort key) on top of
+        `members_with_notes`. Ordering is by symbol for a deterministic read; the
+        caller re-orders by `added_at` when it wants recency."""
+        rows = self._execute(
+            f"SELECT symbol, note, added_at FROM {self._table} "
+            "WHERE list_name = %s ORDER BY symbol",
+            (list_name,),
+            fetch=True,
+        )
+        return [(r[0], r[1], r[2]) for r in rows]
+
     def lists(self) -> List[str]:
         """All distinct list names, ordered by name."""
         rows = self._execute(

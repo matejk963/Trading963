@@ -55,9 +55,10 @@ class DataSource:
         `data.fetch_universe(...)` without re-resolving.
     """
 
-    def __init__(self, registry: Registry, _equity=None) -> None:
+    def __init__(self, registry: Registry, _equity=None, fundamental_series=None) -> None:
         self._registry = registry
         self._equity = _equity
+        self._fundamental_series = fundamental_series
 
     # ------------------------------------------------------------------ #
     # time_series (spec §5.3)
@@ -133,6 +134,23 @@ class DataSource:
             return self.fundamentals([]).iloc[0:0]
         submodule = self._registry.resolve("fundamentals", ids[0])
         return submodule.quarterly(ids, fields=fields)
+
+    # ------------------------------------------------------------------ #
+    # fundamental_series (Slice #11 / FORK-2) — pkl-backed actual+forecast blend
+    # ------------------------------------------------------------------ #
+    def fundamental_series(self, symbol, asof=None):
+        """symbol + asof -> the structured EPS/Sales actual+forecast blend.
+
+        Delegates to the pkl-backed ``build_fundamental_series`` access (FORK-2 —
+        the forward-quarterly fan lives only in the legacy pkl). Built lazily on
+        first call so the import stays side-effect-free and a price-only DataSource
+        (no fundamentals wired) still constructs. The structured dict shape is
+        documented in ``datasource.fundamental_series``.
+        """
+        if self._fundamental_series is None:
+            from .fundamental_series import build_fundamental_series
+            self._fundamental_series = build_fundamental_series()
+        return self._fundamental_series(symbol, asof=asof)
 
     # ------------------------------------------------------------------ #
     # option_chain (spec §5.3) — routes through the (option_chain, *) row

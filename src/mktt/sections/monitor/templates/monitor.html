@@ -1,76 +1,316 @@
 {% extends "base.html" %}
 {#
-  monitor.html — the per-symbol Monitor page (adr/0002: charts client-rendered).
+  monitor.html — the unified Monitor workspace (Slice 1: spine + rail).
 
-  Extends base.html for the shared chrome (nav, freshness, watchlist badge, CSS).
-  The page holds NO render logic for the charts: placeholder divs keyed by the ids
-  the section emits + a fetch->renderViewModel call. The generic renderer
-  (static/js/viewmodel.js) consumes the ViewModel envelope /api/chart returns and
-  draws the Plotly figures.
+  Two panes:
+    * detail (left)  — reuses the existing per-symbol render: host divs keyed by
+      the ids the section emits (#monitor_price / #monitor_history /
+      #monitor_fundamentals) + vm-* sinks, fed by /api/chart/<symbol>.
+    * rail   (right) — the saved-instrument rail (MKLists-backed), fed by
+      /api/monitor/rail. Rows: ▲/▼ · SYMBOL · stage · RS · ✕. Add-by-ticker
+      (long/short), per-row remove, client-side sort, click-to-select.
+
+  Selecting a rail row sets the symbol, history.pushState's to /monitor/<symbol>,
+  and re-renders the detail pane. Add/remove re-fetch the rail + updateWlBadge().
 
   Section figure/table ids (must match service.py):
-    figures[].id == "monitor_price"        -> #monitor_price   (price + MA overlay)
-    figures[].id == "monitor_history"      -> #monitor_history (stage / RS evolution)
+    figures[].id == "monitor_price"        -> #monitor_price
+    figures[].id == "monitor_history"      -> #monitor_history
     tables[].id  == "monitor_fundamentals" -> #monitor_fundamentals
-  meta sinks: #vm-title, #vm-status banner, #vm-readouts badges (stage / rs_rank / sector).
 #}
-{% block title_suffix %}// {{ symbol }}{% endblock %}
+{% block title_suffix %}// Monitor{% if symbol %} // {{ symbol }}{% endif %}{% endblock %}
 {% block head %}
   <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+  <style>
+    .monitor-workspace { display:flex; gap:16px; align-items:flex-start; }
+    .monitor-detail { flex:1 1 auto; min-width:0; }
+    .monitor-rail { flex:0 0 300px; border-left:1px solid var(--border,#333); padding-left:14px; }
+    .rail-row { display:flex; align-items:center; gap:6px; padding:5px 4px; border-bottom:1px solid var(--border,#222); cursor:pointer; font-size:13px; }
+    .rail-row:hover { background:var(--bg,#111); }
+    .rail-row.selected { background:var(--bg-card,#1a1a2a); }
+    .rail-sym { font-weight:600; flex:1 1 auto; }
+    .rail-side-long { color:var(--accent,#10b981); }
+    .rail-side-short { color:var(--red,#ef4444); }
+    .rail-meta { color:var(--text-dim,#888); font-size:11px; min-width:30px; text-align:right; }
+    .rail-remove { color:var(--red,#ef4444); cursor:pointer; padding:0 4px; }
+  </style>
 {% endblock %}
 
 {% block content %}
-  <h2 id="vm-title" class="page-title">Monitor — {{ symbol }}</h2>
+  <input type="hidden" id="monitor-initial-symbol" value="{{ symbol or '' }}">
+  <h2 id="vm-title" class="page-title">Monitor{% if symbol %} — {{ symbol }}{% endif %}</h2>
 
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-    <a href="javascript:history.back()" style="color:var(--phosphor,var(--cyan));text-decoration:none;font-size:14px;">&larr; Back</a>
-    <form id="monitor-lookup" onsubmit="return false;" style="display:flex;gap:6px;align-items:center;">
-      <input id="monitor-symbol" name="symbol" value="{{ symbol or '' }}"
-             style="background:var(--bg-light,#111);border:1px solid var(--border,#333);color:var(--text,#ccc);padding:4px 8px;font-family:monospace;text-transform:uppercase;width:90px;">
-      <button id="monitor-go" type="button" style="padding:4px 12px;cursor:pointer;">Load</button>
-    </form>
-    <span style="margin-left:auto;display:flex;gap:6px;">
-      <button id="wl-add-long" type="button" title="Add to watchlist (long)"
-              style="padding:4px 12px;cursor:pointer;color:var(--accent,#10b981);background:none;border:1px solid var(--border,#333);border-radius:4px;">&#9650; LONG</button>
-      <button id="wl-add-short" type="button" title="Add to watchlist (short)"
-              style="padding:4px 12px;cursor:pointer;color:var(--red,#ef4444);background:none;border:1px solid var(--border,#333);border-radius:4px;">&#9660; SHORT</button>
-    </span>
+  <div class="monitor-workspace">
+    {# ---------- detail pane (left) ---------- #}
+    <div class="monitor-detail">
+      <div id="vm-status" class="vm-banner" style="display:none"></div>
+      <div id="vm-readouts" class="vm-readouts" style="margin-bottom:12px;min-height:24px;"></div>
+
+      <div id="monitor-empty" style="color:var(--text-faint,#666);font-size:14px;padding:40px 8px;{% if symbol %}display:none;{% endif %}">
+        Select an instrument from the rail, or add a ticker, to view its technicals and fundamentals.
+      </div>
+
+      {# ---------- technical toolkit (Slice 3 / #10): D/W/M + MA toggles + RS ---------- #}
+      <div id="monitor-tech-toolkit" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;color:var(--text-dim,#888);">
+        <span class="tech-seg" role="group" aria-label="Timeframe" style="display:inline-flex;border:1px solid var(--border,#333);border-radius:4px;overflow:hidden;">
+          <button type="button" class="tech-tf" data-tf="D" style="padding:3px 10px;background:var(--bg-card,#1a1a2a);color:var(--text,#ccc);border:none;cursor:pointer;">D</button>
+          <button type="button" class="tech-tf" data-tf="W" style="padding:3px 10px;background:none;color:var(--text-dim,#888);border:none;border-left:1px solid var(--border,#333);cursor:pointer;">W</button>
+          <button type="button" class="tech-tf" data-tf="M" style="padding:3px 10px;background:none;color:var(--text-dim,#888);border:none;border-left:1px solid var(--border,#333);cursor:pointer;">M</button>
+        </span>
+        <span style="display:inline-flex;gap:10px;">
+          <label style="cursor:pointer;"><input type="checkbox" class="tech-ma" data-ma="50" checked> MA50</label>
+          <label style="cursor:pointer;"><input type="checkbox" class="tech-ma" data-ma="150" checked> MA150</label>
+          <label style="cursor:pointer;"><input type="checkbox" class="tech-ma" data-ma="200" checked> MA200</label>
+        </span>
+        <label style="cursor:pointer;"><input type="checkbox" id="tech-rs"> RS (Mansfield vs SPY)</label>
+      </div>
+      <div id="monitor-ohlc-readout" style="font-family:monospace;font-size:12px;color:var(--text-faint,#888);min-height:16px;margin-bottom:2px;"></div>
+      <div id="monitor_price" class="vm-figure-host" style="width:100%;height:480px;"></div>
+      <div style="font-size:11px;color:var(--text-faint,#666);margin-top:2px;">Open is synthetic (prior close) — the universe price store carries no open.</div>
+      {# ---------- optional indicators panel (RS Rank / Mansfield RS / Stage) ---------- #}
+      <div id="monitor-ind-toolkit" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;margin-bottom:2px;font-size:12px;color:var(--text-dim,#888);">
+        <span>Indicators:</span>
+        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="RS Rank" checked> RS Rank</label>
+        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Mansfield RS" checked> Mansfield RS</label>
+        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Stage" checked> Stage</label>
+      </div>
+      <div id="monitor_history" class="vm-figure-host" style="width:100%;height:320px;"></div>
+      {# fixed 12-row metrics table — reserve its height so it doesn't push the
+         fundamental pane down (jump) when it renders async from /api/chart. #}
+      <div id="monitor_fundamentals" class="vm-table-host" style="margin-top:16px;min-height:458px;"></div>
+
+      {# ---------- fundamental pane (Slice 4 / #11): EPS + Sales 2×2 ---------- #}
+      <div id="monitor-fund-pane" style="margin-top:20px;{% if not symbol %}display:none;{% endif %}">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;font-size:12px;color:var(--text-dim,#888);">
+          <span style="font-weight:600;color:var(--text,#ccc);">Fundamentals</span>
+          <span class="fund-seg" role="group" aria-label="Granularity" style="display:inline-flex;border:1px solid var(--border,#333);border-radius:4px;overflow:hidden;">
+            <button type="button" class="fund-gran active" data-gran="Q" style="padding:3px 12px;background:var(--bg-card,#1a1a2a);color:var(--text,#ccc);border:none;cursor:pointer;">Q</button>
+            <button type="button" class="fund-gran" data-gran="Y" style="padding:3px 12px;background:none;color:var(--text-dim,#888);border:none;border-left:1px solid var(--border,#333);cursor:pointer;">Y</button>
+            <button type="button" class="fund-gran" data-gran="TTM" style="padding:3px 12px;background:none;color:var(--text-dim,#888);border:none;border-left:1px solid var(--border,#333);cursor:pointer;">TTM</button>
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div id="fund_eps" class="vm-figure-host" style="width:100%;height:300px;"></div>
+          <div id="fund_sales" class="vm-figure-host" style="width:100%;height:300px;"></div>
+          {# #fund_pe / #fund_ps reserved for Slice 5 / #12 (PE + PS derived panels) #}
+          <div id="fund_pe" class="vm-figure-host" style="width:100%;height:300px;"></div>
+          <div id="fund_ps" class="vm-figure-host" style="width:100%;height:300px;"></div>
+        </div>
+      </div>
+    </div>
+
+    {# ---------- rail (right) ---------- #}
+    <div class="monitor-rail" id="monitor-rail">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <input id="rail-ticker" placeholder="TICKER"
+               style="background:var(--bg-light,#111);border:1px solid var(--border,#333);color:var(--text,#ccc);padding:4px 6px;font-family:monospace;text-transform:uppercase;width:80px;">
+        <button id="rail-add-long" type="button" title="Add long" class="rail-side-long"
+                style="padding:3px 8px;cursor:pointer;background:none;border:1px solid var(--border,#333);border-radius:4px;">&#9650;</button>
+        <button id="rail-add-short" type="button" title="Add short" class="rail-side-short"
+                style="padding:3px 8px;cursor:pointer;background:none;border:1px solid var(--border,#333);border-radius:4px;">&#9660;</button>
+      </div>
+      <div style="margin-bottom:6px;font-size:11px;color:var(--text-dim,#888);">
+        Sort:
+        <select id="rail-sort" style="background:var(--bg-light,#111);border:1px solid var(--border,#333);color:var(--text,#ccc);font-size:11px;">
+          <option value="recent">Recently added</option>
+          <option value="stage">Stage</option>
+          <option value="rs">RS</option>
+          <option value="symbol">Symbol</option>
+        </select>
+      </div>
+      <div id="rail-rows"></div>
+    </div>
   </div>
-
-  <div id="vm-status" class="vm-banner" style="display:none"></div>
-  <div id="vm-readouts" class="vm-readouts" style="margin-bottom:12px;"></div>
-
-  {# One host div per figure / table id the section emits. #}
-  <div id="monitor_price" class="vm-figure-host" style="width:100%;height:480px;"></div>
-  <div id="monitor_history" class="vm-figure-host" style="width:100%;height:320px;margin-top:16px;"></div>
-  <div id="monitor_fundamentals" class="vm-table-host" style="margin-top:16px;"></div>
 {% endblock %}
 
 {% block scripts %}
   <script src="{{ url_for('static', filename='js/viewmodel.js') }}"></script>
   <script>
     (function () {
-      function currentSymbol() {
-        return (document.getElementById('monitor-symbol').value || '').trim().toUpperCase();
+      var selected = (document.getElementById('monitor-initial-symbol').value || '').trim().toUpperCase() || null;
+      var railEntries = [];
+      var railSort = 'recent';
+      var fundGran = 'Q';  // Q/Y/TTM segmented control (Slice 4 / #11).
+
+      function renderDetail(sym) {
+        var empty = document.getElementById('monitor-empty');
+        var fundPane = document.getElementById('monitor-fund-pane');
+        if (!sym) {
+          if (empty) empty.style.display = '';
+          if (fundPane) fundPane.style.display = 'none';
+          return;
+        }
+        if (empty) empty.style.display = 'none';
+        if (fundPane) fundPane.style.display = '';
+        // The indicators pane (#monitor_history) now renders via the generic
+        // renderFigure path (kind:"indicators" -> LWC pane synced to the price
+        // chart); no Plotly toggle chaining needed (Slice 6).
+        ViewModel.fetchAndRender('/api/chart/' + encodeURIComponent(sym));
+        loadFundamentals(sym);
       }
-      function load() {
-        var sym = currentSymbol();
-        if (sym) { ViewModel.fetchAndRender('/api/chart/' + encodeURIComponent(sym)); }
-      }
-      function addToWatchlist(side) {
-        var sym = currentSymbol();
+
+      // Fundamental 2×2 (EPS + Sales now; PE + PS in #12). A SEPARATE fetch from
+      // the chart envelope so a Q/Y/TTM toggle re-renders ONLY these figures, never
+      // the candle chart.
+      function loadFundamentals(sym) {
         if (!sym) return;
-        // mklistsAdd (base.html) POSTs to /api/watchlist (MKLists), refreshes the badge.
-        if (typeof mklistsAdd === 'function') { mklistsAdd(sym, side); }
+        var url = '/api/monitor/fundamentals/' + encodeURIComponent(sym) +
+                  '?granularity=' + encodeURIComponent(fundGran);
+        fetch(url)
+          .then(function (r) { return r.json(); })
+          .then(function (vm) {
+            var figs = (vm && vm.figures) || [];
+            if (typeof ViewModel !== 'undefined' && ViewModel._renderFigure) {
+              figs.forEach(ViewModel._renderFigure);
+            }
+          })
+          .catch(function () { /* thin name / no data — leave hosts empty */ });
       }
-      document.getElementById('monitor-go').addEventListener('click', load);
-      document.getElementById('monitor-symbol').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); load(); }
+
+      function selectSymbol(sym, push) {
+        selected = sym;
+        if (push && window.history && window.history.pushState) {
+          window.history.pushState({ symbol: sym }, '', '/monitor/' + encodeURIComponent(sym));
+        }
+        var title = document.getElementById('vm-title');
+        if (title) title.textContent = 'Monitor — ' + sym;
+        renderRailRows();
+        renderDetail(sym);
+      }
+
+      function sortedEntries() {
+        var arr = railEntries.slice();
+        if (railSort === 'symbol') {
+          arr.sort(function (a, b) { return a.symbol < b.symbol ? -1 : (a.symbol > b.symbol ? 1 : 0); });
+        } else if (railSort === 'stage') {
+          arr.sort(function (a, b) { return (b.stage == null ? -1 : b.stage) - (a.stage == null ? -1 : a.stage); });
+        } else if (railSort === 'rs') {
+          arr.sort(function (a, b) { return (b.rs_rank == null ? -1 : b.rs_rank) - (a.rs_rank == null ? -1 : a.rs_rank); });
+        } else {
+          // recently-added first (service already returns this order; honor added_at).
+          arr.sort(function (a, b) { return (b.added_at == null ? -1 : b.added_at) - (a.added_at == null ? -1 : a.added_at); });
+        }
+        return arr;
+      }
+
+      function renderRailRows() {
+        var wrap = document.getElementById('rail-rows');
+        var entries = sortedEntries();
+        if (!entries.length) {
+          wrap.innerHTML = '<div style="color:var(--text-faint,#666);font-size:12px;padding:8px 2px;">Empty. Add a ticker above.</div>';
+          return;
+        }
+        var h = '';
+        entries.forEach(function (e) {
+          var arrow = e.side === 'short' ? '&#9660;' : '&#9650;';
+          var sideClass = e.side === 'short' ? 'rail-side-short' : 'rail-side-long';
+          var sel = e.symbol === selected ? ' selected' : '';
+          h += '<div class="rail-row' + sel + '" data-sym="' + e.symbol + '">';
+          h += '<span class="' + sideClass + '">' + arrow + '</span>';
+          h += '<span class="rail-sym">' + e.symbol + '</span>';
+          h += '<span class="rail-meta">' + (e.stage == null ? '·' : e.stage) + '</span>';
+          h += '<span class="rail-meta">' + (e.rs_rank == null ? '·' : Math.round(e.rs_rank)) + '</span>';
+          h += '<span class="rail-remove" data-sym="' + e.symbol + '" title="Remove">&#10005;</span>';
+          h += '</div>';
+        });
+        wrap.innerHTML = h;
+
+        Array.prototype.forEach.call(wrap.querySelectorAll('.rail-row'), function (row) {
+          row.addEventListener('click', function (ev) {
+            if (ev.target.classList.contains('rail-remove')) return;
+            selectSymbol(row.getAttribute('data-sym'), true);
+          });
+        });
+        Array.prototype.forEach.call(wrap.querySelectorAll('.rail-remove'), function (btn) {
+          btn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            removeSymbol(btn.getAttribute('data-sym'));
+          });
+        });
+      }
+
+      function loadRail() {
+        return fetch('/api/monitor/rail?list=' + encodeURIComponent(typeof MKLIST !== 'undefined' ? MKLIST : 'default'))
+          .then(function (r) { return r.json(); })
+          .then(function (vm) {
+            var meta = (vm && vm.meta) || {};
+            railEntries = (meta.context && meta.context.entries) || [];
+            renderRailRows();
+          })
+          .catch(function () { railEntries = []; renderRailRows(); });
+      }
+
+      function addTicker(side) {
+        var input = document.getElementById('rail-ticker');
+        var sym = (input.value || '').trim().toUpperCase();
+        if (!sym) return;
+        var p = (typeof mklistsAdd === 'function')
+          ? mklistsAdd(sym, side)
+          : Promise.resolve();
+        p.then(function () {
+          input.value = '';
+          loadRail();
+          if (typeof updateWlBadge === 'function') updateWlBadge();
+        });
+      }
+
+      function removeSymbol(sym) {
+        var p = (typeof mklistsRemove === 'function')
+          ? mklistsRemove(sym)
+          : Promise.resolve();
+        p.then(function () {
+          loadRail();
+          if (typeof updateWlBadge === 'function') updateWlBadge();
+        });
+      }
+
+      document.getElementById('rail-add-long').addEventListener('click', function () { addTicker('long'); });
+      document.getElementById('rail-add-short').addEventListener('click', function () { addTicker('short'); });
+      document.getElementById('rail-ticker').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addTicker('long'); }
       });
-      document.getElementById('wl-add-long').addEventListener('click', function () { addToWatchlist('long'); });
-      document.getElementById('wl-add-short').addEventListener('click', function () { addToWatchlist('short'); });
+      document.getElementById('rail-sort').addEventListener('change', function (e) {
+        railSort = e.target.value;
+        renderRailRows();
+      });
+
+      // Q/Y/TTM segmented control — re-fetch the fundamental 2×2 for the selected
+      // symbol at the new granularity (only the fund figures re-render).
+      Array.prototype.forEach.call(document.querySelectorAll('.fund-gran'), function (btn) {
+        btn.addEventListener('click', function () {
+          fundGran = btn.getAttribute('data-gran');
+          Array.prototype.forEach.call(document.querySelectorAll('.fund-gran'), function (b) {
+            var on = b === btn;
+            b.classList.toggle('active', on);
+            b.style.background = on ? 'var(--bg-card,#1a1a2a)' : 'none';
+            b.style.color = on ? 'var(--text,#ccc)' : 'var(--text-dim,#888)';
+          });
+          if (selected) loadFundamentals(selected);
+        });
+      });
+      // optional-indicator checkboxes — re-render the synced LWC pane from the
+      // stashed figure without refetch (Slice 6).
+      Array.prototype.forEach.call(document.querySelectorAll('.ind-tog'), function (cb) {
+        cb.addEventListener('change', function () {
+          if (typeof ViewModel !== 'undefined' && ViewModel.rerenderIndicators) {
+            ViewModel.rerenderIndicators();
+          }
+        });
+      });
+
+      window.addEventListener('popstate', function (e) {
+        var sym = (e.state && e.state.symbol) || null;
+        selected = sym;
+        renderRailRows();
+        renderDetail(sym);
+      });
+
       document.addEventListener('DOMContentLoaded', function () {
-        if (currentSymbol()) { load(); }
+        if (typeof ViewModel !== 'undefined' && ViewModel.wireTechToolkit) {
+          ViewModel.wireTechToolkit();  // D/W/M + MA toggles + RS (Slice 3 / #10)
+        }
+        loadRail();
+        if (selected) { renderDetail(selected); }
       });
     })();
   </script>

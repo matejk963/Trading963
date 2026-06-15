@@ -362,3 +362,132 @@ def test_panel_technicals_honors_as_of(tmp_path):
     eq = EquitySubmodule(data_dir=tmp_path)
     tech = eq.panel_technicals(["AAA"], as_of="2024-01-03")
     assert tech["AAA"]["Price"] == 12.0  # close on 2024-01-03, later bars ignored
+
+
+# --------------------------------------------------------------------------- #
+# fundamental_series — pkl-backed EPS/Sales actual+forecast blend (FORK-2, #11)
+# --------------------------------------------------------------------------- #
+def _fake_fund_pkl():
+    """A small deterministic Refinitiv-shaped pkl dict (drives the blend math
+    without the 37 MB on-disk file). 6 quarterly actuals for AAA (2023 full year +
+    2024 H1), a 3-quarter forward fan, and FY1/FY2 forward."""
+    q = pd.DataFrame({
+        "Symbol": ["AAA"] * 6,
+        "Date": ["2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31",
+                 "2024-03-31", "2024-06-30"],
+        "Earnings Per Share - Actual": [1.0, 1.0, 1.0, 1.0, 2.0, 2.0],
+        "Revenue - Actual": [100e6, 100e6, 100e6, 100e6, 200e6, 200e6],
+    })
+    fwd = pd.DataFrame({
+        "Symbol": ["AAA"] * 3,
+        "Earnings Per Share - Mean": [2.0, 2.0, 3.0],
+        "Earnings Per Share - High": [2.5, 2.5, 3.5],
+        "Earnings Per Share - Low": [1.5, 1.5, 2.5],
+        "Revenue - Mean": [200e6, 200e6, 300e6],
+        "Revenue - High": [250e6, 250e6, 350e6],
+        "Revenue - Low": [150e6, 150e6, 250e6],
+    })
+    fy1 = pd.DataFrame({"Symbol": ["AAA"], "Earnings Per Share - Mean": [8.0],
+                        "Earnings Per Share - High": [9.0], "Earnings Per Share - Low": [7.0],
+                        "Revenue - Mean": [800e6], "Revenue - High": [900e6],
+                        "Revenue - Low": [700e6]})
+    fy2 = pd.DataFrame({"Symbol": ["AAA"], "Earnings Per Share - Mean": [10.0],
+                        "Earnings Per Share - High": [11.0], "Earnings Per Share - Low": [9.0],
+                        "Revenue - Mean": [1000e6], "Revenue - High": [1100e6],
+                        "Revenue - Low": [900e6]})
+    return {"quarterly": q, "forward_quarterly": fwd, "fy1": fy1, "fy2": fy2}
+
+
+def _fund_access():
+    from datasource.fundamental_series import build_fundamental_series
+    data = _fake_fund_pkl()
+    return build_fundamental_series(loader=lambda: data)
+
+
+def test_fundamental_series_quarterly_actuals():
+    """Quarterly block carries the dated EPS/Revenue actuals (revenue in $m)."""
+    out = _fund_access()("AAA")
+    qb = out["quarterly"]
+    assert qb["dates"] == ["2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31",
+                           "2024-03-31", "2024-06-30"]
+    assert qb["eps"] == [1.0, 1.0, 1.0, 1.0, 2.0, 2.0]
+    assert qb["revenue"] == [100.0, 100.0, 100.0, 100.0, 200.0, 200.0]  # $m
+
+
+def test_fundamental_series_forward_quarterly_fan_depth_and_scale():
+    """Forward-quarterly fan: mean/high/low only as deep as the data (3 quarters),
+    revenue scaled to $m, dated +3m off the last actual quarter (no fabrication)."""
+    out = _fund_access()("AAA")
+    fq = out["forward_q"]
+    assert len(fq["dates"]) == 3  # 3 forward quarters, not padded to 8.
+    assert fq["eps_mean"] == [2.0, 2.0, 3.0]
+    assert fq["eps_high"] == [2.5, 2.5, 3.5]
+    assert fq["eps_low"] == [1.5, 1.5, 2.5]
+    assert fq["rev_mean"] == [200.0, 200.0, 300.0]  # $m
+    assert fq["dates"][0] == "2024-09-30"  # +3m off 2024-06-30
+
+
+def test_fundamental_series_ttm_rolling_4q_sum():
+    """TTM block: rolling 4-quarter sum of the actuals, plus a forward-TTM band."""
+    out = _fund_access()("AAA")
+    ttm = out["ttm"]
+    # first complete TTM window ends 2023-12-31 = sum(1,1,1,1) = 4.0.
+    assert ttm["dates"][0] == "2023-12-31"
+    assert ttm["eps"][0] == 4.0
+    assert ttm["revenue"][0] == 400.0  # $m
+    # forward-TTM at step 1 = trailing[1:]+fwd[:1] window -> [1,2,2,2] = 7.0.
+    assert ttm["eps_mean"][0] == 7.0
+    # the forward band carries through (high/low present, same depth).
+    assert len(ttm["eps_high"]) == len(ttm["fwd_dates"])
+
+
+def test_fundamental_series_annual_actual_plus_fy1_fy2_forward():
+    """Annual block: complete-year actuals + FY1/FY2 forward (mean/high/low, $m)."""
+    out = _fund_access()("AAA")
+    ann = out["annual"]
+    # only 2023 is a complete 4-quarter year -> EPS sum 4.0, revenue 400 $m.
+    assert ann["fy_dates"] == ["2023-12-31"]
+    assert ann["eps"] == [4.0]
+    assert ann["rev"] == [400.0]
+    # FY1/FY2 forward.
+    assert ann["eps_mean"] == [8.0, 10.0]
+    assert ann["eps_high"] == [9.0, 11.0]
+    assert ann["rev_mean"] == [800.0, 1000.0]  # $m
+    assert ann["fwd_dates"] == ["2024-12-31", "2025-12-31"]
+
+
+def test_fundamental_series_asof_filters_quarterly_actuals():
+    """asof clips quarterly/TTM actuals to report_date <= asof (the forward fan,
+    an as-of-now snapshot, is unaffected)."""
+    out = _fund_access()("AAA", asof="2023-12-31")
+    assert out["quarterly"]["dates"] == ["2023-03-31", "2023-06-30",
+                                         "2023-09-30", "2023-12-31"]
+    # forward fan still present (it's the current estimate snapshot).
+    assert len(out["forward_q"]["dates"]) == 3
+
+
+def test_fundamental_series_unknown_symbol_is_empty_not_error():
+    """A symbol absent from the pkl returns empty blocks, never raises."""
+    out = _fund_access()("ZZZ")
+    assert out["quarterly"]["dates"] == []
+    assert out["forward_q"]["dates"] == []
+    assert out["annual"]["fy_dates"] == []
+
+
+def test_datasource_fundamental_series_delegates_to_injected_access():
+    """DataSource.fundamental_series delegates to the injected access (DI seam)."""
+    from datasource.provider import DataSource
+    from datasource.registry import Registry
+
+    calls = []
+
+    def access(symbol, asof=None):
+        calls.append((symbol, asof))
+        return {"quarterly": {"dates": [symbol]}}
+
+    ds = DataSource(registry=Registry(asset_class={}, submodules={},
+                                      default_asset_class="equity"),
+                    fundamental_series=access)
+    out = ds.fundamental_series("AAA", asof="2024-01-01")
+    assert calls == [("AAA", "2024-01-01")]
+    assert out["quarterly"]["dates"] == ["AAA"]
