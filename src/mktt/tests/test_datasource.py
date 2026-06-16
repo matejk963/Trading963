@@ -395,7 +395,51 @@ def _fake_fund_pkl():
                         "Earnings Per Share - High": [11.0], "Earnings Per Share - Low": [9.0],
                         "Revenue - Mean": [1000e6], "Revenue - High": [1100e6],
                         "Revenue - Low": [900e6]})
-    return {"quarterly": q, "forward_quarterly": fwd, "fy1": fy1, "fy2": fy2}
+    # estimate-revision trend frames: the forward FY1/FY2 estimate as it was revised
+    # over time (each row = the estimate as-of `Date`). EPS trends carry High/Low;
+    # revenue trends are mean-only (High/Low columns absent — handled gracefully).
+    trend_eps_fy1 = pd.DataFrame({
+        "Symbol": ["AAA"] * 3,
+        "Date": ["2024-01-31", "2024-02-29", "2024-03-31"],
+        "Earnings Per Share - Mean": [7.8, 8.0, 8.2],
+        "Earnings Per Share - High": [8.3, 8.5, 8.7],
+        "Earnings Per Share - Low": [7.3, 7.5, 7.7],
+    })
+    trend_eps_fy2 = pd.DataFrame({
+        "Symbol": ["AAA"] * 3,
+        "Date": ["2024-01-31", "2024-02-29", "2024-03-31"],
+        "Earnings Per Share - Mean": [9.6, 10.0, 10.4],
+        "Earnings Per Share - High": [10.6, 11.0, 11.4],
+        "Earnings Per Share - Low": [8.6, 9.0, 9.4],
+    })
+    trend_rev_fy1 = pd.DataFrame({
+        "Symbol": ["AAA"] * 3,
+        "Date": ["2024-01-31", "2024-02-29", "2024-03-31"],
+        "Revenue - Mean": [780e6, 800e6, 820e6],
+    })
+    trend_rev_fy2 = pd.DataFrame({
+        "Symbol": ["AAA"] * 3,
+        "Date": ["2024-01-31", "2024-02-29", "2024-03-31"],
+        "Revenue - Mean": [960e6, 1000e6, 1040e6],
+    })
+    # per-quarter forward EPS estimate trends (FQ1..FQ4): each frame is the
+    # estimate for that forward quarter as it was revised across snapshot dates.
+    # 3 snapshot dates shared across the 4 quarters -> 3 revision curves.
+    def _fq(base):
+        return pd.DataFrame({
+            "Symbol": ["AAA"] * 3,
+            "Date": ["2024-01-31", "2024-02-29", "2024-03-31"],
+            "Earnings Per Share - Mean": [base - 0.1, base, base + 0.1],
+        })
+    trend_eps_fq1 = _fq(2.0)
+    trend_eps_fq2 = _fq(2.0)
+    trend_eps_fq3 = _fq(3.0)
+    trend_eps_fq4 = _fq(3.0)
+    return {"quarterly": q, "forward_quarterly": fwd, "fy1": fy1, "fy2": fy2,
+            "trend_eps_fy1": trend_eps_fy1, "trend_eps_fy2": trend_eps_fy2,
+            "trend_rev_fy1": trend_rev_fy1, "trend_rev_fy2": trend_rev_fy2,
+            "trend_eps_fq1": trend_eps_fq1, "trend_eps_fq2": trend_eps_fq2,
+            "trend_eps_fq3": trend_eps_fq3, "trend_eps_fq4": trend_eps_fq4}
 
 
 def _fund_access():
@@ -441,6 +485,37 @@ def test_fundamental_series_ttm_rolling_4q_sum():
     assert len(ttm["eps_high"]) == len(ttm["fwd_dates"])
 
 
+def test_fundamental_series_ttm_eps_ok_flags_all_quarters_positive():
+    """The TTM block exposes ``eps_ok`` aligned 1:1 with ``dates``: True when all 4
+    trailing quarters are strictly > 0, False if any is <= 0 or None.
+
+    With a loss quarter injected into the trailing window, the TTM points whose
+    4-quarter window touches that quarter must be flagged not-ok, even though the
+    summed TTM EPS may still be positive."""
+    from datasource.fundamental_series import build_fundamental_series
+    data = _fake_fund_pkl()
+    # inject a loss quarter at 2023-09-30 (the 3rd of 6 quarters).
+    data["quarterly"] = data["quarterly"].copy()
+    data["quarterly"].loc[2, "Earnings Per Share - Actual"] = -0.5
+    out = build_fundamental_series(loader=lambda: data)("AAA")
+    ttm = out["ttm"]
+    assert "eps_ok" in ttm
+    assert len(ttm["eps_ok"]) == len(ttm["dates"])
+    # 6 quarters (idx 0..5), loss at idx 2. TTM windows (each ends at idx i, i>=3):
+    #   end 2023-12-31: Q0..Q3 -> touches loss -> False
+    #   end 2024-03-31: Q1..Q4 -> touches loss -> False
+    #   end 2024-06-30: Q2..Q5 -> touches loss -> False
+    assert ttm["eps_ok"] == [False, False, False]
+
+
+def test_fundamental_series_ttm_eps_ok_all_positive_is_true():
+    """All 4 trailing quarters > 0 -> the TTM point is eps_ok True (default fixture
+    has only positive EPS so every TTM point is ok)."""
+    out = _fund_access()("AAA")
+    ttm = out["ttm"]
+    assert ttm["eps_ok"] == [True] * len(ttm["dates"])
+
+
 def test_fundamental_series_annual_actual_plus_fy1_fy2_forward():
     """Annual block: complete-year actuals + FY1/FY2 forward (mean/high/low, $m)."""
     out = _fund_access()("AAA")
@@ -474,6 +549,92 @@ def test_fundamental_series_unknown_symbol_is_empty_not_error():
     assert out["annual"]["fy_dates"] == []
 
 
+def test_fundamental_series_revisions_eps_and_revenue_fy1_fy2():
+    """The revisions block carries eps + revenue, each with fy1 + fy2 trend lines
+    (dates + mean; EPS with high/low, revenue mean-only when high/low absent)."""
+    out = _fund_access()("AAA")
+    rev = out["revisions"]
+    # EPS FY1 trend: dates sorted, mean/high/low present (revenue $-figures /1e6).
+    eps_fy1 = rev["eps"]["fy1"]
+    assert eps_fy1["dates"] == ["2024-01-31", "2024-02-29", "2024-03-31"]
+    assert eps_fy1["mean"] == [7.8, 8.0, 8.2]
+    assert eps_fy1["high"] == [8.3, 8.5, 8.7]
+    assert eps_fy1["low"] == [7.3, 7.5, 7.7]
+    assert rev["eps"]["fy2"]["mean"] == [9.6, 10.0, 10.4]
+    # Revenue FY1 trend: mean in $m; High/Low columns absent -> empty.
+    rev_fy1 = rev["revenue"]["fy1"]
+    assert rev_fy1["dates"] == ["2024-01-31", "2024-02-29", "2024-03-31"]
+    assert rev_fy1["mean"] == [780.0, 800.0, 820.0]  # $m
+    assert rev_fy1["high"] == []
+    assert rev_fy1["low"] == []
+    assert rev["revenue"]["fy2"]["mean"] == [960.0, 1000.0, 1040.0]
+
+
+def test_fundamental_series_revisions_asof_drops_rows_after_asof():
+    """asof drops revision rows dated after the cutoff (Date <= asof)."""
+    out = _fund_access()("AAA", asof="2024-02-29")
+    assert out["revisions"]["eps"]["fy1"]["dates"] == ["2024-01-31", "2024-02-29"]
+    assert out["revisions"]["eps"]["fy1"]["mean"] == [7.8, 8.0]
+
+
+def test_fundamental_series_revisions_unknown_symbol_empty():
+    """A symbol absent from the trend frames -> empty revision lines, never raises."""
+    rev = _fund_access()("ZZZ")["revisions"]
+    assert rev["eps"]["fy1"]["dates"] == []
+    assert rev["revenue"]["fy2"]["mean"] == []
+
+
+# --------------------------------------------------------------------------- #
+# eps_ttm_forward — the forward-TTM-EPS revision curves (Slice 7 replica)
+# --------------------------------------------------------------------------- #
+def _fake_ttm_pkl():
+    """Like _fake_fund_pkl but with a 4-quarter forward fan + FQ1..FQ4 trends, the
+    minimum the forward-TTM-EPS roll needs (legacy requires >= 4 forward quarters)."""
+    data = _fake_fund_pkl()
+    data["forward_quarterly"] = pd.DataFrame({
+        "Symbol": ["AAA"] * 4,
+        "Earnings Per Share - Mean": [2.0, 2.0, 3.0, 3.0],
+    })
+    return data
+
+
+def _ttm_access():
+    from datasource.fundamental_series import build_eps_ttm_forward
+    data = _fake_ttm_pkl()
+    return build_eps_ttm_forward(loader=lambda: data)
+
+
+def test_eps_ttm_forward_shape_and_current_curve_first():
+    """eps_ttm_forward returns quarter_labels + curves + current_ttm + n_available;
+    one curve per revision snapshot (newest first, curve[0] label 'Current (...)')."""
+    out = _ttm_access()("AAA", n=3)
+    assert out["n_available"] == 3
+    assert len(out["curves"]) == 3
+    # newest-first: curve[0] is the latest snapshot, labelled 'Current (mm/dd)'.
+    assert out["curves"][0]["label"].startswith("Current")
+    # forward quarter labels (4 forward quarters off 2024-06-30).
+    assert out["quarter_labels"][0] == "2024-Q3"
+    # current TTM = sum of the last 4 actual EPS (1,1,2,2) = 6.0.
+    assert out["current_ttm"] == 6.0
+    # each curve carries a values list aligned to the quarter labels.
+    assert len(out["curves"][0]["values"]) == len(out["quarter_labels"])
+
+
+def test_eps_ttm_forward_n_clamps_to_available():
+    """n clamps to [1, n_available]: n>available -> available, n<1 -> 1 curve."""
+    over = _ttm_access()("AAA", n=10)
+    assert len(over["curves"]) == 3  # clamped to n_available
+    under = _ttm_access()("AAA", n=0)
+    assert len(under["curves"]) == 1  # clamped up to 1
+
+
+def test_eps_ttm_forward_unknown_symbol_graceful():
+    """A symbol absent from the pkl -> empty curves, never raises."""
+    out = _ttm_access()("ZZZ", n=3)
+    assert out["curves"] == []
+    assert out["n_available"] == 0
+
+
 def test_datasource_fundamental_series_delegates_to_injected_access():
     """DataSource.fundamental_series delegates to the injected access (DI seam)."""
     from datasource.provider import DataSource
@@ -491,3 +652,22 @@ def test_datasource_fundamental_series_delegates_to_injected_access():
     out = ds.fundamental_series("AAA", asof="2024-01-01")
     assert calls == [("AAA", "2024-01-01")]
     assert out["quarterly"]["dates"] == ["AAA"]
+
+
+def test_datasource_eps_ttm_forward_delegates_to_injected_access():
+    """DataSource.eps_ttm_forward delegates to the injected access (DI seam)."""
+    from datasource.provider import DataSource
+    from datasource.registry import Registry
+
+    calls = []
+
+    def access(symbol, n=3):
+        calls.append((symbol, n))
+        return {"curves": [{"label": "Current (01/01)", "values": []}], "n_available": 1}
+
+    ds = DataSource(registry=Registry(asset_class={}, submodules={},
+                                      default_asset_class="equity"),
+                    eps_ttm_forward=access)
+    out = ds.eps_ttm_forward("AAA", n=5)
+    assert calls == [("AAA", 5)]
+    assert out["n_available"] == 1

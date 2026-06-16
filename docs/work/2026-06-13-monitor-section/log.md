@@ -751,3 +751,191 @@ static/js/viewmodel.js` → clean.
 7. Symbol switch rebuilds both panes cleanly (no leaked/stacked charts); sync + crosshair still work.
 8. No console errors anywhere in the above (esp. no `setCrosshairPosition is not a function`, which would
    mean the v4 script didn't load — hard-refresh to bust the unpkg cache).
+
+---
+
+## REPORT — Slice 7: Estimate Revisions sub-pane (fundamental section) [developer]
+
+**Task:** plan-dev.md "Slice 7 — Estimate Revisions sub-pane". A separate sub-pane BELOW the existing
+fundamental 2×2, independent of the Q/Y/TTM toggle: FY1 + FY2 forward EPS + Revenue **revision-trend** lines
+over time + a 1M/3M/6M **momentum** table. Strict TDD on the Python surface; Plotly/table render is
+browser-verified.
+
+**Behaviors covered (test names, all green):**
+- `tests/test_datasource.py` (+3, pkl-port blend via injected fake pkl):
+  `test_fundamental_series_revisions_eps_and_revenue_fy1_fy2` (eps fy1/fy2 mean/high/low + revenue fy1/fy2
+  mean-only when high/low cols absent, revenue `/1e6`), `test_fundamental_series_revisions_asof_drops_rows_after_asof`
+  (Date ≤ asof), `test_fundamental_series_revisions_unknown_symbol_empty`.
+- `tests/test_monitor_section.py` (+6): `test_pct_change_over_computes_signed_change` (latest vs nearest
+  asof on/before the N-month cutoff; thin → None), `test_revisions_view_emits_eps_and_sales_figures_fy1_fy2`
+  (FY1+FY2 mean traces; EPS has band, Revenue mean-only has none),
+  `test_revisions_view_emits_momentum_table` (cols `Estimate/1M/3M/6M`, 4 estimate rows),
+  `test_revisions_view_asof_drops_rows_after_asof`, `test_revisions_view_thin_name_is_graceful`
+  (empty figs + all-None table + status `empty`, no crash), `test_blueprint_revisions_route_is_thin`.
+
+**Files touched (all under `src/mktt/`):**
+- `datasource/fundamental_series.py` — `fundamental_series(...)` dict now carries `"revisions"` (additive;
+  `quarterly/ttm/annual/forward_q` unchanged). New `_revisions_block(data, symbol, asof)` + `_scaled_col`
+  port `legacy_routes.py::_revisions_impl` from the pkl `trend_eps_fy1/fy2` + `trend_rev_fy1/fy2` frames
+  (filter/sort/`str(d)[:10]`, EPS mean/high/low, revenue mean `/1e6` + high/low only if columns present,
+  `Date ≤ asof` clip). Module docstring updated (loader-dict now also reads the `trend_*` keys). JSON-safe.
+- `sections/monitor/service.py` — `revisions_view(symbol, data, asof=None) -> vm` (its own view, like
+  `fundamentals_view`): reads `data.fundamental_series(symbol, asof)["revisions"]`, emits Plotly figures
+  `rev_eps` + `rev_sales` (FY1 blue + FY2 orange mean lines, faint high/low bands when present), table
+  `rev_momentum`. Pure helper `_pct_change_over(dates, vals, months)`. Section stays thin/DI/envelope (the
+  pkl read lives in the datasource layer). Debug logging via the existing `logger`.
+- `sections/monitor/__init__.py` — export `revisions_view`.
+- `sections/monitor/routes.py` — `GET /api/monitor/revisions/<symbol>?asof=` → `revisions_view` → jsonify
+  (thin route).
+- `sections/monitor/templates/monitor.html` — new `#monitor-rev-pane` below `#monitor-fund-pane` (header +
+  `#rev_eps`/`#rev_sales` grid + `#rev_momentum` table host, heights reserved for CLS); JS `loadRevisions(sym)`
+  fetched in `renderDetail` (on symbol-select, NOT on the Q/Y/TTM toggle) → `_renderFigure` for figs +
+  `_renderTable` for the table; pane hidden when no symbol.
+- `tests/test_datasource.py` — `_fake_fund_pkl` gained the 4 `trend_*` frames + 3 tests.
+- `tests/test_monitor_section.py` — `_revisions_fixture` added to the shared series fixture; +6 tests.
+
+**Test command + result (`python -m pytest -q` from `src/mktt/`):**
+Before: 354 passed, 6 failed. After: **363 passed, 6 failed** (+9 new green). The 6 fails are the unchanged,
+out-of-scope `test_kernel.py::test_parity_kernel_vs_stage_classifier[...]` carried baseline — not touched.
+`node --check static/js/viewmodel.js` clean. Real-pkl smoke (`build_default_datasource()`, AAPL): EPS FY1/FY2
++ Revenue FY1/FY2 revision trends (13 asof points), bands present (AAPL's revenue trend DOES carry high/low),
+momentum table reads sensible signed % (e.g. FY1 EPS 1M/3M/6M = +1.0/+2.0/+16.8).
+
+**Deviations / notes:**
+- The spec said the revenue trend high/low MAY be absent; the code handles both — mean-only when absent,
+  banded when present. (For AAPL the real frames carry high/low, so `rev_sales` shows a band too.)
+- One test-expectation fix during the helper cycle (not an implementation bug): the N-month offset from a
+  month-end anchor lands a day BEFORE the prior month-end, so the "nearest asof on/before the cutoff" picked
+  the month before. Switched the fixture dates to the 15th so the offset lands exactly on a data point —
+  the implementation correctly takes the nearest asof on/before the cutoff.
+
+**State left — needs BROWSER VERIFICATION (orchestrator), on a live symbol, no console errors:**
+1. Below the 2×2, the **EPS** + **Revenue** panels each draw FY1 (blue) + FY2 (orange) revision-trend lines;
+   faint high/low bands on EPS always, on Revenue when the data carries high/low.
+2. The **momentum table** (`rev_momentum`) reads signed 1M/3M/6M % per FY1/FY2 EPS & Rev.
+3. The sub-pane fetches ONCE on symbol-select and does NOT re-fetch on the Q/Y/TTM toggle (revisions are
+   granularity-independent).
+4. The sub-pane hides when no symbol (like the fund pane). No load-time CLS jump (heights reserved).
+Not committed.
+
+---
+
+## REPORT — Slice 7 REPLACED with a faithful replica of the original Revisions view (2026-06-16)
+
+**Task:** Replace the Monitor's "Estimate Revisions" sub-pane (the rev_eps/rev_sales bands +
+rev_momentum table) with a faithful replica of the original app's Revisions view
+(`stock_panel.js::loadPanelRevisions` + `PLOTLY_DARK`): two EPS charts side by side
+(LEFT Forward-TTM-EPS revision snapshots + Actual-TTM line; RIGHT EPS FY1/FY2 mean + high/low).
+Port `legacy_routes.py::_eps_ttm_forward_impl` into the datasource layer. Strict TDD on the
+Python surface; Plotly/JS browser-verified by the orchestrator.
+
+**Behaviors covered (test names):**
+- `tests/test_datasource.py`:
+  - `test_eps_ttm_forward_shape_and_current_curve_first` — curves/quarter_labels/current_ttm/
+    n_available shape; newest-first; curve[0] label starts with "Current".
+  - `test_eps_ttm_forward_n_clamps_to_available` — n clamps to [1, n_available].
+  - `test_eps_ttm_forward_unknown_symbol_graceful` — thin/missing name → empty curves, no raise.
+  - `test_datasource_eps_ttm_forward_delegates_to_injected_access` — DI seam.
+  - (`_fake_fund_pkl` gained `trend_eps_fq1..fq4`; a `_fake_ttm_pkl` adds the 4-quarter forward fan.)
+- `tests/test_monitor_section.py`:
+  - `test_revisions_view_emits_ttm_and_eps_figures` — emits `rev_ttm` (curve traces + Actual-TTM
+    line) + `rev_eps` (FY1/FY2 mean+high/low); NO `rev_sales` / `rev_momentum`.
+  - `test_revisions_view_carries_n_available_in_context` — `meta.context.n_available`; n threads
+    into `data.eps_ttm_forward(symbol, n)`.
+  - `test_revisions_view_asof_drops_rows_after_asof` — asof → `fundamental_series(asof=…)`.
+  - `test_revisions_view_thin_name_is_graceful` — empty figs, status empty, never raises.
+  - `test_blueprint_revisions_route_is_thin` — `?n=` forwarded to the service.
+  - (StubData gained `eps_ttm_forward` + `_ttm_forward_fixture`; `_rev_data` wires both providers.)
+  - REMOVED the obsolete `test_pct_change_over_computes_signed_change` +
+    `test_revisions_view_emits_momentum_table` (the momentum table is gone).
+
+**Files touched:**
+- `datasource/fundamental_series.py` — NEW `build_eps_ttm_forward(loader=…)` + `_eps_ttm_forward_impl`
+  / `_roll_ttm` / `_empty_ttm_forward` (faithful port; reads `quarterly`/`forward_quarterly`/
+  `trend_eps_fq1..fq4`); module docstring updated.
+- `datasource/provider.py` — `DataSource(__init__ eps_ttm_forward=…)` + `eps_ttm_forward(symbol, n)`
+  (lazy fallback to `build_eps_ttm_forward()`).
+- `sections/monitor/service.py` — `revisions_view(symbol, data, n=3, asof=None)` rewritten to emit
+  `rev_ttm` + `rev_eps` (original palette/dash/markers/titles); new `_rev_ttm_figure` / `_rev_eps_figure`;
+  dropped `_rev_figure` / `_rev_momentum_table` / `_pct_change_over` + the FY1/FY2 fill constants.
+- `sections/monitor/routes.py` — `/api/monitor/revisions/<symbol>?n=N` parses `n` → `revisions_view`.
+- `sections/monitor/templates/monitor.html` — `#monitor-rev-pane` now hosts `#rev_ttm` + `#rev_eps`
+  (removed `#rev_sales` + `#rev_momentum`) + a "Revisions: N" number input; `loadRevisions(sym)`
+  fetches `?n=`, renders both figs, caps the input max from `n_available`, re-fetches this pane on
+  input change (symbol-select only; not on the Q/Y/TTM toggle).
+
+**Test command + result (`python -m pytest -q` from `src/mktt/`):**
+Baseline 363 passed / 6 failed → after **366 passed, 6 failed**. The 6 fails are the unchanged,
+out-of-scope `test_kernel.py::test_parity_kernel_vs_stage_classifier[...]` carried baseline — untouched.
+Real-pkl parity (AAPL, n=3): the new port's curve values + current_ttm match the legacy inline logic
+exactly (`MATCH curves: True`, `MATCH current_ttm: True`); `n_available=20`, 8 forward quarters.
+
+**FLAG / deviation (decision needed if it matters):**
+- The legacy `n_available` is effectively dead/buggy: it returned
+  `len(all_trend_dates) if trend_fy1 is not None and not fy1.empty else 0`, but `fy1` is NEVER
+  assigned in the fq-trends branch (always an empty DataFrame), so the legacy endpoint returned
+  `n_available == 0` whenever the per-quarter curves existed. The JS reads `n_available` to cap the
+  "Revisions: N" input (`max`), so 0 is clearly NOT the intended value. I ported the **intent**:
+  `n_available = len(distinct snapshot dates)` (and the input falls back to max 12 when absent, as in
+  the original JS). This is a faithful-to-intent fix, not a faithful-to-bug copy — flagging it
+  explicitly so it can be confirmed.
+
+**State left — needs BROWSER VERIFICATION (orchestrator), live symbol, no console errors:**
+1. Below the 2×2, LEFT panel "Forward TTM EPS (Next 8Q)" draws one curve per revision snapshot
+   (current = solid/thick + markers, older = dashed/thin) over the palette, plus a dotted
+   "Actual TTM (<val>)" horizontal line; x-axis is categorical quarter labels.
+2. RIGHT panel "EPS Estimate Revisions (FY1/FY2)" draws FY1 (blue) + FY2 (green) mean lines with
+   dotted (non-legend) high/low lines.
+3. The "Revisions: N" input caps its max from `n_available` and re-fetches/re-renders ONLY this pane
+   on change (default 3); it does NOT re-fetch on the Q/Y/TTM toggle.
+4. Both charts use the dark theme; pane hides when no symbol; no load-time CLS jump (heights reserved).
+Not committed.
+
+---
+
+## REPORT — Monitor PE/PS EPS-gate fix (bug fix) · developer · 2026-06-16
+
+**Task:** Both PE and PS only computed where EPS > 0 (EPS <= 0 excluded — strict `> 0`); for TTM,
+suppress PE/PS if ANY of the 4 constituent quarters has EPS <= 0 (even when the summed TTM EPS is
+positive). The gate is on EPS for BOTH PE and PS (PS no longer computes through negative/zero earnings).
+
+**Behaviors covered (test names):**
+- `tests/test_datasource.py`:
+  - `test_fundamental_series_ttm_eps_ok_flags_all_quarters_positive` — `_ttm_block` exposes `eps_ok`
+    aligned 1:1 with `dates`; a loss quarter makes every TTM window touching it `False` despite a
+    positive summed TTM EPS.
+  - `test_fundamental_series_ttm_eps_ok_all_positive_is_true` — all-positive fixture -> all `True`.
+- `tests/test_monitor_section.py`:
+  - `test_fundamentals_view_ps_qy_suppressed_where_eps_nonpositive` — Q/Y: EPS <= 0 -> PS AND PE None
+    (despite revenue > 0); EPS > 0 -> both computed.
+  - `test_fundamentals_view_ttm_suppressed_when_any_constituent_quarter_nonpositive` — TTM window with
+    a non-ok constituent -> PE & PS None (summed TTM EPS positive); ok window -> both computed.
+  - `test_fundamentals_view_ttm_all_quarters_positive_computes` — all-positive TTM -> PE/PS non-None.
+  - `test_fundamentals_view_forecast_suppressed_where_eps_mean_nonpositive` — forward EPS mean <= 0 ->
+    PE/PS forecast AND band edges None there (revenue forecast > 0).
+  - Updated `test_fundamentals_view_ratio_guards_nonpositive_to_none` — encoded the OLD PS-gated-only-on-
+    revenue contract (asserted PS non-None at a negative-EPS period); rewritten to the new EPS-gated
+    contract (revenue=0 guard isolated to a positive-EPS period).
+  - Added `"eps_ok": [True, True]` to the shared `_fund_series_fixture` TTM block.
+
+**Files touched:**
+- `datasource/fundamental_series.py` — `_ttm_block` now appends parallel boolean `"eps_ok"` (all 4
+  constituent quarters strictly > 0), aligned 1:1 with `"dates"`; every existing key kept. Forward side
+  left to the forecast-EPS-mean gate in the service (no forward `eps_ok` added — not trivial there).
+- `sections/monitor/service.py` `_ratio_figure` — fetches the EPS series regardless of `kind`
+  (`_fund_actual(series, gran, "eps")` + `_fund_forecast(series, gran, "eps")`); per-point EPS gate:
+  TTM actual uses `series["ttm"]["eps_ok"][i]`, Q/Y actual uses `eps_actual_vals[i] > 0`, forecast uses
+  `eps_fwd["mean"][j] > 0` (band edges share the mean's gate). All index access bounds-guarded
+  (`i < len(...)`, missing -> gate-fail). PE-TTM all-quarters-gated and PS EPS-gated; `_pe`/`_ps` internal
+  guards kept as defense.
+
+**Alignment (FLAG check):** eps and rev actual blocks come from the SAME granularity block (parallel
+`eps`/`revenue` over the same `dates`), so index-aligned by construction; forecast `eps_fwd` aligns with
+`fwd["dates"]`. All gate lookups are bounds-guarded (missing index -> gate-fail, never raises). No FLAG.
+
+**Test command + result (`python -m pytest -q` from `src/mktt/`):**
+Baseline **366 passed, 6 failed** -> after **372 passed, 6 failed** (+6 net new green; the 6 fails are
+the unchanged, out-of-scope `test_kernel.py::test_parity_kernel_vs_stage_classifier[...]` carried
+kernel-parity baseline — untouched).
+
+**State left:** No JS/template change needed (figures already render None as gaps). Not committed.

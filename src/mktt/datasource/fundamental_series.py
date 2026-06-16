@@ -15,9 +15,10 @@ forward fan.
 
 Design (spec §8 — DI):
 - ``build_fundamental_series(loader=…)`` takes a zero-arg ``loader`` returning the
-  pkl dict (``{quarterly, forward_quarterly, fy1, fy2, …}``). The default loader
-  reads + mtime-caches the on-disk pkl; tests inject a fake dict so the blend math
-  is exercised without the 37 MB file.
+  pkl dict (``{quarterly, forward_quarterly, fy1, fy2, trend_eps_fy1/fy2,
+  trend_rev_fy1/fy2, …}``). The default loader reads + mtime-caches the on-disk
+  pkl; tests inject a fake dict so the blend math is exercised without the 37 MB
+  file.
 - The returned callable is ``(symbol, asof=None) -> structured dict``:
 
     {
@@ -25,7 +26,21 @@ Design (spec §8 — DI):
       "ttm":       {dates, eps, revenue, fwd_dates, eps_mean/high/low, rev_mean/high/low},
       "annual":    {fy_dates, eps, rev, fwd_dates, eps_mean/high/low, rev_mean/high/low},
       "forward_q": {dates, eps_mean/high/low, rev_mean/high/low},
+      "revisions": {eps:     {fy1: {dates, mean, high, low}, fy2: {…}},
+                    revenue: {fy1: {dates, mean, high|[], low|[]}, fy2: {…}}},
     }
+
+  The ``revisions`` block ports ``legacy_routes.py::_revisions_impl`` from the
+  ``trend_eps_fy1/fy2`` + ``trend_rev_fy1/fy2`` frames (the forward FY estimate as
+  it was revised over time).
+
+``build_eps_ttm_forward(loader=…)`` (Slice 7) is a sibling access for the original
+app's Revisions view: ``(symbol, n=3) -> dict`` returning the forward-TTM-EPS
+revision curves (``{quarter_labels, quarter_dates, curves:[{label, values}],
+current_ttm, forward_mean, n_available}``), ported faithfully from
+``legacy_routes.py::_eps_ttm_forward_impl``. It reads the pkl keys ``quarterly``,
+``forward_quarterly``, and ``trend_eps_fq1..fq4`` (per-quarter forward-estimate
+snapshots). ``n`` clamps to ``[1, n_available]`` (distinct snapshot dates).
 
   ``asof`` (default latest = ``None``) filters quarterly/TTM actuals to
   ``report_date <= asof`` (the forward fan is the as-of-now estimate snapshot).
@@ -110,11 +125,13 @@ def build_fundamental_series(loader: Optional[Callable[[], dict]] = None):
         quarterly = _quarterly_block(q)
         ttm = _ttm_block(q, forward_q)
         annual = _annual_block(q, data, symbol)
+        revisions = _revisions_block(data, symbol, asof)
         return {
             "quarterly": quarterly,
             "ttm": ttm,
             "annual": annual,
             "forward_q": forward_q,
+            "revisions": revisions,
         }
 
     return fundamental_series
@@ -226,7 +243,7 @@ def _ttm_block(q: pd.DataFrame, forward_q: dict) -> dict:
     progressively replaces trailing actuals with the forward-quarterly mean/high/low
     estimates (the band carried through)."""
     out = {
-        "dates": [], "eps": [], "revenue": [],
+        "dates": [], "eps": [], "eps_ok": [], "revenue": [],
         "fwd_dates": [], "eps_mean": [], "eps_high": [], "eps_low": [],
         "rev_mean": [], "rev_high": [], "rev_low": [],
     }
@@ -241,6 +258,9 @@ def _ttm_block(q: pd.DataFrame, forward_q: dict) -> dict:
         eps_w = eps[i - 3:i + 1]
         rev_w = rev[i - 3:i + 1]
         out["dates"].append(dates[i])
+        # eps_ok: all 4 constituent quarters strictly positive (excludes a loss
+        # quarter even when the summed TTM EPS is positive — the PE/PS gate).
+        out["eps_ok"].append(all(v is not None and v > 0 for v in eps_w))
         out["eps"].append(round(sum(eps_w), 2) if all(v is not None for v in eps_w) else None)
         out["revenue"].append(
             round(sum(rev_w) / 1e6, 1) if all(v is not None for v in rev_w) else None
@@ -335,4 +355,200 @@ def _annual_block(q: pd.DataFrame, data, symbol) -> dict:
         out["rev_mean"].append(round(rm / 1e6, 1) if rm is not None else None)
         out["rev_high"].append(round(rh / 1e6, 1) if rh is not None else None)
         out["rev_low"].append(round(rl / 1e6, 1) if rl is not None else None)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# estimate revisions — FY1/FY2 forward EPS + Revenue trend lines (Slice 7)
+# --------------------------------------------------------------------------- #
+def _empty_trend() -> dict:
+    return {"dates": [], "mean": [], "high": [], "low": []}
+
+
+def _revisions_block(data, symbol, asof) -> dict:
+    """Forward FY1/FY2 EPS + Revenue **estimate revisions** over time (mirrors
+    ``legacy_routes.py::_revisions_impl``).
+
+    Each ``trend_*`` frame is the forward estimate as it was revised — one row per
+    asof ``Date``. For the symbol: filter, sort by ``Date``, ``dates = str(d)[:10]``,
+    take EPS mean/high/low, and revenue mean ``/1e6`` (to $m). Revenue trend frames
+    may lack High/Low columns -> those degrade to ``[]`` (mean-only). When ``asof``
+    is set, rows dated after it are dropped (``Date <= asof``). Missing frames /
+    symbols -> empty trend lines (never raises). All values JSON-safe."""
+    out = {
+        "eps": {"fy1": _empty_trend(), "fy2": _empty_trend()},
+        "revenue": {"fy1": _empty_trend(), "fy2": _empty_trend()},
+    }
+    spec = [
+        ("trend_eps_fy1", "eps", "fy1", "Earnings Per Share", 1.0),
+        ("trend_eps_fy2", "eps", "fy2", "Earnings Per Share", 1.0),
+        ("trend_rev_fy1", "revenue", "fy1", "Revenue", 1e6),
+        ("trend_rev_fy2", "revenue", "fy2", "Revenue", 1e6),
+    ]
+    cutoff = None
+    if asof is not None:
+        cutoff = pd.to_datetime(asof, errors="coerce")
+        if pd.isna(cutoff):
+            cutoff = None
+
+    for key, metric, fy, prefix, div in spec:
+        df = data.get(key)
+        if df is None:
+            continue
+        t = df[df["Symbol"] == symbol].copy()
+        if t.empty:
+            continue
+        t["Date"] = pd.to_datetime(t["Date"], errors="coerce")
+        t = t.dropna(subset=["Date"]).sort_values("Date")
+        if cutoff is not None:
+            t = t[t["Date"] <= cutoff]
+        if t.empty:
+            continue
+        dates = [str(d)[:10] for d in t["Date"]]
+        out[metric][fy] = {
+            "dates": dates,
+            "mean": _scaled_col(t, f"{prefix} - Mean", div),
+            "high": _scaled_col(t, f"{prefix} - High", div),
+            "low": _scaled_col(t, f"{prefix} - Low", div),
+        }
+    return out
+
+
+def _scaled_col(t: pd.DataFrame, col: str, div: float) -> list:
+    """A JSON-safe, scaled column from the trend frame; ``[]`` when absent."""
+    if col not in t.columns:
+        return []
+    return [(round(v / div, 3) if (v := _n(raw)) is not None else None) for raw in t[col]]
+
+
+# --------------------------------------------------------------------------- #
+# forward-TTM-EPS revision curves (Slice 7 replica of the original app's view)
+# --------------------------------------------------------------------------- #
+def build_eps_ttm_forward(loader: Optional[Callable[[], dict]] = None):
+    """Return the ``(symbol, n=3) -> dict`` access for the forward-TTM-EPS curves.
+
+    Faithful Flask-free port of ``legacy_routes.py::_eps_ttm_forward_impl``: build
+    a rolling 12-month (4Q) EPS curve that progressively replaces trailing actuals
+    with the per-quarter forward estimates (``trend_eps_fq1..fq4``). One curve per
+    revision snapshot date (newest first; curve[0] labelled ``Current (mm/dd)``).
+    ``n`` clamps to ``[1, n_available]`` (the count of distinct snapshot dates).
+
+    Returns the SAME shape the original ``/api/eps_ttm_forward`` emitted:
+    ``{quarter_labels, quarter_dates, curves:[{label, values}], current_ttm,
+    forward_mean, n_available}``. Graceful: thin/missing name -> empty curves,
+    ``n_available == 0`` (never raises)."""
+    load = loader or _default_loader
+
+    def eps_ttm_forward(symbol: str, n: int = 3) -> dict:
+        logger.debug("eps_ttm_forward symbol=%s n=%s", symbol, n)
+        return _eps_ttm_forward_impl(load() or {}, symbol, n)
+
+    return eps_ttm_forward
+
+
+def _empty_ttm_forward() -> dict:
+    return {
+        "quarter_labels": [], "quarter_dates": [], "curves": [],
+        "current_ttm": None, "forward_mean": [], "n_available": 0,
+    }
+
+
+def _eps_ttm_forward_impl(data: dict, symbol: str, n: int) -> dict:
+    """Forward-TTM-EPS revision curves (ported from the legacy impl, Flask-free)."""
+    quarterly = data.get("quarterly")
+    fwd_q = data.get("forward_quarterly")
+    if quarterly is None or fwd_q is None:
+        return _empty_ttm_forward()
+
+    # trailing quarterly actuals (need >= 4).
+    q = quarterly[quarterly["Symbol"] == symbol].copy()
+    if q.empty:
+        return _empty_ttm_forward()
+    q["Date"] = pd.to_datetime(q["Date"], errors="coerce")
+    q = q.dropna(subset=["Date"]).sort_values("Date")
+    q["EPS"] = q["Earnings Per Share - Actual"].map(_n)
+    q = q.dropna(subset=["EPS"])
+    if len(q) < 4:
+        return _empty_ttm_forward()
+
+    # forward-quarterly mean estimates (cap at 8; need >= 4 for a rolling TTM).
+    fq = fwd_q[fwd_q["Symbol"] == symbol]
+    fq_eps = [_n(v) for v in pd.to_numeric(
+        fq.get("Earnings Per Share - Mean", pd.Series()), errors="coerce")]
+    n_fwd = min(8, len(fq_eps))
+    if n_fwd < 4:
+        return _empty_ttm_forward()
+
+    trailing = q["EPS"].tail(4).tolist()
+    all_eps = trailing + fq_eps[:n_fwd]
+
+    # forward quarter dates: step +3m off the last actual quarter.
+    quarter_dates = []
+    cursor = q["Date"].iloc[-1]
+    for _ in range(n_fwd):
+        cursor = cursor + pd.DateOffset(months=3)
+        quarter_dates.append(cursor)
+
+    # the forward-mean TTM curve (rolling 4Q sum over actual+estimate).
+    forward_mean = _roll_ttm(all_eps, n_fwd)
+
+    # per-quarter estimate trends (FQ1..FQ4): each carries monthly snapshots.
+    fq_trends = {}
+    for fq_key in ("trend_eps_fq1", "trend_eps_fq2", "trend_eps_fq3", "trend_eps_fq4"):
+        t = data.get(fq_key)
+        if t is None:
+            continue
+        ts = t[t["Symbol"] == symbol].copy()
+        if ts.empty:
+            continue
+        ts["Date"] = pd.to_datetime(ts["Date"], errors="coerce")
+        ts["Mean"] = ts["Earnings Per Share - Mean"].map(_n)
+        ts = ts.dropna(subset=["Date", "Mean"]).sort_values("Date")
+        if not ts.empty:
+            fq_trends[fq_key] = ts
+
+    curves = []
+    n_available = 0
+    if fq_trends:
+        snap_all = sorted(
+            {d for ts in fq_trends.values() for d in ts["Date"].tolist()}, reverse=True
+        )
+        n_available = len(snap_all)
+        n_rev = max(1, min(int(n), n_available))
+        for si, snap_date in enumerate(snap_all[:n_rev]):
+            # per-quarter estimate at-or-before this snapshot date.
+            fwd_est = []
+            for fq_key in ("trend_eps_fq1", "trend_eps_fq2", "trend_eps_fq3", "trend_eps_fq4"):
+                ts = fq_trends.get(fq_key)
+                if ts is None:
+                    fwd_est.append(None)
+                    continue
+                at = ts[ts["Date"] <= snap_date]
+                fwd_est.append(float(at["Mean"].iloc[-1]) if not at.empty else None)
+            # extend FQ1-4 to 8 quarters by repeating the pattern (legacy).
+            fwd_est = fwd_est + fwd_est
+            rev_all = trailing + fwd_est[:n_fwd]
+            label = ("Current (" + snap_date.strftime("%m/%d") + ")"
+                     if si == 0 else snap_date.strftime("%Y-%m-%d"))
+            curves.append({"label": label, "values": _roll_ttm(rev_all, n_fwd)})
+
+    return {
+        "quarter_labels": [f"{d.year}-Q{(d.month - 1) // 3 + 1}" for d in quarter_dates],
+        "quarter_dates": [str(d)[:10] for d in quarter_dates],
+        "curves": curves,
+        "current_ttm": round(float(q["EPS"].tail(4).sum()), 2),
+        "forward_mean": forward_mean,
+        "n_available": n_available,
+    }
+
+
+def _roll_ttm(all_eps, n_fwd):
+    """Rolling 4Q-sum forward-TTM curve over ``all_eps`` (trailing + forward)."""
+    out = []
+    for i in range(n_fwd):
+        window = all_eps[i + 1: i + 5]
+        if len(window) == 4 and all(v is not None for v in window):
+            out.append(round(sum(window), 2))
+        else:
+            out.append(None)
     return out

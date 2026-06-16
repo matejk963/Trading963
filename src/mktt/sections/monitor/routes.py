@@ -109,6 +109,23 @@ def monitor_fundamentals_api(symbol):
     return jsonify(service.fundamentals_view(symbol, data, granularity=granularity, asof=asof))
 
 
+@monitor_bp.route("/api/monitor/revisions/<symbol>")
+def monitor_revisions_api(symbol):
+    """Focused Estimate-Revisions payload (Slice 7) -> jsonify.
+
+    A faithful replica of the original app's Revisions view (two EPS charts).
+    Granularity-independent (not subject to the Q/Y/TTM toggle). ``?n=N`` (default 3)
+    sets how many forward-TTM revision snapshots to draw; ``?asof=YYYY-MM-DD``
+    (default latest) threads into ``revisions_view`` (the thin parse->service route)."""
+    data, _, _, _ = _providers()
+    try:
+        n = int(request.args.get("n", 3))
+    except (TypeError, ValueError):
+        n = 3
+    asof = request.args.get("asof") or None
+    return jsonify(service.revisions_view(symbol, data, n=n, asof=asof))
+
+
 @monitor_bp.route("/api/monitor/rail")
 def monitor_rail_api():
     """Saved-instrument rail VM (Slice 1) -> jsonify (the thin parse->service route)."""

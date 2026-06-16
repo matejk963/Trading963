@@ -61,14 +61,17 @@ def _price_panel(symbol, n=260, start=100.0, benchmark=False):
 class StubData:
     """Returns canned time_series / fundamentals; records the requested ids."""
 
-    def __init__(self, panels=None, bench=None, funds=None, fund_series=None):
+    def __init__(self, panels=None, bench=None, funds=None, fund_series=None,
+                 ttm_forward=None):
         self._panels = panels or {}
         self._bench = bench
         self._funds = funds
         self._fund_series = fund_series
+        self._ttm_forward = ttm_forward
         self.ts_calls = []
         self.fund_calls = []
         self.fund_series_calls = []
+        self.ttm_forward_calls = []
 
     def fundamental_series(self, symbol, asof=None):
         """Canned structured fundamental series; records the (symbol, asof) call.
@@ -79,6 +82,14 @@ class StubData:
         if self._fund_series is None:
             return {}
         return self._fund_series
+
+    def eps_ttm_forward(self, symbol, n=3):
+        """Canned forward-TTM-EPS curves; records the (symbol, n) call."""
+        self.ttm_forward_calls.append((symbol, n))
+        if self._ttm_forward is None:
+            return {"quarter_labels": [], "curves": [], "current_ttm": None,
+                    "n_available": 0}
+        return self._ttm_forward
 
     def time_series(self, ids, start=None, end=None, fields=("close", "volume")):
         ids = [ids] if isinstance(ids, str) else list(ids)
@@ -750,6 +761,7 @@ def _fund_series_fixture():
         "ttm": {
             "dates": ["2024-09-30", "2024-12-31"],
             "eps": [4.2, 4.6],
+            "eps_ok": [True, True],
             "revenue": [420.0, 460.0],
         },
         "annual": {
@@ -772,6 +784,34 @@ def _fund_series_fixture():
             "rev_mean": [140.0, 150.0, 160.0],
             "rev_high": [150.0, 170.0, 190.0],
             "rev_low": [130.0, 130.0, 130.0],
+        },
+        "revisions": _revisions_fixture(),
+    }
+
+
+def _revisions_fixture():
+    """Estimate-revision trend lines (the shape data.fundamental_series emits):
+    EPS FY1/FY2 with mean/high/low, Revenue FY1/FY2 mean-only (high/low absent)."""
+    return {
+        "eps": {
+            "fy1": {
+                "dates": ["2024-09-30", "2024-12-31", "2025-03-31"],
+                "mean": [5.0, 5.2, 5.6], "high": [5.4, 5.6, 6.0], "low": [4.6, 4.8, 5.2],
+            },
+            "fy2": {
+                "dates": ["2024-09-30", "2024-12-31", "2025-03-31"],
+                "mean": [6.0, 6.1, 6.3], "high": [6.4, 6.5, 6.7], "low": [5.6, 5.7, 5.9],
+            },
+        },
+        "revenue": {
+            "fy1": {
+                "dates": ["2024-09-30", "2024-12-31", "2025-03-31"],
+                "mean": [500.0, 520.0, 560.0], "high": [], "low": [],
+            },
+            "fy2": {
+                "dates": ["2024-09-30", "2024-12-31", "2025-03-31"],
+                "mean": [600.0, 610.0, 630.0], "high": [], "low": [],
+            },
         },
     }
 
@@ -969,24 +1009,94 @@ def test_fundamentals_view_ps_units_are_a_sane_ratio_not_inflated():
 
 
 def test_fundamentals_view_ratio_guards_nonpositive_to_none():
-    """Behavior 3 (#12) — divide-by-zero / non-positive EPS or revenue -> None (no
-    fabricated point); missing shares -> PS None."""
+    """Behavior 3 (#12) — divide-by-zero / non-positive EPS -> None (no fabricated
+    point); zero revenue (with positive EPS) -> PS None; missing shares -> PS None."""
     fix = _fund_series_fixture()
     # zero + negative EPS in the quarterly actuals -> PE None at those periods.
     fix["quarterly"]["eps"] = [0.0, -1.1, 1.2, 1.3]
-    # zero revenue at the first period -> PS None there.
-    fix["quarterly"]["revenue"] = [0.0, 110.0, 120.0, 130.0]
+    # zero revenue at the LAST period (which has EPS > 0) isolates the revenue guard
+    # from the EPS gate.
+    fix["quarterly"]["revenue"] = [100.0, 110.0, 120.0, 0.0]
     out = svc.fundamentals_view("AAA", _ratio_data(series=fix), granularity="Q")
     pe_actual = _fund_fig(out, "fund_pe")["traces"][0]["y"]
     assert pe_actual[0] is None and pe_actual[1] is None  # zero + negative EPS.
     assert pe_actual[2] is not None
     ps_actual = _fund_fig(out, "fund_ps")["traces"][0]["y"]
-    assert ps_actual[0] is None  # zero revenue.
-    assert ps_actual[1] is not None
+    assert ps_actual[0] is None and ps_actual[1] is None  # EPS-gated (<= 0).
+    assert ps_actual[2] is not None  # EPS > 0, revenue > 0.
+    assert ps_actual[3] is None  # zero revenue (EPS > 0): revenue guard.
 
     # missing shares_outstanding -> PS None everywhere.
     out2 = svc.fundamentals_view("AAA", _ratio_data(shares=None), granularity="Q")
     assert all(v is None for v in _fund_fig(out2, "fund_ps")["traces"][0]["y"])
+
+
+def test_fundamentals_view_ps_qy_suppressed_where_eps_nonpositive():
+    """EPS-gate (#12 fix) — for Q/Y, PS is suppressed at any period where EPS <= 0,
+    even though revenue > 0. PE is also None there (existing behaviour)."""
+    fix = _fund_series_fixture()
+    # period 0 EPS == 0 (excluded), period 1 EPS < 0 (excluded); revenue all > 0.
+    fix["quarterly"]["eps"] = [0.0, -0.5, 1.2, 1.3]
+    fix["quarterly"]["revenue"] = [100.0, 110.0, 120.0, 130.0]
+    out = svc.fundamentals_view("AAA", _ratio_data(series=fix), granularity="Q")
+    ps_actual = _fund_fig(out, "fund_ps")["traces"][0]["y"]
+    pe_actual = _fund_fig(out, "fund_pe")["traces"][0]["y"]
+    # EPS <= 0 -> both PS and PE None, despite revenue > 0.
+    assert ps_actual[0] is None and ps_actual[1] is None
+    assert pe_actual[0] is None and pe_actual[1] is None
+    # EPS > 0 -> both computed.
+    assert ps_actual[2] is not None and ps_actual[3] is not None
+    assert pe_actual[2] is not None and pe_actual[3] is not None
+
+
+def test_fundamentals_view_ttm_suppressed_when_any_constituent_quarter_nonpositive():
+    """EPS-gate (#12 fix) — a TTM point whose 4-quarter window contains an EPS <= 0
+    has BOTH PE and PS None, even when the summed TTM EPS is positive."""
+    fix = _fund_series_fixture()
+    # summed TTM EPS positive at both points, but the first window had a loss quarter.
+    fix["ttm"]["eps"] = [4.2, 4.6]
+    fix["ttm"]["eps_ok"] = [False, True]
+    fix["ttm"]["revenue"] = [420.0, 460.0]
+    out = svc.fundamentals_view("AAA", _ratio_data(series=fix), granularity="TTM")
+    pe_actual = _fund_fig(out, "fund_pe")["traces"][0]["y"]
+    ps_actual = _fund_fig(out, "fund_ps")["traces"][0]["y"]
+    # window 0 not ok -> both None (despite positive summed EPS 4.2).
+    assert pe_actual[0] is None and ps_actual[0] is None
+    # window 1 ok -> both computed.
+    assert pe_actual[1] is not None and ps_actual[1] is not None
+
+
+def test_fundamentals_view_ttm_all_quarters_positive_computes():
+    """EPS-gate (#12 fix) — a TTM window with all 4 quarters > 0 computes PE & PS."""
+    out = svc.fundamentals_view("AAA", _ratio_data(), granularity="TTM")
+    pe_actual = _fund_fig(out, "fund_pe")["traces"][0]["y"]
+    ps_actual = _fund_fig(out, "fund_ps")["traces"][0]["y"]
+    assert all(v is not None for v in pe_actual)
+    assert all(v is not None for v in ps_actual)
+
+
+def test_fundamentals_view_forecast_suppressed_where_eps_mean_nonpositive():
+    """EPS-gate (#12 fix) — a forecast point whose EPS mean <= 0 has PE & PS forecast
+    (and band edges) None there, even when revenue forecast > 0."""
+    fix = _fund_series_fixture()
+    # forward EPS mean: first point 0 (excluded), second < 0 (excluded), third > 0.
+    fix["forward_q"]["eps_mean"] = [0.0, -0.2, 1.6]
+    fix["forward_q"]["eps_high"] = [0.1, -0.1, 1.9]
+    fix["forward_q"]["eps_low"] = [-0.1, -0.3, 1.3]
+    # revenue forecast all positive (so PS would compute without the EPS gate).
+    fix["forward_q"]["rev_mean"] = [140.0, 150.0, 160.0]
+    fix["forward_q"]["rev_high"] = [150.0, 170.0, 190.0]
+    fix["forward_q"]["rev_low"] = [130.0, 130.0, 130.0]
+    out = svc.fundamentals_view("AAA", _ratio_data(series=fix), granularity="Q")
+    for fig_id in ("fund_pe", "fund_ps"):
+        fig = _fund_fig(out, fig_id)
+        fwd = next(t for t in fig["traces"] if t.get("name") == "Forecast")
+        assert fwd["y"][0] is None and fwd["y"][1] is None  # EPS mean <= 0.
+        assert fwd["y"][2] is not None                       # EPS mean > 0.
+        # band edges gated too: every band trace is None where EPS mean <= 0.
+        for t in fig["traces"]:
+            if t.get("name") in ("Low", "Est. range"):
+                assert t["y"][0] is None and t["y"][1] is None
 
 
 def test_fundamentals_view_pe_ps_honor_toggle_divider_asof():
@@ -1100,3 +1210,118 @@ def test_blueprint_fundamentals_route_is_thin(monkeypatch):
     assert {"fund_eps", "fund_sales"} <= fig_ids
     # the route forwarded granularity + asof to the service (via the stub).
     assert ("AAA", "2024-09-30") in data.fund_series_calls
+
+
+# --------------------------------------------------------------------------- #
+# Estimate Revisions sub-pane (Slice 7) — figures + momentum table
+# --------------------------------------------------------------------------- #
+def _ttm_forward_fixture():
+    """Forward-TTM-EPS curves (the shape data.eps_ttm_forward emits): 2 revision
+    snapshots, curve[0] = the current snapshot."""
+    return {
+        "quarter_labels": ["2024-Q3", "2024-Q4", "2025-Q1", "2025-Q2"],
+        "quarter_dates": ["2024-09-30", "2024-12-31", "2025-03-31", "2025-06-30"],
+        "curves": [
+            {"label": "Current (03/31)", "values": [6.0, 6.2, 6.4, 6.6]},
+            {"label": "2024-02-29", "values": [5.8, 6.0, 6.2, 6.4]},
+        ],
+        "current_ttm": 6.0,
+        "forward_mean": [6.0, 6.2, 6.4, 6.6],
+        "n_available": 2,
+    }
+
+
+def _rev_data(revisions=None, ttm_forward=None):
+    """StubData wired so fundamental_series returns the given revisions block and
+    eps_ttm_forward returns the given forward-TTM curves."""
+    series = {"revisions": revisions if revisions is not None else _revisions_fixture()}
+    return StubData(
+        fund_series=series,
+        ttm_forward=ttm_forward if ttm_forward is not None else _ttm_forward_fixture(),
+    )
+
+
+def test_revisions_view_emits_ttm_and_eps_figures():
+    """Behavior 3 — revisions_view emits rev_ttm (forward-TTM curves + an Actual-TTM
+    line) and rev_eps (FY1/FY2 mean + high/low), and NO rev_sales / rev_momentum."""
+    out = svc.revisions_view("AAA", _rev_data(), n=2)
+    assert out["meta"]["status"] == "ok"
+    by_id = {f["id"]: f for f in out["figures"]}
+    assert {"rev_ttm", "rev_eps"} == set(by_id)
+    # the old design's figures/table are gone.
+    assert "rev_sales" not in by_id
+    assert all(t["id"] != "rev_momentum" for t in out.get("tables", []))
+
+    ttm = by_id["rev_ttm"]
+    ttm_names = [t.get("name") for t in ttm["traces"]]
+    # one trace per curve (the curve labels) + the horizontal Actual-TTM line.
+    assert "Current (03/31)" in ttm_names
+    assert "2024-02-29" in ttm_names
+    assert any("Actual TTM" in (n or "") for n in ttm_names)
+
+    eps = by_id["rev_eps"]
+    eps_names = [t.get("name") for t in eps["traces"]]
+    assert any("FY1" in (n or "") for n in eps_names)
+    assert any("FY2" in (n or "") for n in eps_names)
+
+
+def test_revisions_view_carries_n_available_in_context():
+    """Behavior 1/2 — n_available is carried so the client can cap the N input;
+    n threads into data.eps_ttm_forward(symbol, n)."""
+    data = _rev_data()
+    out = svc.revisions_view("AAA", data, n=2)
+    assert out["meta"]["context"]["n_available"] == 2
+    assert ("AAA", 2) in data.ttm_forward_calls
+
+
+def test_revisions_view_asof_drops_rows_after_asof():
+    """asof threads into data.fundamental_series(asof=…)."""
+    data = _rev_data()
+    svc.revisions_view("AAA", data, asof="2024-12-31")
+    assert ("AAA", "2024-12-31") in data.fund_series_calls
+
+
+def test_revisions_view_thin_name_is_graceful():
+    """Behavior 4 — a thin/empty name -> empty figures, status empty, never raises."""
+    empty = {
+        "eps": {"fy1": {"dates": [], "mean": [], "high": [], "low": []},
+                "fy2": {"dates": [], "mean": [], "high": [], "low": []}},
+        "revenue": {"fy1": {"dates": [], "mean": [], "high": [], "low": []},
+                    "fy2": {"dates": [], "mean": [], "high": [], "low": []}},
+    }
+    empty_ttm = {"quarter_labels": [], "curves": [], "current_ttm": None,
+                 "n_available": 0}
+    out = svc.revisions_view("ZZZ", _rev_data(revisions=empty, ttm_forward=empty_ttm))
+    assert out["meta"]["status"] == "empty"
+    by_id = {f["id"]: f for f in out["figures"]}
+    assert {"rev_ttm", "rev_eps"} == set(by_id)
+    for fig in out["figures"]:
+        assert all(not t.get("x") for t in fig["traces"])
+
+    # totally missing series/curves -> still graceful.
+    out2 = svc.revisions_view("ZZZ", StubData(fund_series={}))
+    assert out2["meta"]["status"] == "empty"
+
+
+def test_blueprint_revisions_route_is_thin(monkeypatch):
+    """GET /api/monitor/revisions/<sym>?n= -> revisions_view -> jsonify
+    (focused payload; n forwarded to the service via the stub)."""
+    from flask import Flask
+    from sections.monitor import routes
+
+    data = _rev_data()
+    monkeypatch.setitem(routes._PROVIDERS, "data", data)
+    monkeypatch.setitem(routes._PROVIDERS, "computed", StubComputed())
+    monkeypatch.setitem(routes._PROVIDERS, "kernel", KERNEL)
+    monkeypatch.setitem(routes._PROVIDERS, "lists", StubLists())
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.monitor_bp)
+    resp = app.test_client().get("/api/monitor/revisions/AAA?n=2")
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["meta"]["status"] == "ok"
+    fig_ids = {f["id"] for f in payload["figures"]}
+    assert {"rev_ttm", "rev_eps"} == fig_ids
+    assert payload["meta"]["context"]["n_available"] == 2
+    assert ("AAA", 2) in data.ttm_forward_calls

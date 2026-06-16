@@ -635,25 +635,66 @@ def _ratio_figure(fig_id, title, series, gran, kind, period_end, current_price, 
     PE = price/EPS; PS = price*shares/revenue. The forecast band propagates the
     EPS/revenue high/low through the ratio (high EPS -> high PE; for PS the high
     *revenue* gives the **low** PS, so the band edges swap). Same visual language as
-    EPS/Sales: actual solid -> forecast dashed + high/low band + today-divider."""
-    actual_dates, actual_vals = _fund_actual(series, gran, kind="eps" if kind == "pe" else "rev")
-    fwd = _fund_forecast(series, gran, kind="eps" if kind == "pe" else "rev")
+    EPS/Sales: actual solid -> forecast dashed + high/low band + today-divider.
+
+    **EPS gate (#12 fix):** BOTH PE and PS are computed only where EPS > 0 (EPS <= 0
+    excluded), per point, for actuals AND the forecast. For TTM the gate is
+    ``series["ttm"]["eps_ok"]`` (all 4 constituent quarters strictly positive — a
+    loss quarter suppresses the point even when the summed TTM EPS is positive); for
+    Q/Y the gate is the per-period actual EPS > 0; the forecast gate is the
+    forward EPS *mean* > 0. The gate is on EPS for both PE and PS so PS is suppressed
+    through negative/zero earnings even though revenue is positive."""
+    base_kind = "eps" if kind == "pe" else "rev"
+    actual_dates, actual_vals = _fund_actual(series, gran, kind=base_kind)
+    fwd = _fund_forecast(series, gran, kind=base_kind)
+
+    # EPS gate inputs (fetched regardless of PE/PS — the gate is always on EPS).
+    eps_actual_dates, eps_actual_vals = _fund_actual(series, gran, "eps")
+    eps_fwd = _fund_forecast(series, gran, "eps")
+
+    # per-point actual EPS gate (index-aligned; missing -> gate fails).
+    if gran == "TTM":
+        eps_ok = (series.get("ttm") or {}).get("eps_ok") or []
+        actual_gate = [bool(eps_ok[i]) if i < len(eps_ok) else False
+                       for i in range(len(actual_dates))]
+    else:  # Q / Y: gate on the per-period actual EPS > 0.
+        actual_gate = [
+            (eps_actual_vals[i] is not None and eps_actual_vals[i] > 0)
+            if i < len(eps_actual_vals) else False
+            for i in range(len(actual_dates))
+        ]
+
+    # forecast EPS-mean gate (per point; band edges share the mean's gate).
+    eps_mean = eps_fwd["mean"]
+    fwd_gate = [
+        (eps_mean[j] is not None and eps_mean[j] > 0) if j < len(eps_mean) else False
+        for j in range(len(fwd["dates"]))
+    ]
 
     # actual ratio: TTM uses current price; Q/Y actuals use the period-end price.
     use_current_for_actual = (gran == "TTM")
     actual_ratio = []
-    for d, base in zip(actual_dates, actual_vals):
+    for i, (d, base) in enumerate(zip(actual_dates, actual_vals)):
+        if not actual_gate[i]:
+            actual_ratio.append(None)
+            continue
         price = current_price if use_current_for_actual else _period_end_price(period_end, d)
         actual_ratio.append(_ratio(kind, price, base, shares))
 
-    # forecast + band: always current price.
-    fwd_mean = [_ratio(kind, current_price, v, shares) for v in fwd["mean"]]
+    # forecast + band: always current price, gated on the forward EPS mean.
+    def _gated_fwd(vals):
+        out = []
+        for j, v in enumerate(vals):
+            out.append(_ratio(kind, current_price, v, shares) if (j < len(fwd_gate) and fwd_gate[j]) else None)
+        return out
+
+    fwd_mean = _gated_fwd(fwd["mean"])
     if kind == "pe":
-        fwd_hi = [_ratio(kind, current_price, v, shares) for v in fwd["high"]]
-        fwd_lo = [_ratio(kind, current_price, v, shares) for v in fwd["low"]]
+        fwd_hi = _gated_fwd(fwd["high"])
+        fwd_lo = _gated_fwd(fwd["low"])
     else:  # PS: higher revenue -> lower PS, so the band edges swap.
-        fwd_hi = [_ratio(kind, current_price, v, shares) for v in fwd["low"]]
-        fwd_lo = [_ratio(kind, current_price, v, shares) for v in fwd["high"]]
+        fwd_hi = _gated_fwd(fwd["low"])
+        fwd_lo = _gated_fwd(fwd["high"])
 
     traces = [{
         "name": "Actual", "x": list(actual_dates), "y": actual_ratio,
@@ -689,6 +730,142 @@ def _ratio(kind, price, base, shares):
     if kind == "pe":
         return _pe(price, base)
     return _ps(price, base, shares)
+
+
+# --------------------------------------------------------------------------- #
+# Estimate Revisions sub-pane — faithful replica of the original app's Revisions
+# view (stock_panel.js::loadPanelRevisions): two EPS charts side by side.
+#   LEFT  rev_ttm — Forward TTM EPS (Next 8Q): one curve per revision snapshot
+#                   (solid current + dashed older) + a dotted Actual-TTM line.
+#   RIGHT rev_eps — EPS Estimate Revisions (FY1/FY2): mean lines + dotted high/low.
+# Independent of the Q/Y/TTM toggle (granularity-independent). · Slice 7
+# --------------------------------------------------------------------------- #
+#: the original curve palette (cycled per revision snapshot).
+_REV_TTM_PALETTE = [
+    "#4f8cf7", "#10b981", "#f59e0b", "#ef4444",
+    "#a78bfa", "#ec4899", "#06b6d4", "#84cc16",
+]
+#: FY1 blue / FY2 green (matches the original right-hand chart).
+_REV_FY1_COLOR = "#4f8cf7"
+_REV_FY2_COLOR = "#10b981"
+
+
+def revisions_view(symbol, data, n=3, asof=None) -> dict:
+    """Build the Estimate-Revisions sub-pane — a faithful replica of the original
+    app's Revisions view (two EPS charts side by side, dark theme).
+
+    Its own view (like :func:`fundamentals_view`), independent of the Q/Y/TTM
+    toggle. Emits exactly two figures:
+
+    * ``rev_ttm`` — "Forward TTM EPS (Next 8Q)" from ``data.eps_ttm_forward(symbol,
+      n)``: one trace per revision snapshot curve (i=0 solid+thick, i>0 dashed+thin,
+      original palette/markers) plus a horizontal dotted "Actual TTM (<val>)" line.
+    * ``rev_eps`` — "EPS Estimate Revisions (FY1/FY2)" from
+      ``data.fundamental_series(symbol, asof)["revisions"]["eps"]``: FY1/FY2 mean
+      lines + dotted (non-legend) high/low lines.
+
+    ``n_available`` (the count of revision snapshots) is carried in ``context`` so
+    the client can cap the "Revisions: N" input. Graceful: a missing/thin name ->
+    empty figures, ``status`` ``empty``; never raises."""
+    logger.debug("monitor.revisions_view symbol=%s n=%s asof=%s", symbol, n, asof)
+    ttm = data.eps_ttm_forward(symbol, n=n) or {}
+    series = data.fundamental_series(symbol, asof=asof) or {}
+    eps = (series.get("revisions") or {}).get("eps") or {}
+
+    ttm_fig = _rev_ttm_figure(ttm)
+    eps_fig = _rev_eps_figure(eps)
+
+    has_ttm = bool(ttm.get("curves"))
+    has_eps = any(
+        (eps.get(fy, {}) or {}).get("dates") for fy in ("fy1", "fy2")
+    )
+    status = "ok" if (has_ttm or has_eps) else "empty"
+    return vm(
+        figures=[ttm_fig, eps_fig],
+        status=status,
+        asof=asof,
+        title=f"Monitor — {symbol} estimate revisions",
+        context={"symbol": symbol, "n_available": int(ttm.get("n_available") or 0)},
+    )
+
+
+def _rev_ttm_figure(ttm) -> dict:
+    """The LEFT chart: "Forward TTM EPS (Next 8Q)" — one trace per revision-snapshot
+    curve (i=0 solid/thick/markers-5, i>0 dashed/thin/markers-3) + a dotted
+    horizontal Actual-TTM line. Mirrors the original ``loadPanelRevisions``."""
+    labels = list(ttm.get("quarter_labels", []) or [])
+    curves = ttm.get("curves", []) or []
+    traces = []
+    for i, curve in enumerate(curves):
+        traces.append({
+            "name": curve.get("label"),
+            "x": list(labels),
+            "y": [_cell(v) for v in (curve.get("values", []) or [])],
+            "mode": "lines+markers",
+            "line": {
+                "color": _REV_TTM_PALETTE[i % len(_REV_TTM_PALETTE)],
+                "dash": "solid" if i == 0 else "dash",
+                "width": 3 if i == 0 else 1.5,
+            },
+            "marker": {"size": 5 if i == 0 else 3},
+        })
+    current_ttm = _cell(ttm.get("current_ttm"))
+    if current_ttm is not None and labels:
+        traces.append({
+            "name": f"Actual TTM ({current_ttm})",
+            "x": list(labels),
+            "y": [current_ttm] * len(labels),
+            "mode": "lines",
+            "line": {"color": "#666", "dash": "dot", "width": 1},
+        })
+    return {
+        "id": "rev_ttm",
+        "traces": traces,
+        "layout": {
+            "title": "Forward TTM EPS (Next 8Q)",
+            "yaxis": {"title": "TTM EPS ($)"},
+            "xaxis": {"type": "category"},
+        },
+    }
+
+
+def _rev_eps_figure(eps) -> dict:
+    """The RIGHT chart: "EPS Estimate Revisions (FY1/FY2)" — FY1/FY2 mean lines +
+    dotted (non-legend) high/low lines. Mirrors the original ``loadPanelRevisions``."""
+    traces = []
+    for fy, label, color in (
+        ("fy1", "FY1", _REV_FY1_COLOR),
+        ("fy2", "FY2", _REV_FY2_COLOR),
+    ):
+        trend = eps.get(fy) or {}
+        dates = list(trend.get("dates", []) or [])
+        mean = [_cell(v) for v in (trend.get("mean", []) or [])]
+        high = [_cell(v) for v in (trend.get("high", []) or [])]
+        low = [_cell(v) for v in (trend.get("low", []) or [])]
+        traces.append({
+            "name": f"{label} Mean", "x": list(dates), "y": mean,
+            "mode": "lines", "line": {"color": color, "width": 2},
+        })
+        if dates and any(v is not None for v in high):
+            traces.append({
+                "name": f"{label} High", "x": list(dates), "y": high,
+                "mode": "lines", "showlegend": False,
+                "line": {"color": color, "dash": "dot", "width": 1},
+            })
+        if dates and any(v is not None for v in low):
+            traces.append({
+                "name": f"{label} Low", "x": list(dates), "y": low,
+                "mode": "lines", "showlegend": False,
+                "line": {"color": color, "dash": "dot", "width": 1},
+            })
+    return {
+        "id": "rev_eps",
+        "traces": traces,
+        "layout": {
+            "title": "EPS Estimate Revisions (FY1/FY2)",
+            "yaxis": {"title": "EPS ($)"},
+        },
+    }
 
 
 # --------------------------------------------------------------------------- #

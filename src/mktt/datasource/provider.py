@@ -55,10 +55,12 @@ class DataSource:
         `data.fetch_universe(...)` without re-resolving.
     """
 
-    def __init__(self, registry: Registry, _equity=None, fundamental_series=None) -> None:
+    def __init__(self, registry: Registry, _equity=None, fundamental_series=None,
+                 eps_ttm_forward=None) -> None:
         self._registry = registry
         self._equity = _equity
         self._fundamental_series = fundamental_series
+        self._eps_ttm_forward = eps_ttm_forward
 
     # ------------------------------------------------------------------ #
     # time_series (spec §5.3)
@@ -151,6 +153,21 @@ class DataSource:
             from .fundamental_series import build_fundamental_series
             self._fundamental_series = build_fundamental_series()
         return self._fundamental_series(symbol, asof=asof)
+
+    # ------------------------------------------------------------------ #
+    # eps_ttm_forward (Slice 7) — forward-TTM-EPS revision curves
+    # ------------------------------------------------------------------ #
+    def eps_ttm_forward(self, symbol, n=3):
+        """symbol + n -> the forward-TTM-EPS revision curves.
+
+        Delegates to the pkl-backed ``build_eps_ttm_forward`` access (FORK-2 — the
+        per-quarter forward estimate trends live only in the legacy pkl). Built
+        lazily on first call. Shape documented in ``datasource.fundamental_series``.
+        """
+        if self._eps_ttm_forward is None:
+            from .fundamental_series import build_eps_ttm_forward
+            self._eps_ttm_forward = build_eps_ttm_forward()
+        return self._eps_ttm_forward(symbol, n=n)
 
     # ------------------------------------------------------------------ #
     # option_chain (spec §5.3) — routes through the (option_chain, *) row

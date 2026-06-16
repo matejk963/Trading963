@@ -236,6 +236,15 @@ Completes the 2×2 with **PE** + **PS** (bottom row), same visual language + Q/Y
 - Service tests green; suite green (minus the 6 carried). Browser-verified: full 2×2 (EPS/Sales/PE/PS)
   renders, PE/PS basis correct, toggle + divider consistent across all four panels.
 
+### Follow-up — PE/PS EPS-gate fix · [x] DONE (2026-06-16, backend green)
+Both PE and PS now computed ONLY where EPS > 0 (strict; EPS <= 0 excluded), per point, for actuals AND
+forecast. For TTM, PE/PS suppressed if ANY of the 4 constituent quarters has EPS <= 0 (even when the
+summed TTM EPS is positive). PS is now EPS-gated too (no longer computes through negative/zero earnings).
+`datasource/fundamental_series.py::_ttm_block` exposes a parallel `eps_ok` boolean (all 4 quarters > 0);
+`service.py::_ratio_figure` applies the per-point EPS gate (TTM via `eps_ok`, Q/Y via per-period actual
+EPS, forecast via forward EPS mean — band edges share the mean's gate; all bounds-guarded). Suite:
+**366 -> 372 passed, 6 failed** (carried kernel-parity). See REPORT in `log.md`. Not committed.
+
 ---
 
 ## Slice 6 (enhancement) — Indicators as a synced Lightweight-Charts pane (toggleable) · AFK · [x] DONE (backend green; JS browser-verify pending)
@@ -337,3 +346,66 @@ idempotency stops the echo). (3) v4 API adaptations: `layout.background` →
 Preserved: MA50/150/200, RS (Mansfield) price overlay toggle, D/W/M aggregation, indicator per-series
 toggles, hide-when-none, dispose-on-rebuild, grid-resample alignment, synthetic-open caption.
 `node --check` clean; suite **354 passed, 6 failed** (carried kernel-parity). Not committed.
+
+---
+
+## Slice 7 — Estimate Revisions sub-pane (fundamental section) · [x] DONE (replicated original view; backend green; JS browser-verify pending)
+
+> **Update (2026-06-16) — replicated the original app's Revisions view.** The prior
+> design (rev_eps + rev_sales FY1/FY2 bands + a rev_momentum table) was REPLACED by a
+> faithful replica of `stock_panel.js::loadPanelRevisions`: two EPS charts side by
+> side. LEFT `rev_ttm` = "Forward TTM EPS (Next 8Q)" revision-snapshot curves
+> (original palette / solid-current + dashed-older / markers) + a dotted Actual-TTM
+> line, driven by a "Revisions: N" input. RIGHT `rev_eps` = "EPS Estimate Revisions
+> (FY1/FY2)" mean lines + dotted high/low. NO revenue chart, NO momentum table.
+> New port: `datasource/fundamental_series.py::build_eps_ttm_forward(loader=…) ->
+> (symbol, n=3) -> dict` (forward-TTM-EPS curves; faithful port of
+> `legacy_routes.py::_eps_ttm_forward_impl`; reads `quarterly`/`forward_quarterly`/
+> `trend_eps_fq1..fq4`; curve-by-curve parity vs legacy confirmed on AAPL).
+> `DataSource.eps_ttm_forward(symbol, n)` delegates (lazy). `revisions_view(symbol,
+> data, n=3, asof=None)` now emits exactly `rev_ttm` + `rev_eps`, carrying
+> `n_available` in `meta.context`. Route gained `?n=N`. The original §1 design below
+> is superseded.
+
+A separate "Estimate Revisions" sub-pane BELOW the existing fundamental 2×2 (EPS/Sales/PE/PS),
+**independent of the Q/Y/TTM toggle** — it shows **EPS + Revenue, FY1 + FY2** forward-estimate revision
+trend lines over time, plus a small **1M/3M/6M momentum** readout. Strict TDD on the Python surface; the
+Plotly/table render is browser-verified.
+
+### Public interface (built)
+1. **`datasource/fundamental_series.py`** — the returned dict gained `"revisions"` (additively;
+   `quarterly/ttm/annual/forward_q` unchanged):
+   `{"eps":{"fy1":{dates,mean,high,low},"fy2":{…}}, "revenue":{"fy1":{dates,mean,high|[],low|[]},"fy2":{…}}}`.
+   Ported from the pkl `trend_eps_fy1/fy2` + `trend_rev_fy1/fy2` frames (mirrors
+   `legacy_routes.py::_revisions_impl`): filter `Symbol==symbol`, sort by `Date`, `dates=str(d)[:10]`, EPS
+   mean/high/low, revenue mean `/1e6` (+ high/low **if** the columns exist — mean-only otherwise). `asof`
+   drops rows with `Date > asof`. Module docstring updated (loader-dict now also reads the `trend_*` keys).
+2. **`sections/monitor/service.py`** — `revisions_view(symbol, data, asof=None) -> ViewModel` (its own
+   view). Figures `rev_eps` + `rev_sales` (Plotly): FY1 mean (solid, blue) + FY1 high/low band + FY2 mean
+   (distinct orange) + FY2 band; bands only when high/low present. Table `rev_momentum`
+   `["Estimate","1M","3M","6M"]` × `[FY1 EPS / FY2 EPS / FY1 Rev / FY2 Rev]`; each cell = signed %, 1dp, via
+   the pure helper `_pct_change_over(dates, vals, months)` (latest vs nearest asof on/before the cutoff;
+   `None` on thin history). Graceful: thin/missing name → empty figs + all-None table, `status="empty"`,
+   never raises.
+3. **`sections/monitor/routes.py`** — `GET /api/monitor/revisions/<symbol>?asof=` → `revisions_view` →
+   jsonify (thin route; granularity-independent so fetched once on symbol-select).
+4. **`templates/monitor.html`** — new `#monitor-rev-pane` below `#monitor-fund-pane`: header "Estimate
+   Revisions", `#rev_eps`/`#rev_sales` grid + `#rev_momentum` table host (heights reserved for CLS). JS
+   `loadRevisions(sym)` fetches the endpoint in `renderDetail` (on symbol-select, NOT on the Q/Y/TTM
+   toggle), renders figs via `ViewModel._renderFigure` + the table via `ViewModel._renderTable`; pane hidden
+   when no symbol.
+
+### Tests / DoD
+- `tests/test_datasource.py` (+3): `test_fundamental_series_revisions_eps_and_revenue_fy1_fy2`,
+  `test_fundamental_series_revisions_asof_drops_rows_after_asof`,
+  `test_fundamental_series_revisions_unknown_symbol_empty` (+ `trend_*` frames in `_fake_fund_pkl`).
+- `tests/test_monitor_section.py` (+6): `test_pct_change_over_computes_signed_change`,
+  `test_revisions_view_emits_eps_and_sales_figures_fy1_fy2`, `test_revisions_view_emits_momentum_table`,
+  `test_revisions_view_asof_drops_rows_after_asof`, `test_revisions_view_thin_name_is_graceful`,
+  `test_blueprint_revisions_route_is_thin` (+ `_revisions_fixture` in the shared series fixture).
+- Suite: before **354 passed, 6 failed** → after **363 passed, 6 failed** (+9 new green; the 6 are the
+  carried kernel-parity fails — untouched). Real-pkl smoke (AAPL): EPS/Rev FY1/FY2 trends + signed momentum.
+- **Browser-verify (orchestrator):** below the 2×2, the EPS + Revenue panels each draw FY1 (blue) + FY2
+  (orange) revision-trend lines with faint high/low bands (EPS always; Revenue when the data carries
+  high/low); the momentum table reads signed 1M/3M/6M %; the sub-pane fetches ONCE on symbol-select and
+  does NOT re-fetch on the Q/Y/TTM toggle; it hides when no symbol. Not committed.

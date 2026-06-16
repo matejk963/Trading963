@@ -70,9 +70,9 @@
       {# ---------- optional indicators panel (RS Rank / Mansfield RS / Stage) ---------- #}
       <div id="monitor-ind-toolkit" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;margin-bottom:2px;font-size:12px;color:var(--text-dim,#888);">
         <span>Indicators:</span>
-        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="RS Rank" checked> RS Rank</label>
+        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="RS Rank"> RS Rank</label>
         <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Mansfield RS" checked> Mansfield RS</label>
-        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Stage" checked> Stage</label>
+        <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Stage"> Stage</label>
       </div>
       <div id="monitor_history" class="vm-figure-host" style="width:100%;height:320px;"></div>
       {# fixed 12-row metrics table — reserve its height so it doesn't push the
@@ -95,6 +95,28 @@
           {# #fund_pe / #fund_ps reserved for Slice 5 / #12 (PE + PS derived panels) #}
           <div id="fund_pe" class="vm-figure-host" style="width:100%;height:300px;"></div>
           <div id="fund_ps" class="vm-figure-host" style="width:100%;height:300px;"></div>
+        </div>
+      </div>
+
+      {# ---------- estimate revisions sub-pane (Slice 7) -------------------- #}
+      {# Below the 2×2; independent of the Q/Y/TTM toggle (revisions are
+         granularity-independent). A faithful replica of the original app's
+         Revisions view: LEFT = Forward TTM EPS (Next 8Q) revision snapshots with a
+         "Revisions: N" input; RIGHT = EPS Estimate Revisions (FY1/FY2). Heights
+         reserved to avoid the load-time CLS. #}
+      <div id="monitor-rev-pane" style="margin-top:24px;{% if not symbol %}display:none;{% endif %}">
+        <div style="margin-bottom:8px;font-size:12px;color:var(--text-dim,#888);display:flex;align-items:center;gap:10px;">
+          <span style="font-weight:600;color:var(--text,#ccc);">Estimate Revisions</span>
+          <span>forward TTM EPS snapshots + FY1/FY2 estimate revisions</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <label for="rev-n-input" style="font-size:11px;">Revisions:</label>
+            <input id="rev-n-input" type="number" value="3" min="1" max="12"
+                   style="width:46px;font-size:11px;padding:2px 4px;background:var(--bg-light,#1a1a2a);border:1px solid var(--border,#333);color:var(--text,#ccc);border-radius:3px;">
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div id="rev_ttm" class="vm-figure-host" style="width:100%;height:300px;min-height:300px;"></div>
+          <div id="rev_eps" class="vm-figure-host" style="width:100%;height:300px;min-height:300px;"></div>
         </div>
       </div>
     </div>
@@ -135,18 +157,24 @@
       function renderDetail(sym) {
         var empty = document.getElementById('monitor-empty');
         var fundPane = document.getElementById('monitor-fund-pane');
+        var revPane = document.getElementById('monitor-rev-pane');
         if (!sym) {
           if (empty) empty.style.display = '';
           if (fundPane) fundPane.style.display = 'none';
+          if (revPane) revPane.style.display = 'none';
           return;
         }
         if (empty) empty.style.display = 'none';
         if (fundPane) fundPane.style.display = '';
+        if (revPane) revPane.style.display = '';
         // The indicators pane (#monitor_history) now renders via the generic
         // renderFigure path (kind:"indicators" -> LWC pane synced to the price
         // chart); no Plotly toggle chaining needed (Slice 6).
         ViewModel.fetchAndRender('/api/chart/' + encodeURIComponent(sym));
         loadFundamentals(sym);
+        // Estimate revisions are granularity-independent -> fetched here on
+        // symbol-select, NOT on the Q/Y/TTM toggle (Slice 7).
+        loadRevisions(sym);
       }
 
       // Fundamental 2×2 (EPS + Sales now; PE + PS in #12). A SEPARATE fetch from
@@ -166,6 +194,41 @@
           })
           .catch(function () { /* thin name / no data — leave hosts empty */ });
       }
+
+      // Estimate-Revisions sub-pane (Slice 7) — faithful replica of the original
+      // app's Revisions view (two EPS charts). A SEPARATE fetch (its own endpoint),
+      // independent of the Q/Y/TTM toggle. LEFT = Forward TTM EPS revision snapshots
+      // (driven by the "Revisions: N" input); RIGHT = EPS FY1/FY2 estimate revisions.
+      // The N input re-fetches ONLY this pane (re-renders both figures).
+      var revN = 3;  // forward-TTM revision-snapshot count ("Revisions: N").
+
+      function loadRevisions(sym) {
+        if (!sym) return;
+        fetch('/api/monitor/revisions/' + encodeURIComponent(sym) +
+              '?n=' + encodeURIComponent(revN))
+          .then(function (r) { return r.json(); })
+          .then(function (vm) {
+            if (typeof ViewModel === 'undefined') return;
+            var figs = (vm && vm.figures) || [];
+            if (ViewModel._renderFigure) figs.forEach(ViewModel._renderFigure);
+            // cap the N input at the number of available revision snapshots.
+            var nAvail = vm && vm.meta && vm.meta.context && vm.meta.context.n_available;
+            var inp = document.getElementById('rev-n-input');
+            if (inp && nAvail) inp.max = nAvail;
+          })
+          .catch(function () { /* thin name / no data — leave hosts empty */ });
+      }
+
+      (function () {
+        var inp = document.getElementById('rev-n-input');
+        if (!inp) return;
+        inp.addEventListener('change', function () {
+          var v = parseInt(this.value, 10);
+          revN = (isNaN(v) || v < 1) ? 1 : v;
+          this.value = revN;
+          if (selected) loadRevisions(selected);  // re-render only this pane.
+        });
+      })();
 
       function selectSymbol(sym, push) {
         selected = sym;
