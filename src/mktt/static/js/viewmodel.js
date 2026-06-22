@@ -365,16 +365,15 @@
       },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.15)' },
       // rightOffset: breathing room past the last bar so it isn't glued to the
-      // edge (and so there's whitespace to scroll into — logical-range sync).
-      timeScale: { borderColor: 'rgba(255,255,255,0.15)', rightOffset: 6 },
+      // edge (and whitespace to scroll into). The indicators pane below MUST use the
+      // same value so equal logical ranges align bar-for-bar.
+      timeScale: { borderColor: 'rgba(255,255,255,0.15)', rightOffset: 56 },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      // Don't hijack the page's wheel-scroll: by default LWC captures the mouse
-      // wheel to zoom/pan, which traps page scrolling over the chart (the candles
-      // appear to "collapse" as the visible range slides away). Disable wheel
-      // scroll+scale so scrolling the page works normally over the chart; panning
-      // by mouse-drag and zooming via the time/price axes stay on.
+      // Mouse WHEEL zooms the time axis (user asked to zoom by scrolling). Wheel-pan
+      // stays off so the chart zooms (not slides) on wheel; drag-pan + pinch + axis
+      // drag remain on.
       handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
     });
     node._lwcChart = chart;
     // Stash the price chart so the indicators pane (Slice 6) time-syncs to it.
@@ -425,7 +424,20 @@
       } catch (e) { /* older LWC — overlay scale auto-sizes */ }
     }
 
-    chart.timeScale().fitContent();
+    // Default view = the last ~1 year (timeframe-aware), with the right margin past
+    // the last bar; the user wheel-zooms out to see more history. setVisibleLogicalRange
+    // (instead of fitContent, which showed all ~6y) runs BEFORE the indicators pane is
+    // (re)built below, so the pane adopts THIS range and both panes line up on last-year.
+    var _nbars = agg.bars.length;
+    var _viewBars = ({ D: 252, W: 52, M: 12 })[state.tf] || 252;  // ~1 year by timeframe
+    if (_nbars > 0) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, _nbars - _viewBars),
+        to: _nbars - 1 + 56,   // +56 == rightOffset: keep the margin visible
+      });
+    } else {
+      chart.timeScale().fitContent();
+    }
 
     // The price chart was just rebuilt (new instance) — re-sync the indicators
     // pane to it so pan/zoom stays linked after a symbol switch or D/W/M change
@@ -544,11 +556,11 @@
       },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.15)' },
       // Match the price chart's rightOffset so equal logical ranges align.
-      timeScale: { borderColor: 'rgba(255,255,255,0.15)', rightOffset: 6 },
+      timeScale: { borderColor: 'rgba(255,255,255,0.15)', rightOffset: 56 },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      // Match the price chart: don't hijack the page's wheel-scroll.
+      // Match the price chart: wheel zooms (and syncs to price via logical range).
       handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
     });
     node._indChart = chart;
 

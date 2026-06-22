@@ -63,8 +63,12 @@ def monitor_page(symbol=None):
     """Render the unified workspace shell (detail pane left + rail right).
 
     ``/monitor`` is the bare workspace; ``/monitor/<symbol>`` deep-links a name
-    into the detail pane (Slice 1)."""
-    return render_template("monitor.html", symbol=symbol, active_section="monitor")
+    into the detail pane (Slice 1). ``?list=<name>`` (default ``"default"``) opens
+    the rail on a non-default MKLists list (Slice A)."""
+    mklist = request.args.get("list") or "default"
+    return render_template(
+        "monitor.html", symbol=symbol, active_section="monitor", mklist=mklist
+    )
 
 
 @monitor_bp.route("/chart/<symbol>")
@@ -160,6 +164,39 @@ def watchlist_api():
 
     list_name = request.args.get("list") or service.DEFAULT_LIST
     return jsonify(service.watchlist_members(lists, list_name))
+
+
+@monitor_bp.route("/api/watchlist/lists")
+def watchlist_lists_api():
+    """All watchlist names (multi-watchlist selector) -> jsonify (thin)."""
+    _, _, _, lists = _providers()
+    return jsonify(service.watchlist_lists(lists))
+
+
+@monitor_bp.route("/api/watchlist/rename", methods=["POST"])
+def watchlist_rename_api():
+    """POST {old, new} -> rename a watchlist (note-preserving) -> jsonify (thin)."""
+    _, _, _, lists = _providers()
+    body = request.get_json(silent=True) or {}
+    return jsonify(service.watchlist_rename(lists, body.get("old", ""), body.get("new", "")))
+
+
+@monitor_bp.route("/api/watchlist/bulk", methods=["POST"])
+def watchlist_bulk_api():
+    """POST {list, symbols, note, replace, action} -> bulk add/remove -> jsonify (thin).
+
+    ``action`` defaults to ``"add"``; ``"remove"`` bulk-deletes the symbols from the
+    list (Monitor rail bulk-delete). ``replace`` (add only, default false) empties the
+    list first so the result is exactly ``symbols`` (screener send-to-Monitor)."""
+    _, _, _, lists = _providers()
+    body = request.get_json(silent=True) or {}
+    list_name = body.get("list") or service.DEFAULT_LIST
+    symbols = body.get("symbols") or []
+    if (body.get("action") or "add").lower() == "remove":
+        return jsonify(service.watchlist_remove_bulk(lists, list_name, symbols))
+    return jsonify(service.watchlist_add_bulk(
+        lists, list_name, symbols, note=body.get("note"), replace=bool(body.get("replace")),
+    ))
 
 
 def _form_args():

@@ -175,6 +175,9 @@ class StubLists:
         ]
 
     def lists(self):
+        return sorted(k for k, v in self._d.items() if v)
+
+    def lists(self):
         return sorted(self._d.keys())
 
     def lists_for(self, symbol):
@@ -511,6 +514,97 @@ def test_watchlist_members_empty():
 
 
 # --------------------------------------------------------------------------- #
+# watchlist_add_bulk — push N symbols into a named list in one call (Slice A)
+# --------------------------------------------------------------------------- #
+def test_watchlist_add_bulk_adds_multiple_uppercased():
+    lists = StubLists()
+    out = svc.watchlist_add_bulk(lists, "screener", ["aapl", "msft"])
+    assert out["status"] == "ok"
+    assert out["list"] == "screener"
+    assert out["added"] == 2
+    assert set(out["members"]) == {"AAPL", "MSFT"}
+
+
+def test_watchlist_add_bulk_skips_blank_none_and_dupes():
+    lists = StubLists()
+    out = svc.watchlist_add_bulk(lists, "screener", ["AAPL", "", "aapl", None])
+    assert out["added"] == 1
+    assert out["members"] == ["AAPL"]
+
+
+def test_watchlist_add_bulk_empty_is_zero_added_ok():
+    lists = StubLists()
+    out = svc.watchlist_add_bulk(lists, "screener", [])
+    assert out["status"] == "ok"
+    assert out["added"] == 0
+    assert out["members"] == []
+
+
+def test_watchlist_add_bulk_replace_empties_list_first():
+    # "move filtered to Monitor": each send defines a clean working set, not an
+    # accumulation. replace=True drops prior members so the result is exactly `symbols`.
+    lists = StubLists()
+    svc.watchlist_add_bulk(lists, "screener", ["OLD1", "OLD2"])
+    out = svc.watchlist_add_bulk(lists, "screener", ["new1", "new2"], replace=True)
+    assert out["added"] == 2
+    assert sorted(out["members"]) == ["NEW1", "NEW2"]
+    assert "OLD1" not in out["members"] and "OLD2" not in out["members"]
+
+
+def test_watchlist_add_bulk_replace_default_appends():
+    # default (replace omitted/false) keeps prior members — the additive contract.
+    lists = StubLists()
+    svc.watchlist_add_bulk(lists, "screener", ["OLD1"])
+    out = svc.watchlist_add_bulk(lists, "screener", ["NEW1"])
+    assert sorted(out["members"]) == ["NEW1", "OLD1"]
+
+
+def test_watchlist_lists_returns_default_first_plus_named():
+    lists = StubLists()
+    svc.watchlist_add_bulk(lists, "screener", ["AAA"])
+    svc.watchlist_add_bulk(lists, "ideas", ["BBB"])
+    out = svc.watchlist_lists(lists)
+    assert out["status"] == "ok"
+    assert out["lists"][0] == "default"          # always offered first
+    assert "screener" in out["lists"] and "ideas" in out["lists"]
+
+
+def test_watchlist_lists_empty_store_still_has_default():
+    assert svc.watchlist_lists(StubLists())["lists"] == ["default"]
+
+
+def test_watchlist_rename_moves_members_preserving_notes():
+    lists = StubLists()
+    lists.add("ideas", "AAA", note="long")
+    lists.add("ideas", "BBB", note="short")
+    out = svc.watchlist_rename(lists, "ideas", "winners")
+    assert out["status"] == "ok"
+    assert sorted(out["members"]) == ["AAA", "BBB"]
+    assert lists.members("ideas") == []                       # old gone
+    assert dict(lists.members_with_notes("winners")) == {"AAA": "long", "BBB": "short"}
+
+
+def test_watchlist_rename_refuses_existing_target():
+    lists = StubLists()
+    lists.add("a", "AAA")
+    lists.add("b", "BBB")
+    out = svc.watchlist_rename(lists, "a", "b")
+    assert out["status"] == "exists"
+    assert lists.members("a") == ["AAA"]                       # unchanged
+    assert lists.members("b") == ["BBB"]
+
+
+def test_watchlist_remove_bulk_deletes_selected():
+    # Monitor rail bulk-delete: remove many (upper-cased/de-duped), keep the rest.
+    lists = StubLists()
+    svc.watchlist_add_bulk(lists, "default", ["AAA", "BBB", "CCC", "DDD"])
+    out = svc.watchlist_remove_bulk(lists, "default", ["aaa", "ccc", "aaa", ""])
+    assert out["status"] == "ok"
+    assert out["removed"] == 2
+    assert sorted(out["members"]) == ["BBB", "DDD"]
+
+
+# --------------------------------------------------------------------------- #
 # blueprint thinness (Flask test client + stubbed providers)
 # --------------------------------------------------------------------------- #
 def test_blueprint_chart_route_is_thin(monkeypatch):
@@ -685,6 +779,29 @@ def test_blueprint_monitor_page(monkeypatch):
     assert "monitor-rail" in body
 
 
+def test_blueprint_monitor_page_honors_list_param(monkeypatch):
+    """Slice A — GET /monitor?list=screener feeds mklist="screener" to the shell;
+    absent ?list= defaults to "default" (template/JS wiring is Slice B)."""
+    from sections.monitor import routes
+
+    captured = {}
+
+    def _spy(template, **ctx):
+        captured.update(ctx)
+        return ""
+
+    monkeypatch.setattr(routes, "render_template", _spy)
+    app = _monitor_app(monkeypatch)
+    client = app.test_client()
+
+    client.get("/monitor?list=screener")
+    assert captured["mklist"] == "screener"
+
+    captured.clear()
+    client.get("/monitor")
+    assert captured["mklist"] == "default"
+
+
 def test_blueprint_monitor_page_with_symbol(monkeypatch):
     """Behavior 8 — GET /monitor/AAA -> 200, shell carries symbol="AAA"."""
     app = _monitor_app(monkeypatch)
@@ -743,6 +860,42 @@ def test_blueprint_watchlist_get_post(monkeypatch):
     r = client.get("/api/watchlist?list=default")
     payload = r.get_json()
     assert payload["meta"]["readouts"]["members"] == ["AAA"]
+
+
+def test_blueprint_watchlist_bulk_post(monkeypatch):
+    from flask import Flask
+    from sections.monitor import routes
+
+    lists = StubLists()
+    monkeypatch.setitem(routes._PROVIDERS, "lists", lists)
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.monitor_bp)
+    client = app.test_client()
+
+    r = client.post("/api/watchlist/bulk", json={"list": "screener", "symbols": ["aapl", "msft"]})
+    assert r.status_code == 200
+    payload = r.get_json()
+    assert payload["status"] == "ok"
+    assert payload["list"] == "screener"
+    assert payload["added"] == 2
+    assert set(payload["members"]) == {"AAPL", "MSFT"}
+
+
+def test_blueprint_watchlist_bulk_post_list_defaults_to_default(monkeypatch):
+    from flask import Flask
+    from sections.monitor import routes
+
+    lists = StubLists()
+    monkeypatch.setitem(routes._PROVIDERS, "lists", lists)
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.monitor_bp)
+    client = app.test_client()
+
+    r = client.post("/api/watchlist/bulk", json={"symbols": ["AAA"]})
+    assert r.status_code == 200
+    assert r.get_json()["list"] == "default"
 
 
 # --------------------------------------------------------------------------- #

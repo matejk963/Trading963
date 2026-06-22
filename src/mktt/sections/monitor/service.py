@@ -1027,12 +1027,117 @@ def watchlist_add(lists, list_name: str, symbol: str, note: Optional[str] = None
     return watchlist_members(lists, list_name)
 
 
+def watchlist_add_bulk(
+    lists, list_name: str, symbols: list, note: Optional[str] = None,
+    replace: bool = False,
+) -> dict:
+    """Add many ``symbols`` to ``list_name`` in one call (Slice A, send-to-Monitor).
+
+    Upper-cases + strips each symbol, skips blanks/None, de-dupes (preserving
+    first-seen order), then calls ``lists.add(list_name, sym, note)`` per survivor.
+    When ``replace`` is true the list is first emptied (every current member removed)
+    so the result is exactly ``symbols`` — the "move filtered stocks to Monitor"
+    flow uses this so each send defines a clean working set rather than accumulating.
+    Returns a flat envelope ``{status, list, added, members}`` (PRD-frozen shape):
+    ``added`` counts the symbols attempted after dedupe/blank-skip; ``members`` is
+    the list's symbols after the adds (via ``lists.members``)."""
+    seen = []
+    for raw in symbols or []:
+        sym = (raw or "").strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.append(sym)
+    if replace:
+        for sym in list(lists.members(list_name)):
+            lists.remove(list_name, sym)
+    for sym in seen:
+        lists.add(list_name, sym, note=note)
+    logger.debug(
+        "monitor.watchlist_add_bulk list=%s added=%d replace=%s",
+        list_name, len(seen), replace,
+    )
+    return {
+        "status": "ok",
+        "list": list_name,
+        "added": len(seen),
+        "members": list(lists.members(list_name)),
+    }
+
+
 def watchlist_remove(lists, list_name: str, symbol: str) -> dict:
     """Remove ``symbol`` from ``list_name`` (proxied to the store)."""
     sym = (symbol or "").strip().upper()
     if sym:
         lists.remove(list_name, sym)
     return watchlist_members(lists, list_name)
+
+
+def watchlist_lists(lists) -> dict:
+    """All watchlist names that currently have members (multi-watchlist selector).
+
+    ``default`` is always offered first even when empty so the rail always has a
+    home list; the rest follow in the store's order (de-duped)."""
+    try:
+        names = list(lists.lists())
+    except Exception:  # noqa: BLE001 — a bare/empty store must not break the rail.
+        names = []
+    out = ["default"]
+    for n in names:
+        if n and n not in out:
+            out.append(n)
+    return {"status": "ok", "lists": out}
+
+
+def watchlist_rename(lists, old_name: str, new_name: str) -> dict:
+    """Rename watchlist ``old_name`` -> ``new_name``, preserving each member's note
+    (long/short side). MKLists has no atomic rename, so this re-adds every member
+    under the new name then drops the old. Refuses to merge into an EXISTING list
+    (returns ``status:"exists"``) so a rename can't silently fold two lists together.
+    Returns ``{status, old, new, members}``."""
+    old = (old_name or "").strip()
+    new = (new_name or "").strip()
+    if not new:
+        return {"status": "error", "message": "empty name", "old": old, "new": new}
+    if new == old:
+        return {"status": "ok", "old": old, "new": new, "members": list(lists.members(old))}
+    try:
+        existing = set(lists.lists())
+    except Exception:  # noqa: BLE001
+        existing = set()
+    if new in existing:
+        return {"status": "exists", "old": old, "new": new}
+    try:
+        pairs = list(lists.members_with_notes(old))
+    except Exception:  # noqa: BLE001 — stub without notes: fall back to bare symbols.
+        pairs = [(s, None) for s in lists.members(old)]
+    for sym, note in pairs:
+        lists.add(new, sym, note=note)
+    for sym in list(lists.members(old)):
+        lists.remove(old, sym)
+    logger.debug("monitor.watchlist_rename %s -> %s (%d members)", old, new, len(pairs))
+    return {"status": "ok", "old": old, "new": new, "members": list(lists.members(new))}
+
+
+def watchlist_remove_bulk(lists, list_name: str, symbols: list) -> dict:
+    """Remove many ``symbols`` from ``list_name`` in one call (bulk-delete from the
+    Monitor rail). Upper-cases + strips + de-dupes, skips blanks, calls
+    ``lists.remove`` per survivor. Returns the same flat envelope as the add path:
+    ``{status, list, removed, members}`` (members = the list AFTER the removals)."""
+    seen = []
+    for raw in symbols or []:
+        sym = (raw or "").strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.append(sym)
+    for sym in seen:
+        lists.remove(list_name, sym)
+    logger.debug("monitor.watchlist_remove_bulk list=%s removed=%d", list_name, len(seen))
+    return {
+        "status": "ok",
+        "list": list_name,
+        "removed": len(seen),
+        "members": list(lists.members(list_name)),
+    }
 
 
 # --------------------------------------------------------------------------- #

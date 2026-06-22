@@ -64,22 +64,25 @@
         </span>
         <label style="cursor:pointer;"><input type="checkbox" id="tech-rs"> RS (Mansfield vs SPY)</label>
       </div>
-      <div id="monitor-ohlc-readout" style="font-family:monospace;font-size:12px;color:var(--text-faint,#888);min-height:16px;margin-bottom:2px;"></div>
-      <div id="monitor_price" class="vm-figure-host" style="width:100%;height:480px;"></div>
-      <div style="font-size:11px;color:var(--text-faint,#666);margin-top:2px;">Open is synthetic (prior close) — the universe price store carries no open.</div>
-      {# ---------- optional indicators panel (RS Rank / Mansfield RS / Stage) ---------- #}
-      <div id="monitor-ind-toolkit" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;margin-bottom:2px;font-size:12px;color:var(--text-dim,#888);">
-        <span>Indicators:</span>
+      {# ---------- relative-strength / indicators pane — ABOVE the price (synced).
+         The synced LWC indicators pane (RS Rank / Mansfield RS / Stage) now sits
+         ABOVE the price chart; Mansfield RS (relative strength vs SPY) is the
+         default line. Sync to #monitor_price is by element id + logical range, so
+         DOM position above vs below price does not matter. #}
+      <div id="monitor-ind-toolkit" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px;font-size:12px;color:var(--text-dim,#888);">
+        <span style="font-weight:600;color:var(--text,#ccc);">Relative Strength</span>
         <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="RS Rank"> RS Rank</label>
         <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Mansfield RS" checked> Mansfield RS</label>
         <label style="cursor:pointer;"><input type="checkbox" class="ind-tog" data-ind="Stage"> Stage</label>
       </div>
-      <div id="monitor_history" class="vm-figure-host" style="width:100%;height:320px;"></div>
-      {# fixed 12-row metrics table — reserve its height so it doesn't push the
-         fundamental pane down (jump) when it renders async from /api/chart. #}
-      <div id="monitor_fundamentals" class="vm-table-host" style="margin-top:16px;min-height:458px;"></div>
+      <div id="monitor_history" class="vm-figure-host" style="width:100%;height:200px;"></div>
 
-      {# ---------- fundamental pane (Slice 4 / #11): EPS + Sales 2×2 ---------- #}
+      <div id="monitor-ohlc-readout" style="font-family:monospace;font-size:12px;color:var(--text-faint,#888);min-height:16px;margin-top:14px;margin-bottom:2px;"></div>
+      <div id="monitor_price" class="vm-figure-host" style="width:100%;height:480px;"></div>
+      <div style="font-size:11px;color:var(--text-faint,#666);margin-top:2px;">Open is synthetic (prior close) — the universe price store carries no open.</div>
+
+      {# ---------- fundamental pane (Slice 4 / #11): EPS + Sales + PE + PS 2×2 —
+         RIGHT BELOW the price chart (user layout). ---------- #}
       <div id="monitor-fund-pane" style="margin-top:20px;{% if not symbol %}display:none;{% endif %}">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;font-size:12px;color:var(--text-dim,#888);">
           <span style="font-weight:600;color:var(--text,#ccc);">Fundamentals</span>
@@ -97,6 +100,10 @@
           <div id="fund_ps" class="vm-figure-host" style="width:100%;height:300px;"></div>
         </div>
       </div>
+
+      {# fixed 12-row metrics table — reserve its height so it doesn't push the
+         pane below it down (jump) when it renders async from /api/chart. #}
+      <div id="monitor_fundamentals" class="vm-table-host" style="margin-top:20px;min-height:458px;"></div>
 
       {# ---------- estimate revisions sub-pane (Slice 7) -------------------- #}
       {# Below the 2×2; independent of the Q/Y/TTM toggle (revisions are
@@ -123,6 +130,17 @@
 
     {# ---------- rail (right) ---------- #}
     <div class="monitor-rail" id="monitor-rail">
+      {# active watchlist selector — switch / create / delete named MKLists lists. #}
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;">
+        <select id="rail-watchlist" title="Active watchlist"
+                style="flex:1 1 auto;min-width:0;background:var(--bg-light,#111);border:1px solid var(--border,#333);color:var(--text,#ccc);font-size:12px;padding:3px 4px;border-radius:4px;"></select>
+        <button id="rail-wl-new" type="button" title="New watchlist"
+                style="padding:3px 7px;cursor:pointer;background:none;border:1px solid var(--border,#333);border-radius:4px;color:var(--text-dim,#888);">+&nbsp;New</button>
+        <button id="rail-wl-rename" type="button" title="Rename this watchlist"
+                style="padding:3px 6px;cursor:pointer;background:none;border:1px solid var(--border,#333);border-radius:4px;color:var(--text-dim,#888);">&#9998;</button>
+        <button id="rail-wl-delete" type="button" title="Delete this watchlist"
+                style="padding:3px 6px;cursor:pointer;background:none;border:1px solid var(--border,#333);border-radius:4px;color:var(--red,#ef4444);">&#128465;</button>
+      </div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
         <input id="rail-ticker" placeholder="TICKER"
                style="background:var(--bg-light,#111);border:1px solid var(--border,#333);color:var(--text,#ccc);padding:4px 6px;font-family:monospace;text-transform:uppercase;width:80px;">
@@ -140,6 +158,12 @@
           <option value="symbol">Symbol</option>
         </select>
       </div>
+      {# bulk-delete bar: select-all + Remove selected (N). Each rail row gets a checkbox. #}
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:11px;color:var(--text-dim,#888);">
+        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="rail-selall" title="Select all"> All</label>
+        <button id="rail-remove-selected" type="button" disabled
+                style="margin-left:auto;font-size:11px;padding:3px 9px;background:none;border:1px solid var(--red,#ef4444);color:var(--red,#ef4444);border-radius:4px;cursor:default;opacity:0.5;">Remove selected (0)</button>
+      </div>
       <div id="rail-rows"></div>
     </div>
   </div>
@@ -152,7 +176,25 @@
       var selected = (document.getElementById('monitor-initial-symbol').value || '').trim().toUpperCase() || null;
       var railEntries = [];
       var railSort = 'recent';
+      var railSel = {};    // {symbol: true} checked for bulk delete (survives sort/reload).
       var fundGran = 'Q';  // Q/Y/TTM segmented control (Slice 4 / #11).
+
+      // Active watchlist (multi-watchlist). An explicit ?list= (e.g. screener
+      // send-to-Monitor) wins and becomes the remembered active; otherwise restore
+      // the last-used list from localStorage. NOTE: base.html assigns `var MKLIST`
+      // AFTER this scripts block runs, so this MUST be invoked from the
+      // DOMContentLoaded init (below) — not at parse time — or base.html would
+      // overwrite window.MKLIST right after.
+      function resolveActiveWatchlist() {
+        try {
+          if (!new URLSearchParams(window.location.search).has('list')) {
+            var stored = localStorage.getItem('mktt_active_watchlist');
+            if (stored) window.MKLIST = stored;
+          }
+          localStorage.setItem('mktt_active_watchlist', window.MKLIST);
+        } catch (e) { /* private mode / no storage — stay on whatever MKLIST is */ }
+      }
+      function activeList() { return (typeof MKLIST !== 'undefined' && MKLIST) ? MKLIST : 'default'; }
 
       function renderDetail(sym) {
         var empty = document.getElementById('monitor-empty');
@@ -269,6 +311,7 @@
           var sideClass = e.side === 'short' ? 'rail-side-short' : 'rail-side-long';
           var sel = e.symbol === selected ? ' selected' : '';
           h += '<div class="rail-row' + sel + '" data-sym="' + e.symbol + '">';
+          h += '<input type="checkbox" class="rail-chk" data-sym="' + e.symbol + '"' + (railSel[e.symbol] ? ' checked' : '') + ' title="Select for bulk delete">';
           h += '<span class="' + sideClass + '">' + arrow + '</span>';
           h += '<span class="rail-sym">' + e.symbol + '</span>';
           h += '<span class="rail-meta">' + (e.stage == null ? '·' : e.stage) + '</span>';
@@ -290,6 +333,51 @@
             removeSymbol(btn.getAttribute('data-sym'));
           });
         });
+        // bulk-select checkboxes (don't trigger row select).
+        Array.prototype.forEach.call(wrap.querySelectorAll('.rail-chk'), function (cb) {
+          cb.addEventListener('click', function (ev) { ev.stopPropagation(); });
+          cb.addEventListener('change', function () {
+            if (cb.checked) railSel[cb.getAttribute('data-sym')] = true;
+            else delete railSel[cb.getAttribute('data-sym')];
+            syncRailBulkUI();
+          });
+        });
+        syncRailBulkUI();
+      }
+
+      // ---- rail bulk-delete: select-all + Remove selected (N) ----
+      function railVisibleSyms() {
+        return railEntries.map(function (e) { return e.symbol; });
+      }
+      function syncRailBulkUI() {
+        var n = Object.keys(railSel).length;
+        var btn = document.getElementById('rail-remove-selected');
+        if (btn) {
+          btn.textContent = 'Remove selected (' + n + ')';
+          btn.disabled = n === 0;
+          btn.style.opacity = n === 0 ? '0.5' : '1';
+          btn.style.cursor = n === 0 ? 'default' : 'pointer';
+        }
+        var all = document.getElementById('rail-selall');
+        if (all) {
+          var total = railVisibleSyms().length;
+          all.checked = total > 0 && n >= total;
+          all.indeterminate = n > 0 && n < total;
+        }
+      }
+      function removeSelectedFromRail() {
+        var syms = Object.keys(railSel);
+        if (!syms.length) return;
+        if (!window.confirm('Remove ' + syms.length + ' stock(s) from this watchlist?')) return;
+        var list = (typeof MKLIST !== 'undefined' ? MKLIST : 'default');
+        fetch('/api/watchlist/bulk', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ list: list, symbols: syms, action: 'remove' })
+        }).then(function (r) { return r.json(); }).then(function () {
+          railSel = {};
+          loadRail();
+          if (typeof updateWlBadge === 'function') updateWlBadge();
+        }).catch(function () { alert('Bulk remove failed.'); });
       }
 
       function loadRail() {
@@ -298,6 +386,9 @@
           .then(function (vm) {
             var meta = (vm && vm.meta) || {};
             railEntries = (meta.context && meta.context.entries) || [];
+            // prune any bulk-selection for symbols no longer in the list.
+            var present = {}; railEntries.forEach(function (e) { present[e.symbol] = true; });
+            Object.keys(railSel).forEach(function (s) { if (!present[s]) delete railSel[s]; });
             renderRailRows();
           })
           .catch(function () { railEntries = []; renderRailRows(); });
@@ -313,6 +404,7 @@
         p.then(function () {
           input.value = '';
           loadRail();
+          loadWatchlists();   // a brand-new active list now exists server-side
           if (typeof updateWlBadge === 'function') updateWlBadge();
         });
       }
@@ -323,9 +415,82 @@
           : Promise.resolve();
         p.then(function () {
           loadRail();
+          loadWatchlists();   // removing the last member can drop the list
           if (typeof updateWlBadge === 'function') updateWlBadge();
         });
       }
+
+      // ---- multiple watchlists: selector populate / switch / create / delete ----
+      function loadWatchlists() {
+        return fetch('/api/watchlist/lists')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var names = (data && data.lists) || ['default'];
+            var active = activeList();
+            if (names.indexOf(active) === -1) names = names.concat([active]); // brand-new empty list
+            var sel = document.getElementById('rail-watchlist');
+            if (!sel) return;
+            sel.innerHTML = '';
+            names.forEach(function (n) {
+              var o = document.createElement('option');
+              o.value = n; o.textContent = n;
+              if (n === active) o.selected = true;
+              sel.appendChild(o);
+            });
+            var nw = document.createElement('option');
+            nw.value = '__new__'; nw.textContent = '+ New watchlist…';
+            sel.appendChild(nw);
+          })
+          .catch(function () {});
+      }
+      function setActiveWatchlist(name) {
+        name = (name || '').trim();
+        if (!name) return;
+        window.MKLIST = name;
+        try { localStorage.setItem('mktt_active_watchlist', name); } catch (e) {}
+        railSel = {};
+        loadWatchlists();
+        loadRail();
+        if (typeof updateWlBadge === 'function') updateWlBadge();
+      }
+      function newWatchlist() {
+        var name = (window.prompt('New watchlist name:') || '').trim();
+        if (!name || name === '__new__') return;
+        // empty until the first add persists it server-side; selector still shows it.
+        setActiveWatchlist(name);
+      }
+      function renameActiveWatchlist() {
+        var cur = activeList();
+        var name = (window.prompt('Rename watchlist "' + cur + '" to:', cur) || '').trim();
+        if (!name || name === cur || name === '__new__') return;
+        fetch('/api/watchlist/rename', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ old: cur, new: name })
+        }).then(function (r) { return r.json(); }).then(function (res) {
+          if (res && res.status === 'ok') { setActiveWatchlist(name); }      // switch to the renamed list
+          else if (res && res.status === 'exists') { alert('A watchlist named "' + name + '" already exists.'); }
+          else { alert('Rename failed.'); }
+        }).catch(function () { alert('Rename failed.'); });
+      }
+      function deleteActiveWatchlist() {
+        var name = activeList();
+        var syms = railVisibleSyms();
+        if (!window.confirm('Delete watchlist "' + name + '"' + (syms.length ? ' and its ' + syms.length + ' stock(s)' : '') + '?')) return;
+        function done() { setActiveWatchlist('default'); }
+        if (!syms.length) { done(); return; }
+        fetch('/api/watchlist/bulk', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ list: name, symbols: syms, action: 'remove' })
+        }).then(function () { done(); }).catch(function () { alert('Delete watchlist failed.'); });
+      }
+      document.getElementById('rail-watchlist').addEventListener('change', function (e) {
+        var v = e.target.value;
+        if (v === '__new__') { e.target.value = activeList(); newWatchlist(); return; }
+        setActiveWatchlist(v);
+      });
+      document.getElementById('rail-wl-new').addEventListener('click', newWatchlist);
+      document.getElementById('rail-wl-rename').addEventListener('click', renameActiveWatchlist);
+      document.getElementById('rail-wl-delete').addEventListener('click', deleteActiveWatchlist);
 
       document.getElementById('rail-add-long').addEventListener('click', function () { addTicker('long'); });
       document.getElementById('rail-add-short').addEventListener('click', function () { addTicker('short'); });
@@ -336,6 +501,12 @@
         railSort = e.target.value;
         renderRailRows();
       });
+      document.getElementById('rail-selall').addEventListener('change', function (e) {
+        railSel = {};
+        if (e.target.checked) railVisibleSyms().forEach(function (s) { railSel[s] = true; });
+        renderRailRows();
+      });
+      document.getElementById('rail-remove-selected').addEventListener('click', removeSelectedFromRail);
 
       // Q/Y/TTM segmented control — re-fetch the fundamental 2×2 for the selected
       // symbol at the new granularity (only the fund figures re-render).
@@ -372,7 +543,10 @@
         if (typeof ViewModel !== 'undefined' && ViewModel.wireTechToolkit) {
           ViewModel.wireTechToolkit();  // D/W/M + MA toggles + RS (Slice 3 / #10)
         }
+        resolveActiveWatchlist();   // after base.html's MKLIST assignment has run
+        loadWatchlists();
         loadRail();
+        if (typeof updateWlBadge === 'function') updateWlBadge();  // badge for resolved list
         if (selected) { renderDetail(selected); }
       });
     })();
