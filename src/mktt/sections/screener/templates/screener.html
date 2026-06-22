@@ -92,6 +92,16 @@
             <label>&nbsp;</label>
             <button type="submit" class="btn">Scan</button>
         </div>
+
+        {# Prop scans — save the current filter set under a name (localStorage) and recall it. #}
+        <div class="filter-group" style="position:relative">
+            <label>Prop Scan</label>
+            <div style="display:flex;gap:4px;align-items:center">
+                <select id="prop-scan-select" onchange="loadPropScan(this.value)" style="font-size:11px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);border-radius:4px;max-width:130px"></select>
+                <button type="button" onclick="savePropScan()" title="Save current filters as a prop scan" style="font-size:11px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">💾 Save</button>
+                <button type="button" onclick="deletePropScan()" title="Delete the selected prop scan" style="font-size:11px;padding:4px 7px;background:none;border:1px solid var(--border);color:var(--text-faint);border-radius:4px;cursor:pointer">✕</button>
+            </div>
+        </div>
     </div>
 
     {# ===== ADVANCED FILTERS (single collapsible) ===== #}
@@ -117,7 +127,7 @@
     .cb-dropdown .cb-item input { accent-color:var(--primary); cursor:pointer; }
     </style>
 
-    {% set has_any_filter = filters.has_class_filters or filters.has_tech_filters or filters.has_fund_filters %}
+    {% set has_any_filter = filters.has_class_filters or filters.has_tech_filters or filters.has_fund_filters or filters.has_return_filters or filters.has_pctile_filters %}
     <div class="filter-section {% if has_any_filter %}open{% endif %}">
         <div class="filter-section-header" onclick="this.parentElement.classList.toggle('open')">
             <h3>Advanced Filters ▾</h3>
@@ -285,10 +295,42 @@
                     <div style="display:flex;gap:4px"><input type="number" name="pe_sect_min" value="{{ filters.pe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_sect_max" value="{{ filters.pe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
                 <div class="filter-group"><label>PE/Industry</label>
                     <div style="display:flex;gap:4px"><input type="number" name="pe_ind_min" value="{{ filters.pe_ind_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="pe_ind_max" value="{{ filters.pe_ind_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>Fwd PE/Sector</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="fwdpe_sect_min" value="{{ filters.fwdpe_sect_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="fwdpe_sect_max" value="{{ filters.fwdpe_sect_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+                <div class="filter-group"><label>Fwd PE/Industry</label>
+                    <div style="display:flex;gap:4px"><input type="number" name="fwdpe_ind_min" value="{{ filters.fwdpe_ind_min or '' }}" placeholder="Min" step="0.1" style="width:55px"><input type="number" name="fwdpe_ind_max" value="{{ filters.fwdpe_ind_max or '' }}" placeholder="Max" step="0.1" style="width:55px"></div></div>
+            </div>
+            {# Performance row — trailing TOTAL return %: value range + percentile (vs all stocks).
+               The 4 inputs per horizon are: value Min%, value Max%, percentile P≥, percentile P≤. #}
+            <div class="filter-row">
+                <div class="filter-row-label">Performance — trailing return&nbsp;&nbsp;(<span style="color:var(--text-dim)">value %</span> · <span style="color:var(--accent)">percentile vs all</span>)</div>
+                {% for s in return_filter_specs %}
+                <div class="filter-group"><label>{{ s.label }}</label>
+                    <div style="display:flex;gap:3px">
+                        <input type="number" name="{{ s.stem }}_min" value="{{ filters[s.stem ~ '_min'] if filters[s.stem ~ '_min'] is not none else '' }}" placeholder="Min%" step="1" style="width:46px">
+                        <input type="number" name="{{ s.stem }}_max" value="{{ filters[s.stem ~ '_max'] if filters[s.stem ~ '_max'] is not none else '' }}" placeholder="Max%" step="1" style="width:46px">
+                        <input type="number" name="{{ s.stem }}_pmin" value="{{ filters[s.stem ~ '_pmin'] if filters[s.stem ~ '_pmin'] is not none else '' }}" placeholder="P≥" min="0" max="100" step="1" style="width:38px;border-color:var(--accent)">
+                        <input type="number" name="{{ s.stem }}_pmax" value="{{ filters[s.stem ~ '_pmax'] if filters[s.stem ~ '_pmax'] is not none else '' }}" placeholder="P≤" min="0" max="100" step="1" style="width:38px;border-color:var(--accent)">
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {# Percentile row — universe rank (P0–P100) for every other numeric metric.
+               (Returns carry their own %ile inputs in the Performance row above.) #}
+            <div class="filter-row">
+                <div class="filter-row-label">Percentile vs all stocks&nbsp;&nbsp;(P0–P100)</div>
+                {% for s in pctile_filter_specs %}
+                <div class="filter-group"><label>{{ s.label }}</label>
+                    <div style="display:flex;gap:3px">
+                        <input type="number" name="{{ s.stem }}_pmin" value="{{ filters[s.stem ~ '_pmin'] if filters[s.stem ~ '_pmin'] is not none else '' }}" placeholder="P≥" min="0" max="100" step="1" style="width:42px">
+                        <input type="number" name="{{ s.stem }}_pmax" value="{{ filters[s.stem ~ '_pmax'] if filters[s.stem ~ '_pmax'] is not none else '' }}" placeholder="P≤" min="0" max="100" step="1" style="width:42px">
+                    </div>
+                </div>
+                {% endfor %}
             </div>
             <div style="padding:8px 0 2px;display:flex;align-items:center;">
                 <button type="submit" class="section-apply">Apply Filters</button>
-                <button type="button" class="section-clear" onclick="window.location='{{ url_for('screener.screener_page') }}?preset=all&min_turnover='+document.querySelector('[name=min_turnover]').value">Clear All</button>
+                <button type="button" class="section-clear" onclick="try{localStorage.removeItem('mktt_screener_filters');sessionStorage.removeItem('mktt_screener_url');}catch(e){}; window.location='{{ url_for('screener.screener_page') }}'">Clear All</button>
             </div>
         </div>
     </div>
@@ -339,11 +381,14 @@
 <div style="padding:8px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <button type="button" onclick="var p=document.getElementById('col-picker');p.style.display=p.style.display==='none'?'block':'none'" style="font-size:12px;padding:5px 12px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:6px;cursor:pointer">Columns ▼</button>
     <span style="font-size:11px;color:var(--text-faint)" id="col-count"></span>
+    {# Send-to-Monitor: tick rows (leading checkbox col) then send the subset, or send the whole filtered set. #}
+    <button type="button" id="scr-send-selected" onclick="sendToMonitor('selected')" disabled style="font-size:11px;padding:5px 11px;background:var(--accent);border:none;color:white;border-radius:6px;cursor:default;opacity:0.5;font-weight:600">Send selected → Monitor (0)</button>
+    <button type="button" id="scr-send-all" onclick="sendToMonitor('all')" style="font-size:11px;padding:5px 11px;background:var(--bg-card);border:1px solid var(--accent);color:var(--accent);border-radius:6px;cursor:pointer;font-weight:600">Send all → Monitor</button>
     {% if sector_stats %}
     <span style="font-size:13px;color:var(--text-dim);margin-left:12px">{{ sector_stats|length }} sectors / {{ passed }} stocks</span>
     <span style="margin-left:auto;display:flex;gap:0">
-        <button type="button" id="view-flat-btn" onclick="switchView('flat')" style="font-size:11px;padding:4px 10px;background:var(--primary);border:1px solid var(--border);color:white;border-radius:4px 0 0 4px;cursor:pointer">All Stocks</button>
-        <button type="button" id="view-sectors-btn" onclick="switchView('sectors')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:0;cursor:pointer">Sectors</button>
+        <button type="button" id="view-flat-btn" onclick="switchView('flat')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:4px 0 0 4px;cursor:pointer">All Stocks</button>
+        <button type="button" id="view-sectors-btn" onclick="switchView('sectors')" style="font-size:11px;padding:4px 10px;background:var(--primary);border:1px solid var(--border);color:white;border-radius:0;cursor:pointer">Sectors</button>
         <button type="button" id="view-map-btn" onclick="switchView('map')" style="font-size:11px;padding:4px 10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-dim);border-radius:0 4px 4px 0;cursor:pointer">Map</button>
     </span>
     {% endif %}
@@ -355,6 +400,8 @@
         <button type="button" onclick="toggleColGroup('earnings')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Earnings</button>
         <button type="button" onclick="toggleColGroup('quality')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Quality</button>
         <button type="button" onclick="toggleColGroup('debt')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Debt</button>
+        <button type="button" onclick="toggleColGroup('performance')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Performance</button>
+        <button type="button" onclick="addPctileCols()" title="Add the percentile-rank column for every selected metric" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer">+ %ile</button>
         <button type="button" onclick="toggleColGroup('all')" style="font-size:11px;padding:3px 8px;background:var(--primary);border:none;color:white;border-radius:4px;cursor:pointer">All</button>
         <button type="button" onclick="toggleColGroup('minimal')" style="font-size:11px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer">Minimal</button>
     </div>
@@ -362,7 +409,7 @@
 </div>
 
 {% if sector_stats %}
-<div id="view-sectors" style="display:none;margin-top:6px">
+<div id="view-sectors" style="margin-top:6px">
     <div class="table-wrap">
         <table id="sector-table">
             <thead>
@@ -663,58 +710,34 @@
 </div>
 {% endif %}
 
-<div id="view-flat" class="table-wrap" style="margin-top:6px;">
+<div id="view-flat" class="table-wrap" style="margin-top:6px;{% if sector_stats %}display:none;{% endif %}">
+    {# Flat table is data-driven over `flat_table` (Slice 2): server emits ONLY the
+       selected columns (visible_cols); the client re-renders columns/sort from the
+       embedded SCREENER_DATA — no all-then-CSS-hide, no 100k-node scan. The
+       per-column label/format/coloring come from the server (FLAT_COL_SPEC) so the
+       client re-render is byte-identical to this first paint. #}
     <table id="screener-table">
+        {# Slice 4: explicit column widths so `table-layout:fixed` has stable
+           proportions on first paint (renderFlatTable rebuilds this on toggle/sort). #}
+        <colgroup>
+            {% for h in flat_table.headers %}
+            <col data-cid="{{ h.cid }}">
+            {% endfor %}
+        </colgroup>
         <thead>
             <tr>
-                <th data-cid="sym" style="text-align:left;cursor:pointer" onclick="sortTable(0,'str')">Symbol</th>
-                <th style="text-align:left;cursor:pointer" onclick="sortTable(1,'str')">Sector</th>
-                <th style="text-align:left;cursor:pointer" onclick="sortTable(2,'str')">Industry</th>
-                <th data-cid="price" style="cursor:pointer" onclick="sortTable(3,'num')">Price</th>
-                <th data-cid="chg" style="cursor:pointer" onclick="sortTable(4,'num')">Chg%</th>
-                <th data-cid="turnover" style="cursor:pointer" onclick="sortTable(5,'num')">Turnover</th>
-                <th data-cid="rs" style="cursor:pointer" onclick="sortTable(6,'num')">RS</th>
-                <th data-cid="stage" style="text-align:left;cursor:pointer" onclick="sortTable(7,'str')">Stage</th>
-                <th data-cid="regime" style="text-align:left;cursor:pointer" onclick="sortTable(8,'str')">PCA Regime</th>
-                <th data-cid="ma" style="text-align:left;cursor:pointer" onclick="sortTable(9,'str')">MA Pos</th>
-                <th data-cid="pct50" style="cursor:pointer" onclick="sortTable(10,'num')">%MA50</th>
-                <th data-cid="pct200" style="cursor:pointer" onclick="sortTable(11,'num')">%MA200</th>
-                <th data-cid="from52h" style="cursor:pointer" onclick="sortTable(12,'num')">52H%</th>
-                <th data-cid="from52l" style="cursor:pointer" onclick="sortTable(13,'num')">52L%</th>
-                <th data-cid="pe" style="cursor:pointer" onclick="sortTable(14,'num')">PE</th>
-                <th data-cid="fwdpe" style="cursor:pointer" onclick="sortTable(15,'num')">Fwd PE</th>
-                <th data-cid="pesect" style="cursor:pointer" onclick="sortTable(16,'num')">PE/Sec</th>
-                <th data-cid="opmgn" style="cursor:pointer" onclick="sortTable(17,'num')">OpMgn%</th>
-                <th data-cid="roic" style="cursor:pointer" onclick="sortTable(18,'num')">ROIC%</th>
-                <th data-cid="evebitda" style="cursor:pointer" onclick="sortTable(19,'num')">EV/EBITDA</th>
-                <th data-cid="target" style="cursor:pointer" onclick="sortTable(20,'num')">Target</th>
+                {% for h in flat_table.headers %}
+                <th data-cid="{{ h.cid }}" style="{{ 'text-align:left;' if h.align == 'left' else '' }}cursor:pointer" onclick="sortTable({{ loop.index0 }},'{{ h.kind }}')">{{ h.label }}</th>
+                {% endfor %}
             </tr>
         </thead>
         <tbody>
-            {% for st in results %}
             {%- set rz = 'padding:3px 8px;font-size:12px' -%}
+            {% for st in flat_table.rows %}
             <tr onclick="toggleStockChart('{{ st.symbol }}', this)" style="cursor:pointer;border-bottom:1px solid var(--border);">
-                <td data-cid="sym" style="text-align:left;{{rz}};font-weight:600">{{ st.symbol }}</td>
-                <td style="{{rz}};color:var(--text-dim)">{{ st.sector or '—' }}</td>
-                <td style="{{rz}};color:var(--text-dim)">{{ st.industry or '—' }}</td>
-                <td data-cid="price" style="{{rz}}">{{ "%.2f"|format(st.price) if st.price is not none else '—' }}</td>
-                <td data-cid="chg" style="{{rz}}" class="{{ 'positive' if st.change and st.change > 0 else 'negative' if st.change and st.change < 0 else '' }}">{{ "%+.1f%%"|format(st.change) if st.change is not none else '—' }}</td>
-                <td data-cid="turnover" style="{{rz}}">{{ "%.1fM"|format(st.turnover/1e6) if st.turnover else '—' }}</td>
-                <td data-cid="rs" style="{{rz}}">{{ "%.0f"|format(st.rs_rank) if st.rs_rank is not none else '—' }}</td>
-                <td data-cid="stage" style="text-align:left;{{rz}};{% if st.stage == 2 %}color:var(--phosphor-bright,var(--green));{% elif st.stage == 4 %}color:var(--red,#ff3333);{% elif st.stage == 1 %}color:var(--amber,#ffb000);{% elif st.stage == 3 %}color:var(--orange,#ff6e27);{% endif %}">{{ st.stage_label or '—' }}</td>
-                <td data-cid="regime" style="text-align:left;{{rz}};color:var(--text-dim)">{{ st.regime_label or '—' }}</td>
-                <td data-cid="ma" style="text-align:left;{{rz}};color:var(--text-dim)">{{ st.ma_screen_label or '—' }}</td>
-                <td data-cid="pct50" style="{{rz}}" class="{{ 'positive' if st.pct50 and st.pct50 > 0 else 'negative' if st.pct50 and st.pct50 < 0 else '' }}">{{ "%+.1f"|format(st.pct50) if st.pct50 is not none else '—' }}</td>
-                <td data-cid="pct200" style="{{rz}}" class="{{ 'positive' if st.pct200 and st.pct200 > 0 else 'negative' if st.pct200 and st.pct200 < 0 else '' }}">{{ "%+.1f"|format(st.pct200) if st.pct200 is not none else '—' }}</td>
-                <td data-cid="from52h" style="{{rz}}">{{ "%+.1f"|format(st.from52h) if st.from52h is not none else '—' }}</td>
-                <td data-cid="from52l" style="{{rz}}">{{ "%+.1f"|format(st.from52l) if st.from52l is not none else '—' }}</td>
-                <td data-cid="pe" style="{{rz}}">{{ "%.1f"|format(st.pe) if st.pe is not none else '—' }}</td>
-                <td data-cid="fwdpe" style="{{rz}}">{{ "%.1f"|format(st.fwd_pe) if st.fwd_pe is not none else '—' }}</td>
-                <td data-cid="pesect" style="{{rz}}">{{ "%.2f"|format(st.pe_vs_sector) if st.pe_vs_sector is not none else '—' }}</td>
-                <td data-cid="opmgn" style="{{rz}}">{{ "%.1f"|format(st.op_margin) if st.op_margin is not none else '—' }}</td>
-                <td data-cid="roic" style="{{rz}}">{{ "%.1f"|format(st.roic) if st.roic is not none else '—' }}</td>
-                <td data-cid="evebitda" style="{{rz}}">{{ "%.1f"|format(st.ev_ebitda) if st.ev_ebitda is not none else '—' }}</td>
-                <td data-cid="target" style="{{rz}}">{{ "%.0f"|format(st.target) if st.target is not none else '—' }}</td>
+                {% for c in st.cells %}
+                <td data-cid="{{ flat_table.columns[loop.index0] }}" class="{{ c.cls }}" style="{{ 'text-align:left;' if c.align == 'left' else '' }}{{rz}};{{ c.style }}{% if flat_table.columns[loop.index0] == 'symbol' %}font-weight:600{% elif c.align != 'left' %}{% else %}color:var(--text-dim){% endif %}">{{ c.text }}</td>
+                {% endfor %}
             </tr>
             {% endfor %}
         </tbody>
@@ -723,471 +746,24 @@
 {% else %}
 <div style="padding:40px 0;text-align:center;color:var(--text-dim);">No symbols passed the filters.</div>
 {% endif %}
-
+{# ===== Server-injected screener data (Jinja → window globals) =====
+   PURE-DATA injection ONLY. All render/sort/picker/view LOGIC now lives in the
+   global static file static/js/screener.js (loaded by base.html on every page) so
+   the keep-alive can rebuild the flat view from ANY page after an #app-content swap.
+   This block contains NO logic — it just assigns the server payload onto window.* ,
+   which screener.js reads. Keep it tiny; do not add functions here. #}
 <script>
-// Client-side column sort on the flat results table (original terminal behavior).
-function sortTable(col, type) {
-    var table = document.getElementById('screener-table');
-    var tbody = table.tBodies[0];
-    var rows = Array.prototype.slice.call(tbody.rows);
-    var th = table.tHead.rows[0].cells[col];
-    var asc = th.getAttribute('data-asc') !== 'true';
-    Array.prototype.forEach.call(table.tHead.rows[0].cells, function(c){ c.removeAttribute('data-asc'); });
-    th.setAttribute('data-asc', asc);
-    rows.sort(function(a, b) {
-        var x = a.cells[col].textContent.trim(), y = b.cells[col].textContent.trim();
-        if (type === 'num') {
-            var nx = parseFloat(x.replace(/[%,M]/g,'')), ny = parseFloat(y.replace(/[%,M]/g,''));
-            nx = isNaN(nx) ? -Infinity : nx; ny = isNaN(ny) ? -Infinity : ny;
-            return asc ? nx - ny : ny - nx;
-        }
-        return asc ? x.localeCompare(y) : y.localeCompare(x);
-    });
-    rows.forEach(function(r){ tbody.appendChild(r); });
-}
-// Placeholder chart toggle (Monitor section owns the real chart wiring).
-function toggleStockChart(sym, row) { /* watchlist context-menu lives in base.html */ }
-
-// ---- view toggle: flat table <-> sector hierarchy ----
-function switchView(v) {
-    var flat = document.getElementById('view-flat');
-    var sectors = document.getElementById('view-sectors');
-    var map = document.getElementById('view-map');
-    var bf = document.getElementById('view-flat-btn');
-    var bs = document.getElementById('view-sectors-btn');
-    var bm = document.getElementById('view-map-btn');
-    if (!flat) return;
-    var off = 'var(--bg-card)', offc = 'var(--text-dim)';
-    function set(btn, on) { if (btn) { btn.style.background = on ? 'var(--primary)' : off; btn.style.color = on ? 'white' : offc; } }
-    flat.style.display = 'none';
-    if (sectors) sectors.style.display = 'none';
-    if (map) map.style.display = 'none';
-    set(bf, false); set(bs, false); set(bm, false);
-    if (v === 'sectors' && sectors) {
-        sectors.style.display = 'block'; set(bs, true);
-    } else if (v === 'map' && map) {
-        map.style.display = 'block'; set(bm, true); loadSectorMap();
-    } else {
-        flat.style.display = 'block'; set(bf, true);
-    }
-}
-
-// ---- column picker (per-col toggles + group presets), persisted in localStorage ----
-var COL_GROUPS = {
-    price: ['price','chg','turnover','rs','rschg1w','rschg1m','rschg3m','stage','regime','ma','pct50','pct200','from52h','from52l'],
-    valuation: ['pe','fwdpe','pesect','peind','evebitda','target'],
-    earnings: ['eps','fy1','fy2','pe','fwdpe','target'],
-    quality: ['opmgn','netmgn','roic','fcf'],
-    debt: ['ndebitda','evebitda'],
-    minimal: ['sym','price','chg','rs','stage']
-};
-// Union of data-cids across BOTH the flat (#screener-table) and the sector
-// (#sector-table) views, so one picker drives both tables. De-duped, document
-// order (sector table renders first, so its richer column set leads).
-function _allCols() {
-    var seen = {}, out = [];
-    document.querySelectorAll('#sector-table thead th[data-cid], #screener-table thead th[data-cid]').forEach(function(t){
-        var cid = t.getAttribute('data-cid');
-        if (cid && !seen[cid]) { seen[cid] = true; out.push(cid); }
-    });
-    return out;
-}
-function _colLabel(cid) {
-    var th = document.querySelector('#screener-table thead th[data-cid="'+cid+'"], #sector-table thead th[data-cid="'+cid+'"]');
-    return th ? th.textContent.trim() : cid;
-}
-function applyColVisibility() {
-    var hidden = {};
-    document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
-        if (!cb.checked) hidden[cb.value] = true;
-    });
-    var cols = _allCols();
-    // Apply to both tables. For #sector-table the selector also catches the nested
-    // industry/all-stocks sub-tables (their th/td carry the same data-cid), so a
-    // hidden column disappears consistently across the whole hierarchy.
-    ['screener-table','sector-table'].forEach(function(tid){
-        var table = document.getElementById(tid);
-        if (!table) return;
-        cols.forEach(function(cid){
-            var hide = !!hidden[cid];
-            table.querySelectorAll('[data-cid="'+cid+'"]').forEach(function(el){
-                if (el.tagName === 'TH' || el.tagName === 'TD') el.style.display = hide ? 'none' : '';
-            });
-        });
-    });
-    var shown = cols.length - Object.keys(hidden).length;
-    var cc = document.getElementById('col-count');
-    if (cc) cc.textContent = shown + '/' + cols.length + ' cols';
-    try { localStorage.setItem('screenerHiddenCols', JSON.stringify(Object.keys(hidden))); } catch(e) {}
-}
-function toggleColGroup(group) {
-    var keep = group === 'all' ? _allCols() : (COL_GROUPS[group] || []);
-    keep = keep.concat(['sym']);
-    document.querySelectorAll('#col-checks input[type=checkbox]').forEach(function(cb){
-        cb.checked = keep.indexOf(cb.value) !== -1;
-    });
-    applyColVisibility();
-}
-(function initColPicker(){
-    var box = document.getElementById('col-checks');
-    if (!box) return;
-    var hidden = {};
-    try { (JSON.parse(localStorage.getItem('screenerHiddenCols')) || []).forEach(function(c){ hidden[c]=true; }); } catch(e) {}
-    _allCols().forEach(function(cid){
-        var lbl = document.createElement('label');
-        lbl.style.cssText = 'font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:3px';
-        var cb = document.createElement('input');
-        cb.type='checkbox'; cb.value=cid; cb.checked = !hidden[cid];
-        cb.addEventListener('change', applyColVisibility);
-        lbl.appendChild(cb); lbl.appendChild(document.createTextNode(_colLabel(cid)));
-        box.appendChild(lbl);
-    });
-    applyColVisibility();
-})();
-
-// ---- Find Ticker autocomplete (jump straight to a symbol's screener row) ----
-var _TICKERS = [{% for st in results %}"{{ st.symbol }}"{% if not loop.last %},{% endif %}{% endfor %}];
-function tickerAutocomplete(input) {
-    var q = (input.value || '').toUpperCase().trim();
-    var dd = document.getElementById('ticker-dropdown');
-    if (!q) { dd.style.display='none'; return; }
-    var hits = _TICKERS.filter(function(t){ return t.indexOf(q) === 0; }).slice(0, 12);
-    if (!hits.length) { dd.style.display='none'; return; }
-    dd.innerHTML = '';
-    hits.forEach(function(t){
-        var d = document.createElement('div');
-        d.textContent = t;
-        d.style.cssText = 'padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text)';
-        d.onmouseover = function(){ d.style.background='var(--bg)'; };
-        d.onmouseout = function(){ d.style.background=''; };
-        d.onclick = function(){ input.value = t; dd.style.display='none'; tickerGo(); };
-        dd.appendChild(d);
-    });
-    dd.style.display='block';
-}
-function tickerGo() {
-    var v = (document.getElementById('ticker-search').value || '').toUpperCase().trim();
-    if (!v) return;
-    var row = document.querySelector('#screener-table tbody td[data-cid="sym"]');
-    var rows = document.querySelectorAll('#screener-table tbody tr');
-    for (var i=0; i<rows.length; i++) {
-        var cell = rows[i].querySelector('td[data-cid="sym"]');
-        if (cell && cell.textContent.trim().toUpperCase() === v) {
-            rows[i].scrollIntoView({block:'center'});
-            rows[i].style.outline = '2px solid var(--primary)';
-            setTimeout(function(r){ return function(){ r.style.outline=''; }; }(rows[i]), 2000);
-            return;
-        }
-    }
-}
-document.addEventListener('click', function(e){
-    if (!e.target.closest('#ticker-search') && !e.target.closest('#ticker-dropdown')) {
-        var dd = document.getElementById('ticker-dropdown'); if (dd) dd.style.display='none';
-    }
-});
-
-// ===== Sector stats table (revived original): expand/collapse + tabs + sort =====
-var sectorSortDir = {};
-var _subSortDir = {};
-
-function _parseCell(text, type) {
-    var v = text.replace(/[%▶,]/g, '').replace('—', '').trim();
-    if (type === 'num') {
-        var f = parseFloat(v);
-        return isNaN(f) ? -Infinity : f;
-    }
-    return v;
-}
-
-// expand/collapse a sector's detail row (industry/all-stocks tabs)
-function toggleSectorStocks(id) {
-    var row = document.getElementById(id);
-    var arrow = document.getElementById(id.replace('sector-', 'sector-arrow-'));
-    if (row.style.display === 'none') {
-        row.style.display = 'table-row';
-        if (arrow) arrow.style.transform = 'rotate(90deg)';
-    } else {
-        row.style.display = 'none';
-        if (arrow) arrow.style.transform = 'rotate(0deg)';
-    }
-}
-
-// expand/collapse an industry's stock list inside a sector
-function toggleIndustry(id) {
-    var row = document.getElementById(id);
-    var arrow = document.getElementById('ind-arrow-' + id.replace('ind-', ''));
-    if (row.style.display === 'none') {
-        row.style.display = 'table-row';
-        if (arrow) arrow.style.transform = 'rotate(90deg)';
-    } else {
-        row.style.display = 'none';
-        if (arrow) arrow.style.transform = 'rotate(0deg)';
-    }
-}
-
-// switch a sector's "By Industry" / "All Stocks" tabs
-function switchSectorTab(sectorId, tab) {
-    var indPanel = document.getElementById('panel-ind-' + sectorId);
-    var allPanel = document.getElementById('panel-all-' + sectorId);
-    var indTab = document.getElementById('tab-ind-' + sectorId);
-    var allTab = document.getElementById('tab-all-' + sectorId);
-    if (tab === 'ind') {
-        indPanel.style.display = 'block'; allPanel.style.display = 'none';
-        indTab.classList.add('sector-tab-active'); indTab.style.color = '';
-        allTab.classList.remove('sector-tab-active'); allTab.style.color = 'var(--text-dim, #555)';
-    } else {
-        indPanel.style.display = 'none'; allPanel.style.display = 'block';
-        allTab.classList.add('sector-tab-active'); allTab.style.color = '';
-        indTab.classList.remove('sector-tab-active'); indTab.style.color = 'var(--text-dim, #555)';
-    }
-}
-
-// sort the top-level sector rows (keeping each sector's detail row paired + collapsed)
-function sortSectorTable(th, col, type) {
-    var table = document.getElementById('sector-table');
-    var tbody = table.querySelector('tbody');
-    var key = 'sec_' + col;
-    sectorSortDir[key] = !(sectorSortDir[key] || false);
-    var asc = sectorSortDir[key];
-    var pairs = [];
-    var rows = Array.from(tbody.children);
-    for (var i = 0; i < rows.length; i++) {
-        if (!rows[i].id || !rows[i].id.startsWith('sector-')) {
-            pairs.push({ header: rows[i], detail: rows[i + 1] || null });
-            i++;
-        }
-    }
-    pairs.forEach(function(p) {
-        if (p.detail) p.detail.style.display = 'none';
-        var arrow = p.header.querySelector('[id^="sector-arrow-"]');
-        if (arrow) arrow.style.transform = 'rotate(0deg)';
-    });
-    pairs.sort(function(a, b) {
-        var aVal = _parseCell(a.header.cells[col].textContent, type);
-        var bVal = _parseCell(b.header.cells[col].textContent, type);
-        if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
-        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-    });
-    pairs.forEach(function(p) {
-        tbody.appendChild(p.header);
-        if (p.detail) tbody.appendChild(p.detail);
-    });
-}
-
-// sort the industry sub-table (paired rows) or a flat stock sub-table
-function sortSubTable(th, col, type, level) {
-    event.stopPropagation();
-    var table = th.closest('table');
-    var tbody = table.querySelector('tbody');
-    var key = table.id + '_' + level + '_' + col;
-    _subSortDir[key] = !(_subSortDir[key] || false);
-    var asc = _subSortDir[key];
-    if (level === 'ind') {
-        var pairs = [];
-        var rows = Array.from(tbody.children);
-        for (var i = 0; i < rows.length; i++) {
-            var nextRow = rows[i + 1];
-            if (nextRow && nextRow.id && nextRow.id.startsWith('ind-')) {
-                pairs.push({ header: rows[i], detail: nextRow }); i++;
-            } else {
-                pairs.push({ header: rows[i], detail: null });
-            }
-        }
-        pairs.sort(function(a, b) {
-            var aVal = _parseCell(a.header.cells[col] ? a.header.cells[col].textContent : '', type);
-            var bVal = _parseCell(b.header.cells[col] ? b.header.cells[col].textContent : '', type);
-            if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
-            return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
-        });
-        pairs.forEach(function(p) {
-            tbody.appendChild(p.header);
-            if (p.detail) tbody.appendChild(p.detail);
-        });
-    } else {
-        var rows = Array.from(tbody.querySelectorAll('tr'));
-        rows.sort(function(a, b) {
-            var aVal = _parseCell(a.cells[col] ? a.cells[col].textContent : '', type);
-            var bVal = _parseCell(b.cells[col] ? b.cells[col].textContent : '', type);
-            if (type === 'num') return asc ? aVal - bVal : bVal - aVal;
-            return asc ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
-        });
-        rows.forEach(function(r) { tbody.appendChild(r); });
-    }
-}
-
-// ===== Map view: sector × dimension composition (revived /api/sector_map) =====
-// Server-computed for every dimension over the passed set, embedded here so the
-// dimension selector switches client-side with no round-trip.
-var SECTOR_MAP = {{ sector_map|tojson }};
-var _mapMode = 'sector'; // 'sector' = % of sector, 'category' = % of category
-
-function setMapMode(mode) {
-    _mapMode = mode;
-    document.getElementById('map-mode-sector').style.background = mode === 'sector' ? 'var(--primary)' : 'var(--bg-card)';
-    document.getElementById('map-mode-sector').style.color = mode === 'sector' ? 'white' : 'var(--text-dim)';
-    document.getElementById('map-mode-category').style.background = mode === 'category' ? 'var(--primary)' : 'var(--bg-card)';
-    document.getElementById('map-mode-category').style.color = mode === 'category' ? 'white' : 'var(--text-dim)';
-    var dim = document.getElementById('map-dim').value;
-    if (SECTOR_MAP[dim]) renderMap(SECTOR_MAP[dim]);
-}
-
-function loadSectorMap() {
-    var sel = document.getElementById('map-dim');
-    if (!sel) return;
-    var data = SECTOR_MAP[sel.value];
-    if (!data) { document.getElementById('map-summary').innerHTML = '<span style="color:#f33;">No data</span>'; return; }
-    renderMap(data);
-}
-
-function renderMap(data) {
-    document.getElementById('map-total').textContent = data.total_stocks + ' stocks';
-
-    var dimColors = {};
-    var palette = ['#4f8cf7','#10b981','#f59e0b','#ef4444','#a78bfa','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48'];
-    // Use the server-defined category order (filtered to those present).
-    var dims = (data.categories || Object.keys(data.overall)).filter(function(c){ return data.overall[c] != null; });
-    dims.forEach(function(d, i) { dimColors[d] = palette[i % palette.length]; });
-
-    var sectors = {};
-    data.summary.forEach(function(r) { sectors[r.sector] = (sectors[r.sector] || 0) + r.count; });
-
-    var overallPct = {};
-    dims.forEach(function(d) { overallPct[d] = data.total_stocks > 0 ? data.overall[d] / data.total_stocks * 100 : 0; });
-
-    var matrix = {};
-    data.summary.forEach(function(r) {
-        if (!matrix[r.sector]) matrix[r.sector] = {};
-        matrix[r.sector][r.dimension] = r.count;
-    });
-
-    function hexToRgba(hex, alpha) {
-        var r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
-        return 'rgba('+r+','+g+','+b+','+alpha+')';
-    }
-
-    var mode = _mapMode;
-    var h = '<table id="map-table" style="width:100%;border-collapse:collapse;font-size:12px;">';
-    h += '<thead><tr style="border-bottom:2px solid #333;">';
-    h += '<th style="text-align:left;padding:6px 8px;min-width:140px;cursor:pointer" onclick="sortMapTable(0,\'str\')">Sector</th>';
-    h += '<th style="padding:6px 4px;color:var(--text-faint);font-size:11px;cursor:pointer" onclick="sortMapTable(1,\'num\')">#</th>';
-    dims.forEach(function(d, i) {
-        h += '<th style="padding:6px 4px;color:'+dimColors[d]+';font-size:11px;min-width:60px;cursor:pointer" onclick="sortMapTable('+(i+2)+',\'num\')">'+d+'</th>';
-    });
-    h += '</tr></thead>';
-
-    h += '<tbody><tr id="map-overall-row" style="border-bottom:2px solid #444;background:#111;">';
-    h += '<td style="padding:4px 8px;font-weight:700;color:var(--text-dim);">All Stocks</td>';
-    h += '<td style="padding:4px;text-align:center;color:var(--text-faint);">'+data.total_stocks+'</td>';
-    dims.forEach(function(d) {
-        var pct = overallPct[d];
-        var expectedShare = (100 / Math.max(Object.keys(sectors).length,1)).toFixed(0);
-        h += '<td style="padding:4px;text-align:center;font-weight:600;color:'+dimColors[d]+'">'+(mode === 'category' ? expectedShare+'%' : pct.toFixed(0)+'%')+'</td>';
-    });
-    h += '</tr>';
-
-    var sortedSectors = Object.keys(sectors).sort(function(a,b) { return sectors[b] - sectors[a]; });
-
-    var colSums = {};
-    if (mode === 'category') {
-        dims.forEach(function(d) { colSums[d] = 0; });
-        sortedSectors.forEach(function(sec) {
-            var secTotal = sectors[sec];
-            dims.forEach(function(d) {
-                var cnt = (matrix[sec] || {})[d] || 0;
-                colSums[d] += secTotal > 0 ? cnt / secTotal * 100 : 0;
-            });
-        });
-    }
-
-    sortedSectors.forEach(function(sec) {
-        var secTotal = sectors[sec];
-        h += '<tr style="border-bottom:1px solid #1a1a2a;">';
-        h += '<td style="padding:4px 8px;font-weight:600;">'+sec+'</td>';
-        h += '<td style="padding:4px;text-align:center;color:var(--text-faint);font-size:11px;">'+secTotal+'</td>';
-        dims.forEach(function(d) {
-            var cnt = (matrix[sec] || {})[d] || 0;
-            var secPct = secTotal > 0 ? cnt / secTotal * 100 : 0;
-            var ovPct = overallPct[d];
-            var displayPct, tooltip, diff;
-            if (mode === 'sector') {
-                displayPct = secPct; diff = secPct - ovPct;
-                tooltip = cnt + ' stocks | ' + secPct.toFixed(1) + '% of sector vs ' + ovPct.toFixed(1) + '% overall';
-            } else {
-                var normalized = colSums[d] > 0 ? secPct / colSums[d] * 100 : 0;
-                displayPct = normalized;
-                var expectedShare = 100 / sortedSectors.length;
-                diff = normalized - expectedShare;
-                tooltip = secPct.toFixed(1) + '% of sector / ' + colSums[d].toFixed(0) + ' total = ' + normalized.toFixed(1) + '% (even = ' + expectedShare.toFixed(0) + '%)';
-            }
-            var bg = 'transparent';
-            if (cnt > 0 && Math.abs(diff) > 3) {
-                var intensity = Math.min(Math.abs(diff) / 20, 0.5);
-                bg = diff > 0 ? hexToRgba(dimColors[d], intensity) : 'rgba(100,100,100,' + intensity * 0.5 + ')';
-            }
-            var textColor = cnt > 0 ? '#ccc' : '#333';
-            h += '<td style="padding:4px;text-align:center;background:'+bg+';color:'+textColor+';font-size:11px;" title="'+tooltip+'">';
-            h += cnt > 0 ? displayPct.toFixed(0) + '%' : '';
-            h += '</td>';
-        });
-        h += '</tr>';
-    });
-    h += '</tbody></table>';
-
-    h += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
-    h += mode === 'sector'
-        ? '<span style="font-size:10px;color:var(--text-faint);">Each row sums to 100%. Colored = deviates from overall average.</span>'
-        : '<span style="font-size:10px;color:var(--text-faint);">Each column sums to 100%. Shows which sectors concentrate most in each category relative to their own size. Hover for detail.</span>';
-    h += '</div><div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;">';
-    dims.forEach(function(d) {
-        h += '<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:'+dimColors[d]+';color:white;">'+d+': '+data.overall[d]+'</span>';
-    });
-    h += '</div>';
-
-    var cutoffs = {
-        rs_momentum: [['Improving','RS rank change 1M > +5 percentile points'],['Stable','RS rank change 1M between -5 and +5'],['Deteriorating','RS rank change 1M < -5 percentile points']],
-        rs_bucket: [['RS 80+','6-month return in top 20% of universe'],['RS 60-80','6-month return in 60th-80th percentile'],['RS 40-60','6-month return in 40th-60th percentile'],['RS 20-40','6-month return in 20th-40th percentile'],['RS 0-20','6-month return in bottom 20%']],
-        pe_vs_sector: [['Deep Discount','PE < 0.7x sector median (30%+ cheaper)'],['Discount','PE 0.7x-0.9x sector median'],['Fair','PE 0.9x-1.1x sector median'],['Premium','PE 1.1x-1.3x sector median'],['High Premium','PE > 1.3x sector median (30%+ expensive)'],['No PE','Negative or missing earnings']],
-        eps_growth: [['Growing','FY1 EPS estimate > trailing EPS'],['Declining','FY1 EPS estimate < trailing EPS'],['Flat','FY1 EPS estimate = trailing EPS']],
-        eps_momentum: [['Accelerating','(FY2-FY1) growth > (FY1-TTM) growth'],['Decelerating','(FY2-FY1) growth < (FY1-TTM) growth']],
-        pca_regime: [['Strong Leader','High RS, strong price trend, above MAs'],['Quiet Uptrend','Above MAs, moderate momentum'],['Erupting','High volatility breakout, sharp RS gain'],['Distributing','Rolling over, weakening internals'],['Declining','Below MAs, negative RS trend']],
-        stage: [['Stage 1 Basing','Price consolidating around flat 200MA'],['Stage 2 Uptrend','Price above rising MAs, confirmed uptrend'],['Stage 3 Topping','MAs flattening, price volatile around 200MA'],['Stage 4 Declining','Price below falling MAs, downtrend']],
-    };
-    var defs = cutoffs[data.dimension];
-    if (defs) {
-        h += '<div style="margin-top:10px;padding:8px 10px;background:var(--bg-card,#1a1a2a);border-radius:6px;border:1px solid var(--border,#333);">';
-        h += '<div style="font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:4px;">Category Definitions</div>';
-        defs.forEach(function(def) {
-            var c = dimColors[def[0]] || '#666';
-            h += '<div style="font-size:11px;padding:1px 0;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+c+';margin-right:6px;"></span>';
-            h += '<strong style="color:#ccc;">'+def[0]+'</strong> <span style="color:var(--text-faint);">— '+def[1]+'</span></div>';
-        });
-        h += '</div>';
-    }
-    document.getElementById('map-summary').innerHTML = h;
-}
-
-var _mapSortDir = {};
-function sortMapTable(col, type) {
-    var table = document.getElementById('map-table');
-    if (!table) return;
-    var tbody = table.querySelector('tbody');
-    var rows = Array.from(tbody.querySelectorAll('tr'));
-    var pinned = document.getElementById('map-overall-row');
-    var sortable = rows.filter(function(r) { return r.id !== 'map-overall-row'; });
-    _mapSortDir[col] = !(_mapSortDir[col] || false);
-    var asc = _mapSortDir[col];
-    sortable.sort(function(a, b) {
-        var aVal = a.cells[col] ? a.cells[col].textContent.trim() : '';
-        var bVal = b.cells[col] ? b.cells[col].textContent.trim() : '';
-        if (type === 'num') {
-            aVal = parseFloat(aVal.replace(/[%x]/g, '')) || -Infinity;
-            bVal = parseFloat(bVal.replace(/[%x]/g, '')) || -Infinity;
-            return asc ? aVal - bVal : bVal - aVal;
-        }
-        return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-    });
-    if (pinned) tbody.appendChild(pinned);
-    sortable.forEach(function(r) { tbody.appendChild(r); });
-}
+// SCREENER_DATA = { columns:[RESULT_COLUMNS names], rows:[[..full-precision values..]],
+//                   col_id_of:{cid:rowIndex} } — powers instant column toggle + sort.
+window.SCREENER_DATA = {{ screener_data|tojson }};
+// FLAT_COL_SPEC = JSON mirror of the server FLAT_COL_SPEC (label/result_col/fmt/
+// align/colored/kind + decoded-label maps) so the client renders byte-identical text.
+window.FLAT_COL_SPEC = {{ flat_col_spec|tojson }};
+window.ALL_COLS = {{ all_cols|tojson }};            // [{cid,label}] full picker vocab
+window.VISIBLE_COLS = {{ visible_cols|tojson }};    // current visible ids (ordered)
+// SECTOR_MAP = sector × dimension composition for every dimension over the passed set.
+window.SECTOR_MAP = {{ sector_map|tojson }};
+// Ticker list for the Find-Ticker autocomplete (jump to a symbol's screener row).
+window._TICKERS = [{% for st in results %}"{{ st.symbol }}"{% if not loop.last %},{% endif %}{% endfor %}];
 </script>
 {% endblock %}

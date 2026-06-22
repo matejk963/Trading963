@@ -133,6 +133,11 @@ class ComputedStore:
         # fresh write is never served stale.
         self._xs_cache: Dict = {}
         self._xs_cache_ttl = float(os.environ.get("MKTT_CROSS_SECTION_TTL", "30"))
+        # Monotonic in-proc freshness token for the cross-section (Slice 1). The
+        # cross-section changes ONLY on a Writer ``upsert``; this counter bumps there
+        # so downstream caches (the Screener pipeline cache) key on it and a fresh
+        # write is never served stale. Starts at 1 so a token is always truthy.
+        self._xs_version = 1
 
     def set_refresher(self, refresher: Callable[[Sequence[str]], None]) -> None:
         """Wire the Writer's ``run`` as the auto-ensure-fresh hook (spec §5.3)."""
@@ -224,6 +229,15 @@ class ComputedStore:
     def invalidate_cross_section_cache(self) -> None:
         """Drop the cross_section cache (a Writer upsert mutates the cross-section)."""
         self._xs_cache.clear()
+
+    def cross_section_version(self) -> int:
+        """Monotonic freshness token for the cross-section (Slice 1).
+
+        Bumps on every :meth:`upsert` (the only mutation of the cross-section).
+        Downstream result caches key on it so a fresh write invalidates them
+        instantly — a cached pipeline/render is never staler than the data.
+        """
+        return self._xs_version
 
     def _build_filter(self, filters):
         if not filters:
@@ -503,9 +517,12 @@ class ComputedStore:
             raise
         finally:
             conn.close()
-        # the cross-section changed — drop the read cache so it is not served stale.
+        # the cross-section changed — drop the read cache so it is not served stale
+        # and bump the freshness token so downstream result caches invalidate.
         self.invalidate_cross_section_cache()
-        logger.debug("upsert: %s (incremental=%s)", counts, incremental)
+        self._xs_version += 1
+        logger.debug("upsert: %s (incremental=%s, version=%d)",
+                     counts, incremental, self._xs_version)
         return counts
 
     # ---- row shaping -------------------------------------------------- #

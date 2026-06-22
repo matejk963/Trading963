@@ -365,6 +365,118 @@ def test_panel_technicals_honors_as_of(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Performance returns — vectorized panel_returns (total cumulative, off close)
+# --------------------------------------------------------------------------- #
+def test_panel_returns_total_cumulative_at_each_lag(tmp_path):
+    """panel_returns computes (close[pos]/close[pos-lag]-1)*100 by integer index
+    position for each named lag; insufficient history omits that field."""
+    dates = pd.date_range("2024-01-01", periods=8, freq="D")
+    close = pd.DataFrame({
+        "AAA": [10, 11, 12, 13, 14, 15, 16, 20],
+        "BBB": [50, 49, 48, 47, 46, 45, 44, 40],
+    }, index=dates)
+    close.to_parquet(tmp_path / "close.parquet")
+
+    eq = EquitySubmodule(data_dir=tmp_path)
+    rets = eq.panel_returns(["AAA", "BBB", "__MISSING__"],
+                            lags={"Ret1W": 5, "RetLong": 99})
+
+    assert set(rets) == {"AAA", "BBB"}
+    # AAA lag 5: last=20 (pos -1), pos-5 = index 2 = 12 -> 20/12-1 = +66.67%
+    assert round(rets["AAA"]["Ret1W"], 2) == round((20 / 12 - 1) * 100, 2)
+    # BBB lag 5: last=40 (pos -1=idx7), pos-5 = idx2 = 48 -> 40/48-1 = -16.67%
+    assert round(rets["BBB"]["Ret1W"], 2) == round((40 / 48 - 1) * 100, 2)
+    # lag 99 exceeds the 8-bar history -> omitted (None / absent field).
+    assert "RetLong" not in rets["AAA"]
+
+
+def test_panel_returns_default_lags(tmp_path):
+    """Default lags follow the frozen contract (1W=5..5Y=1260); short panels yield
+    only the horizons they have history for."""
+    dates = pd.date_range("2020-01-01", periods=300, freq="D")
+    close = pd.DataFrame({"AAA": [100 + i for i in range(300)]}, index=dates)
+    close.to_parquet(tmp_path / "close.parquet")
+
+    eq = EquitySubmodule(data_dir=tmp_path)
+    rets = eq.panel_returns(["AAA"])
+    rec = rets["AAA"]
+    # 300 bars: 1W/1M/3M/6M/12M computable; 3Y(756)/5Y(1260) not.
+    assert set(rec) == {"Ret1W", "Ret1M", "Ret3M", "Ret6M", "Ret12M"}
+    # Ret1W: last=399 (pos -1), pos-5 = 394 -> 399/394-1.
+    assert round(rec["Ret1W"], 4) == round((399 / 394 - 1) * 100, 4)
+    # Ret12M (252): pos-252 -> close at index (299-252)=47 = 147.
+    assert round(rec["Ret12M"], 4) == round((399 / 147 - 1) * 100, 4)
+
+
+def test_panel_returns_honors_as_of(tmp_path):
+    """as_of trims the date index to <= as_of before positions are taken, so the
+    'last' bar is the close on/before that date."""
+    dates = pd.date_range("2024-01-01", periods=10, freq="D")
+    close = pd.DataFrame({"AAA": [10, 11, 12, 13, 14, 15, 16, 17, 18, 20]}, index=dates)
+    close.to_parquet(tmp_path / "close.parquet")
+
+    eq = EquitySubmodule(data_dir=tmp_path)
+    rets = eq.panel_returns(["AAA"], as_of="2024-01-06", lags={"Ret1W": 5})
+    # as_of trims to first 6 bars (..2024-01-06=15); pos-5 = index0 = 10 -> 15/10-1.
+    assert round(rets["AAA"]["Ret1W"], 2) == round((15 / 10 - 1) * 100, 2)
+
+
+def test_datasource_panel_returns_delegates_to_equity(tmp_path):
+    """DataSource.panel_returns delegates to the equity submodule (mirror of the
+    panel_technicals delegate)."""
+    dates = pd.date_range("2024-01-01", periods=8, freq="D")
+    close = pd.DataFrame({"AAA": [10, 11, 12, 13, 14, 15, 16, 20]}, index=dates)
+    close.to_parquet(tmp_path / "close.parquet")
+
+    eq = EquitySubmodule(data_dir=tmp_path)
+    ds = DataSource(registry=Registry(), _equity=eq)
+    rets = ds.panel_returns(["AAA"], lags={"Ret1W": 5})
+    assert round(rets["AAA"]["Ret1W"], 2) == round((20 / 12 - 1) * 100, 2)
+
+
+# --------------------------------------------------------------------------- #
+# Slice 1 — price_panel_version (parquet mtime → screener pipeline-cache key)
+# --------------------------------------------------------------------------- #
+def test_price_panel_version_reflects_parquet_mtime(tmp_path):
+    """price_panel_version() returns the close-parquet mtime and changes when the
+    panel is rewritten (so the screener pipeline cache invalidates on data update)."""
+    import os
+
+    dates = pd.date_range("2024-01-01", periods=3, freq="D")
+    close = pd.DataFrame({"AAA": [10, 11, 12]}, index=dates)
+    path = tmp_path / "close.parquet"
+    close.to_parquet(path)
+
+    eq = EquitySubmodule(data_dir=tmp_path)
+    v1 = eq.price_panel_version()
+    assert v1 == path.stat().st_mtime
+
+    # rewrite the parquet with a newer mtime -> the version changes.
+    new_mtime = path.stat().st_mtime + 100
+    os.utime(path, (new_mtime, new_mtime))
+    assert eq.price_panel_version() == new_mtime
+    assert eq.price_panel_version() != v1
+
+
+def test_price_panel_version_missing_parquet_is_safe(tmp_path):
+    """No price parquet -> a stable sentinel (0.0), never an exception."""
+    eq = EquitySubmodule(data_dir=tmp_path)
+    assert eq.price_panel_version() == 0.0
+
+
+def test_datasource_exposes_price_panel_version(tmp_path):
+    """DataSource delegates price_panel_version to its equity submodule (DI seam)."""
+    from datasource.provider import DataSource
+    from datasource.registry import Registry
+
+    dates = pd.date_range("2024-01-01", periods=3, freq="D")
+    pd.DataFrame({"AAA": [10, 11, 12]}, index=dates).to_parquet(tmp_path / "close.parquet")
+    eq = EquitySubmodule(data_dir=tmp_path)
+    ds = DataSource(Registry(), _equity=eq)
+    assert ds.price_panel_version() == (tmp_path / "close.parquet").stat().st_mtime
+
+
+# --------------------------------------------------------------------------- #
 # fundamental_series — pkl-backed EPS/Sales actual+forecast blend (FORK-2, #11)
 # --------------------------------------------------------------------------- #
 def _fake_fund_pkl():

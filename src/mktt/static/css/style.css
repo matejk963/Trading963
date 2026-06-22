@@ -343,6 +343,28 @@ table, .data-table {
     font-size: 13px;
 }
 
+/* Slice 4 (jank): fixed layout kills the measure-before-render full-table
+   reflow on first paint and on sort/column re-render. Widths come from the
+   <colgroup> the server emits (and renderFlatTable() rebuilds). Cells clip
+   with an ellipsis instead of forcing the table wider. */
+#screener-table {
+    table-layout: fixed;
+}
+#screener-table th,
+#screener-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Slice 4: skip paint + layout for offscreen rows during scroll. The
+   intrinsic size keeps the scrollbar honest and avoids reflow as rows enter
+   the viewport. Sticky <thead> is unaffected (it is not a <tr> in <tbody>). */
+#screener-table tbody tr,
+#sector-table tbody tr {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 28px;
+}
+
 thead {
     position: sticky;
     top: 0;

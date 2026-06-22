@@ -31,7 +31,8 @@ import datetime
 import logging
 import math
 import os
-from dataclasses import dataclass, field
+from collections import OrderedDict
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional, Sequence
 
 from viewmodel import num, vm
@@ -61,6 +62,8 @@ FUND_RANGE_COLUMNS = {
     "ndebitda": "ND_EBITDA",   # fund: net_debt_to_ebitda
     "pe_sect": "PE_vs_Sector",     # derived: PE / sector-median PE
     "pe_ind": "PE_vs_Industry",    # derived: PE / industry-median PE
+    "fwdpe_sect": "FwdPE_vs_Sector",   # derived: FwdPE / sector-median FwdPE
+    "fwdpe_ind": "FwdPE_vs_Industry",  # derived: FwdPE / industry-median FwdPE
 }
 
 #: Single-bound (min-only) range filters.
@@ -80,6 +83,13 @@ TECH_RANGE_COLUMNS = {
 }
 #: Technical min-only filters.
 TECH_MIN_COLUMNS = {"from52l": "From52L"}
+
+#: Trailing-return range filters: query-key stem (= column id) -> joined-row column.
+#: Values are TOTAL cumulative trailing returns spliced on from ``data.panel_returns``.
+RETURN_RANGE_COLUMNS = {
+    "ret1w": "Ret1W", "ret1m": "Ret1M", "ret3m": "Ret3M", "ret6m": "Ret6M",
+    "ret12m": "Ret12M", "ret3y": "Ret3Y", "ret5y": "Ret5Y",
+}
 
 #: Classification multi-select filters: query key -> joined-row column.
 CLASS_MULTI_COLUMNS = {
@@ -259,6 +269,20 @@ class ScreenRequest:
     tech_mins: Dict[str, float] = field(default_factory=dict)
     ma_setup: str = ""
 
+    # trailing-return ranges: {stem: (min, max)} over RETURN_RANGE_COLUMNS
+    return_ranges: Dict[str, tuple] = field(default_factory=dict)
+
+    # universe-percentile ranges: {base_id: (pmin, pmax)} over PCTILE_FILTER_IDS
+    # (0–100). A passed row is kept iff its {ResultName}_Pctile ∈ [pmin, pmax];
+    # null percentile fails when a bound is set.
+    pctile_ranges: Dict[str, tuple] = field(default_factory=dict)
+
+    # visible columns (Slice 2): validated, ordered column ids the flat table
+    # renders. Empty list == not specified (handle_page falls back to the default
+    # visible set). Kept as part of the request identity so a column change is a
+    # distinct cache entry / URL.
+    cols: List[str] = field(default_factory=list)
+
     @property
     def has_fund_filters(self) -> bool:
         return bool(self.fund_ranges) or bool(self.fund_mins) or bool(
@@ -267,6 +291,14 @@ class ScreenRequest:
     @property
     def has_tech_filters(self) -> bool:
         return bool(self.tech_ranges) or bool(self.tech_mins) or bool(self.ma_setup)
+
+    @property
+    def has_return_filters(self) -> bool:
+        return bool(self.return_ranges)
+
+    @property
+    def has_pctile_filters(self) -> bool:
+        return bool(self.pctile_ranges)
 
     @property
     def has_class_filters(self) -> bool:
@@ -325,6 +357,20 @@ class ScreenRequest:
             if lo is not None:
                 tech_mins[stem] = lo
 
+        return_ranges = {}
+        for stem in RETURN_RANGE_COLUMNS:
+            lo, hi = _flt(f"{stem}_min"), _flt(f"{stem}_max")
+            if lo is not None or hi is not None:
+                return_ranges[stem] = (lo, hi)
+
+        # universe-percentile filters: {baseid}_pmin / {baseid}_pmax (0–100) for
+        # every base numeric id. Parsed generically (config, not branching).
+        pctile_ranges = {}
+        for bid in PCTILE_FILTER_IDS:
+            lo, hi = _flt(f"{bid}_pmin"), _flt(f"{bid}_pmax")
+            if lo is not None or hi is not None:
+                pctile_ranges[bid] = (lo, hi)
+
         class_multi = {key: _list(key) for key in CLASS_MULTI_COLUMNS}
 
         try:
@@ -352,6 +398,9 @@ class ScreenRequest:
             tech_ranges=tech_ranges,
             tech_mins=tech_mins,
             ma_setup=args.get("ma_setup", "") or "",
+            return_ranges=return_ranges,
+            pctile_ranges=pctile_ranges,
+            cols=_parse_cols(args.get("cols", "")),
         )
 
 
@@ -442,11 +491,21 @@ def _pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
     elif hasattr(data, "time_series"):
         _apply_live_technicals(rows, data, universe)
 
+    # Trailing TOTAL-cumulative returns (1W/1M/3M/6M/12M/3Y/5Y) — one vectorized
+    # ``data.panel_returns`` call off the close panel, spliced per row (same shape
+    # as panel technicals). Bare stubs without panel_returns skip gracefully.
+    if getattr(data, "panel_returns", None) is not None:
+        _apply_panel_returns(rows, data, universe, as_of)
+
     # Median-PE premium over the FULL (unfiltered) universe (app.py:592-639).
-    sector_med, industry_med = _median_pe(rows)
+    sector_med, industry_med, sector_fwd_med, industry_fwd_med = _median_pe(rows)
     for r in rows:
         r["PE_vs_Sector"] = _pe_premium(r.get("PE"), r.get("Sector"), sector_med)
         r["PE_vs_Industry"] = _pe_premium(r.get("PE"), r.get("Industry"), industry_med)
+        r["FwdPE_vs_Sector"] = _pe_premium(
+            r.get("FwdPE"), r.get("Sector"), sector_fwd_med)
+        r["FwdPE_vs_Industry"] = _pe_premium(
+            r.get("FwdPE"), r.get("Industry"), industry_fwd_med)
         # %-above-MA from live Price vs computed MA50/MA200 (only fill when unset,
         # so a precomputed PctAbove* carried on the cross-section still wins).
         if r.get("PctAbove50") is None:
@@ -454,10 +513,124 @@ def _pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
         if r.get("PctAbove200") is None:
             r["PctAbove200"] = _pct_above(r.get("Price"), r.get("MA200"))
 
+    # Universe percentile for every base numeric metric (one vectorized rank per
+    # metric over the FULL universe), AFTER returns + cross-sectional (PE_vs_*)
+    # attach so those are percentile-able too. Computed on the unfiltered rows so a
+    # kept row's percentile is its universe rank (independent of the active filter).
+    _attach_percentiles(rows)
+
     # Apply filters (order mirrors the route: min_price/turnover/sector, then
     # classification, fundamental, technical), then sort.
     passed = _sort([r for r in rows if _passes(r, req)], req.sort_by)
     return _PipelineResult(context, universe_total, rows, passed, asof)
+
+
+# --------------------------------------------------------------------------- #
+# 7b — pipeline result cache (Slice 1 — invalidate-on-data-update)
+# --------------------------------------------------------------------------- #
+# Repeated/identical screener requests (back-nav, same filters) re-run the whole
+# join→enrich→filter→sort recipe every time. We cache the `_PipelineResult` in a
+# bounded, process-local LRU keyed on (ScreenRequest identity, cross-section
+# freshness version, price-parquet mtime). Both freshness tokens are part of the
+# key, so the instant the underlying data changes (a Writer ``upsert`` bumps the
+# cross-section version, or the price parquet is rewritten) the key changes and the
+# stale entry is never served — a cached view is never staler than the data.
+_PIPELINE_CACHE_MAX = 16
+#: module-local LRU: ordered {key: _PipelineResult} (oldest first → evict from front).
+_PIPELINE_CACHE: "OrderedDict[tuple, _PipelineResult]" = OrderedDict()
+
+
+def _request_identity(req: ScreenRequest) -> tuple:
+    """A hashable, order-stable identity for a :class:`ScreenRequest`.
+
+    ``ScreenRequest`` is frozen but carries dict/list fields (``fund_ranges``,
+    ``class_multi`` …) so it is not directly hashable; this freezes every field
+    into a deterministic tuple so two equal requests share one cache entry.
+    """
+    def _freeze(v):
+        if isinstance(v, dict):
+            return tuple(sorted((k, _freeze(val)) for k, val in v.items()))
+        if isinstance(v, (list, tuple)):
+            return tuple(_freeze(x) for x in v)
+        return v
+
+    return tuple(_freeze(getattr(req, f.name)) for f in fields(req))
+
+
+def cross_section_version(computed) -> Any:
+    """Freshness token for the computed cross-section (bumps on Writer upsert).
+
+    Best-effort: providers/stubs without ``cross_section_version`` contribute a
+    constant token (the cache still keys on the request + parquet mtime), so a
+    bare stub never crashes the pipeline cache.
+    """
+    fn = getattr(computed, "cross_section_version", None)
+    if callable(fn):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 — never let a token read blank the page
+            logger.exception("screener cache: cross_section_version failed")
+    return None
+
+
+def price_panel_version(data) -> Any:
+    """Freshness token for the price/volume parquet the technicals path reads
+    (its mtime). Best-effort, like :func:`cross_section_version`."""
+    fn = getattr(data, "price_panel_version", None)
+    if callable(fn):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001
+            logger.exception("screener cache: price_panel_version failed")
+    return None
+
+
+def _clear_pipeline_cache() -> None:
+    """Drop the process-local pipeline cache (test setup / explicit reset)."""
+    _PIPELINE_CACHE.clear()
+
+
+def _cached_pipeline(req: ScreenRequest, data, computed) -> _PipelineResult:
+    """:func:`_pipeline` behind the freshness-keyed LRU result cache.
+
+    Hit  → return a defensive copy of the cached ``_PipelineResult`` WITHOUT
+           re-running the heavy work (no ``fundamentals``/``quarterly``/technicals
+           fetch, no ``rs_rank_changes`` SQL, no ``_median_pe``).
+    Miss → compute via :func:`_pipeline`, store a copy, evict the oldest if full.
+
+    The cache is process-local and bounded; the result is copied on the way in
+    and out so a caller mutating its result never corrupts the cached entry.
+    """
+    key = (_request_identity(req),
+           cross_section_version(computed),
+           price_panel_version(data))
+    hit = _PIPELINE_CACHE.get(key)
+    if hit is not None:
+        _PIPELINE_CACHE.move_to_end(key)            # LRU: mark most-recently-used
+        logger.debug("screener pipeline cache: HIT (entries=%d)", len(_PIPELINE_CACHE))
+        return _copy_result(hit)
+
+    logger.debug("screener pipeline cache: MISS (entries=%d)", len(_PIPELINE_CACHE))
+    res = _pipeline(req, data, computed)
+    _PIPELINE_CACHE[key] = _copy_result(res)
+    while len(_PIPELINE_CACHE) > _PIPELINE_CACHE_MAX:
+        evicted, _ = _PIPELINE_CACHE.popitem(last=False)  # evict oldest
+        logger.debug("screener pipeline cache: evicted oldest entry")
+    return res
+
+
+def _copy_result(res: _PipelineResult) -> _PipelineResult:
+    """A shallow-but-safe copy of a ``_PipelineResult`` — new list/dict containers so
+    a caller mutating ``passed``/``rows``/``context`` cannot reach the cached copy.
+    The row dicts are shared (treated as read-only by callers) but each row is
+    re-wrapped so an in-place row mutation also stays out of the cache."""
+    return _PipelineResult(
+        context=dict(res.context),
+        universe_total=res.universe_total,
+        rows=[dict(r) for r in res.rows],
+        passed=[dict(r) for r in res.passed],
+        asof=res.asof,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -477,7 +650,7 @@ def handle(req: ScreenRequest, data, computed) -> dict:
         A `ComputedStore` (or stub) exposing ``cross_section(filters=None) ->
         CrossSection`` (symbol-indexed frame) and (optionally) ``asof``.
     """
-    res = _pipeline(req, data, computed)
+    res = _cached_pipeline(req, data, computed)
     context = res.context
 
     if res.universe_total == 0:
@@ -704,6 +877,32 @@ def _apply_panel_technicals(rows, data, universe, as_of=None) -> None:
     logger.debug("screener panel technicals: enriched %d/%d rows", enriched, len(rows))
 
 
+def _apply_panel_returns(rows, data, universe, as_of=None) -> None:
+    """Splice the vectorized trailing returns (``data.panel_returns``) onto rows.
+
+    The whole-universe returns dict (``{sym: {Ret1W..Ret5Y}}``) is computed in one
+    vectorized pass off the close panel; here we just update each symbol's row with
+    its record (insufficient-history horizons are simply absent → render "—").
+    Best-effort: any failure leaves the rows untouched (the page still renders).
+    """
+    try:
+        rets = data.panel_returns(universe, as_of=as_of)
+    except Exception:  # noqa: BLE001 — never let a fetch hiccup blank the page
+        logger.exception("screener panel returns: vectorized fetch failed")
+        return
+    if not rets:
+        logger.debug("screener panel returns: empty result")
+        return
+    enriched = 0
+    for r in rows:
+        rec = rets.get(r["Symbol"])
+        if not rec:
+            continue
+        r.update(rec)
+        enriched += 1
+    logger.debug("screener panel returns: enriched %d/%d rows", enriched, len(rows))
+
+
 def _apply_live_technicals(rows: List[Dict[str, Any]], data, universe) -> None:
     """Override ``Price`` and add live technicals on each joined row in place.
 
@@ -836,18 +1035,27 @@ def _median(values: Sequence[float]) -> Optional[float]:
 def _median_pe(rows: List[Dict[str, Any]]):
     by_sector: Dict[str, List[float]] = {}
     by_industry: Dict[str, List[float]] = {}
+    fwd_by_sector: Dict[str, List[float]] = {}
+    fwd_by_industry: Dict[str, List[float]] = {}
     for r in rows:
-        pe = _f(r.get("PE"))
-        if pe is None:
-            continue
         sec, ind = r.get("Sector"), r.get("Industry")
-        if sec:
-            by_sector.setdefault(sec, []).append(pe)
-        if ind:
-            by_industry.setdefault(ind, []).append(pe)
+        pe = _f(r.get("PE"))
+        if pe is not None:
+            if sec:
+                by_sector.setdefault(sec, []).append(pe)
+            if ind:
+                by_industry.setdefault(ind, []).append(pe)
+        fwd = _f(r.get("FwdPE"))
+        if fwd is not None:
+            if sec:
+                fwd_by_sector.setdefault(sec, []).append(fwd)
+            if ind:
+                fwd_by_industry.setdefault(ind, []).append(fwd)
     sector_med = {k: _median(v) for k, v in by_sector.items()}
     industry_med = {k: _median(v) for k, v in by_industry.items()}
-    return sector_med, industry_med
+    sector_fwd_med = {k: _median(v) for k, v in fwd_by_sector.items()}
+    industry_fwd_med = {k: _median(v) for k, v in fwd_by_industry.items()}
+    return sector_med, industry_med, sector_fwd_med, industry_fwd_med
 
 
 def _pe_premium(pe, group, medians) -> Optional[float]:
@@ -858,6 +1066,44 @@ def _pe_premium(pe, group, medians) -> Optional[float]:
     if not med or med <= 0:
         return None
     return round(pe / med, 2)
+
+
+# --------------------------------------------------------------------------- #
+# universe percentile for every numeric metric (one vectorized pass per metric)
+# --------------------------------------------------------------------------- #
+def _attach_percentiles(rows: List[Dict[str, Any]]) -> None:
+    """Write a ``{ResultName}_Pctile`` field on every row, over the FULL universe.
+
+    For each base numeric metric (``PCTILE_BASE_IDS``), the percentile is the
+    pandas ``Series.rank(pct=True)*100`` of that metric's values across all rows
+    (higher value → higher percentile; null value → null percentile; ties share an
+    averaged rank). One vectorized rank per metric — NO per-row Python rank loop.
+
+    Called on the full-universe ``rows`` AFTER returns + cross-sectional (PE_vs_*)
+    attach, so those metrics are percentile-able too. Idempotent given the same
+    rows. Percentile columns are excluded from the base set so there is no
+    percentile-of-percentile.
+    """
+    if not rows:
+        return
+    import pandas as pd  # local — keep the module import-light for stub tests
+
+    for bid in PCTILE_BASE_IDS:
+        result_col = COL_ID_TO_RESULT[bid]
+        pctile_col = PCTILE_RESULT_OF[bid]
+        # gather the metric values (None where absent / non-numeric).
+        vals = [_f(r.get(result_col)) for r in rows]
+        s = pd.Series(vals, dtype="float64")
+        if s.notna().sum() == 0:
+            # nothing to rank — every row gets a null percentile.
+            for r in rows:
+                r[pctile_col] = None
+            continue
+        pct = s.rank(pct=True) * 100.0  # NaN ranks stay NaN (null -> null percentile)
+        for r, p in zip(rows, pct.tolist()):
+            r[pctile_col] = None if (p is None or math.isnan(p)) else float(p)
+    logger.debug("screener percentiles: attached %d metrics over %d rows",
+                 len(PCTILE_BASE_IDS), len(rows))
 
 
 # --------------------------------------------------------------------------- #
@@ -943,6 +1189,20 @@ def _passes(row: Dict[str, Any], req: ScreenRequest) -> bool:
             if not MA_SETUP_PRESETS[req.ma_setup](g):
                 return False
 
+    # Trailing-return range filters (ret1w_min/_max .. ret5y_min/_max). Null/insufficient
+    # history drops when a bound is set (``_in_range`` semantics, same as the others).
+    if req.has_return_filters:
+        for stem, (lo, hi) in req.return_ranges.items():
+            if not _in_range(g(RETURN_RANGE_COLUMNS[stem]), lo, hi):
+                return False
+
+    # Universe-percentile filters ({baseid}_pmin/_pmax over the metric's
+    # {ResultName}_Pctile). Null percentile fails when a bound is set (``_in_range``).
+    if req.has_pctile_filters:
+        for bid, (lo, hi) in req.pctile_ranges.items():
+            if not _in_range(g(PCTILE_RESULT_OF[bid]), lo, hi):
+                return False
+
     return True
 
 
@@ -987,12 +1247,81 @@ RESULT_COLUMNS = [
     "MA50", "MA150", "MA200", "PctAbove50", "PctAbove200", "From52H", "From52L",
     "PE", "FwdPE", "OpMargin", "NetMargin", "FCF", "ROIC", "ND_EBITDA",
     "EV_EBITDA", "Analysts", "Target", "PE_vs_Sector", "PE_vs_Industry",
+    "FwdPE_vs_Sector", "FwdPE_vs_Industry",
     "EPS_Act", "EPS_TTM", "EPS_NTM", "EPS_FY1", "EPS_FY2",
     "Rev_TTM", "Rev_NTM", "Rev_FY1", "Rev_FY2",
     "G_NTM_TTM", "G_FY2_FY1", "G_TTM_YOY", "G_FQ_YOY",
     "RG_NTM_TTM", "RG_FY2_FY1", "RG_TTM_YOY", "RG_FQ_YOY",
+    "Ret1W", "Ret1M", "Ret3M", "Ret6M", "Ret12M", "Ret3Y", "Ret5Y",
     "PCA_Regime", "Stage_Class", "EPS_Accel", "MA_Screen",
 ]
+
+#: Canonical column-id vocabulary (Slice 2). The ``cols`` query arg + the
+#: ``visible_cols`` context use these readable lowercase ids; each maps 1:1 to a
+#: ``RESULT_COLUMNS`` entry. ``screener_data.columns`` carries the RESULT_COLUMNS
+#: names; ``COL_ID_TO_RESULT`` is the id↔RESULT_COLUMNS bridge so the client can
+#: index the embedded ``rows`` by id. Ids mirror the template's ``data-cid``
+#: where one exists; ``symbol`` is the canonical id (the example/spec uses it).
+#: id -> RESULT_COLUMNS name (the single source of truth for the id vocabulary).
+COL_ID_TO_RESULT = {
+    "symbol": "Symbol", "price": "Price", "chg": "Change%",
+    "sector": "Sector", "industry": "Industry", "turnover": "ADV_Dollar",
+    "rs": "RS_Rank", "rschg1w": "RS_Chg1W", "rschg1m": "RS_Chg1M",
+    "rschg3m": "RS_Chg3M",
+    "ma50": "MA50", "ma150": "MA150", "ma200": "MA200",
+    "pct50": "PctAbove50", "pct200": "PctAbove200",
+    "from52h": "From52H", "from52l": "From52L",
+    "pe": "PE", "fwdpe": "FwdPE", "opmgn": "OpMargin", "netmgn": "NetMargin",
+    "fcf": "FCF", "roic": "ROIC", "ndebitda": "ND_EBITDA", "evebitda": "EV_EBITDA",
+    "analysts": "Analysts", "target": "Target",
+    "pesect": "PE_vs_Sector", "peind": "PE_vs_Industry",
+    "fwdpesect": "FwdPE_vs_Sector", "fwdpeind": "FwdPE_vs_Industry",
+    "eps": "EPS_Act", "eps_ttm": "EPS_TTM", "eps_ntm": "EPS_NTM",
+    "fy1": "EPS_FY1", "fy2": "EPS_FY2",
+    "rev_ttm": "Rev_TTM", "rev_ntm": "Rev_NTM", "rev_fy1": "Rev_FY1",
+    "rev_fy2": "Rev_FY2",
+    "g_ntm_ttm": "G_NTM_TTM", "g_fy2_fy1": "G_FY2_FY1", "g_ttm_yoy": "G_TTM_YOY",
+    "g_fq_yoy": "G_FQ_YOY",
+    "rg_ntm_ttm": "RG_NTM_TTM", "rg_fy2_fy1": "RG_FY2_FY1",
+    "rg_ttm_yoy": "RG_TTM_YOY", "rg_fq_yoy": "RG_FQ_YOY",
+    "ret1w": "Ret1W", "ret1m": "Ret1M", "ret3m": "Ret3M", "ret6m": "Ret6M",
+    "ret12m": "Ret12M", "ret3y": "Ret3Y", "ret5y": "Ret5Y",
+    "regime": "PCA_Regime", "stage": "Stage_Class", "eps_accel": "EPS_Accel",
+    "ma": "MA_Screen",
+}
+#: RESULT_COLUMNS name -> id (inverse).
+RESULT_TO_COL_ID = {v: k for k, v in COL_ID_TO_RESULT.items()}
+#: the full set of valid ids (validation set).
+RESULT_COL_IDS = list(COL_ID_TO_RESULT.keys())
+
+#: The columns the flat table renders today, in template order — the default
+#: visible set when ``cols`` is absent/empty (the ~21 ids screener.html shows).
+DEFAULT_VISIBLE_COLS = [
+    "symbol", "sector", "industry", "price", "chg", "turnover",
+    "rs", "stage", "regime", "ma",
+    "pct50", "pct200", "from52h", "from52l",
+    "pe", "fwdpe", "pesect", "opmgn", "roic", "evebitda", "target",
+]
+
+
+def _parse_cols(raw) -> List[str]:
+    """Parse a ``cols`` arg (comma-separated ids) into a validated, ordered list.
+
+    Drops unknown ids (not in :data:`RESULT_COL_IDS`), preserves the requested
+    order, de-dupes. Absent/empty OR all-unknown → :data:`DEFAULT_VISIBLE_COLS`
+    (never an empty table).
+    """
+    if not raw:
+        return list(DEFAULT_VISIBLE_COLS)
+    valid = set(RESULT_COL_IDS)
+    seen: set = set()
+    out: List[str] = []
+    for tok in str(raw).split(","):
+        cid = tok.strip().lower()
+        if cid and cid in valid and cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+    return out or list(DEFAULT_VISIBLE_COLS)
 
 
 def _results_table(rows: List[Dict[str, Any]]) -> dict:
@@ -1091,6 +1420,16 @@ def _filters_dict(req: ScreenRequest) -> Dict[str, Any]:
     for stem in TECH_RANGE_COLUMNS:
         f[f"{stem}_min"] = _lo(stem, req.tech_ranges)
         f[f"{stem}_max"] = _hi(stem, req.tech_ranges)
+    # trailing-return value ranges -> *_min / *_max keys (Performance filter row).
+    for stem in RETURN_RANGE_COLUMNS:
+        f[f"{stem}_min"] = _lo(stem, req.return_ranges)
+        f[f"{stem}_max"] = _hi(stem, req.return_ranges)
+    # universe-percentile ranges -> *_pmin / *_pmax keys (every base numeric id).
+    for bid in PCTILE_FILTER_IDS:
+        f[f"{bid}_pmin"] = _lo(bid, req.pctile_ranges)
+        f[f"{bid}_pmax"] = _hi(bid, req.pctile_ranges)
+    f["has_return_filters"] = req.has_return_filters
+    f["has_pctile_filters"] = req.has_pctile_filters
     return f
 
 
@@ -1100,7 +1439,7 @@ def _page_row(r: Dict[str, Any]) -> Dict[str, Any]:
     stage = _int(r.get("Stage_Class"))
     ma_screen = _int(r.get("MA_Screen"))
     regime = _int(r.get("PCA_Regime"))
-    return {
+    pr = {
         "symbol": r.get("Symbol"),
         "sector": r.get("Sector"),
         "industry": r.get("Industry"),
@@ -1111,6 +1450,8 @@ def _page_row(r: Dict[str, Any]) -> Dict[str, Any]:
         "fwd_pe": _f(r.get("FwdPE")),
         "pe_vs_sector": _f(r.get("PE_vs_Sector")),
         "pe_vs_industry": _f(r.get("PE_vs_Industry")),
+        "fwdpe_vs_sector": _f(r.get("FwdPE_vs_Sector")),
+        "fwdpe_vs_industry": _f(r.get("FwdPE_vs_Industry")),
         "eps_act": _f(r.get("EPS_Act")),
         "op_margin": _f(r.get("OpMargin")),
         "net_margin": _f(r.get("NetMargin")),
@@ -1144,16 +1485,302 @@ def _page_row(r: Dict[str, Any]) -> Dict[str, Any]:
         "g_fq_yoy": _f(r.get("G_FQ_YOY")),
         "rg_ntm_ttm": _f(r.get("RG_NTM_TTM")),
         "rg_fy2_fy1": _f(r.get("RG_FY2_FY1")),
+        # trailing total-cumulative returns (1W/1M/3M/6M/12M/3Y/5Y).
+        "ret1w": _f(r.get("Ret1W")),
+        "ret1m": _f(r.get("Ret1M")),
+        "ret3m": _f(r.get("Ret3M")),
+        "ret6m": _f(r.get("Ret6M")),
+        "ret12m": _f(r.get("Ret12M")),
+        "ret3y": _f(r.get("Ret3Y")),
+        "ret5y": _f(r.get("Ret5Y")),
         "stage": stage,
         "stage_label": _STAGE_LABELS.get(stage, ""),
         "ma_screen_label": _MA_SCREEN_LABELS.get(ma_screen, ""),
         "regime_label": _REGIME_LABELS.get(regime, ""),
     }
+    # Universe-percentile companions ({baseid}p -> the row's {ResultName}_Pctile),
+    # table-driven so the flat cell's spec["key"] ({baseid}p) resolves for every
+    # base numeric metric (the percentile cols themselves are excluded).
+    for bid in PCTILE_BASE_IDS:
+        pr[bid + "p"] = _f(r.get(PCTILE_RESULT_OF[bid]))
+    return pr
 
 
 def _int(v) -> Optional[int]:
     f = _f(v)
     return int(f) if f is not None else None
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — flat-table cell rendering (server side; the client JS mirrors this)
+# --------------------------------------------------------------------------- #
+# Per-column render spec for the flat results table, keyed by the column id. Each
+# entry: (header label, _page_row key, formatter, alignment, colored). The
+# formatter takes the (already _f-coerced) value and returns the display text;
+# ``colored`` cells get a positive/negative class from the sign. This is the
+# SINGLE source of truth for the flat table's labels/format/coloring — the
+# template loops over it and the client re-render JS mirrors it exactly so a
+# column toggle looks identical to a server render.
+def _fmt_dash(spec):
+    def _f2(v):
+        return spec % v if v is not None else "—"
+    return _f2
+
+
+def _fmt_turnover(v):
+    return ("%.1fM" % (v / 1e6)) if v else "—"
+
+
+def _fmt_text(v):
+    return v if v else "—"
+
+
+#: id -> dict(label, key, fmt, align, colored, kind)
+#: ``kind`` is "num"/"str" for client sort parity with the template's sortTable.
+FLAT_COL_SPEC = {
+    "symbol":  {"label": "Symbol",    "key": "symbol",       "fmt": _fmt_text,            "align": "left",  "colored": False, "kind": "str"},
+    "sector":  {"label": "Sector",    "key": "sector",       "fmt": _fmt_text,            "align": "left",  "colored": False, "kind": "str"},
+    "industry":{"label": "Industry",  "key": "industry",     "fmt": _fmt_text,            "align": "left",  "colored": False, "kind": "str"},
+    "price":   {"label": "Price",     "key": "price",        "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "chg":     {"label": "Chg%",      "key": "change",       "fmt": _fmt_dash("%+.1f%%"), "align": "right", "colored": True,  "kind": "num"},
+    "turnover":{"label": "Turnover",  "key": "turnover",     "fmt": _fmt_turnover,        "align": "right", "colored": False, "kind": "num"},
+    "rs":      {"label": "RS",        "key": "rs_rank",      "fmt": _fmt_dash("%.0f"),    "align": "right", "colored": False, "kind": "num"},
+    "stage":   {"label": "Stage",     "key": "stage_label",  "fmt": _fmt_text,            "align": "left",  "colored": False, "kind": "str"},
+    "regime":  {"label": "PCA Regime","key": "regime_label", "fmt": _fmt_text,            "align": "left",  "colored": False, "kind": "str"},
+    "ma":      {"label": "MA Pos",    "key": "ma_screen_label","fmt": _fmt_text,          "align": "left",  "colored": False, "kind": "str"},
+    "pct50":   {"label": "%MA50",     "key": "pct50",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "pct200":  {"label": "%MA200",    "key": "pct200",       "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "from52h": {"label": "52H%",      "key": "from52h",      "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": False, "kind": "num"},
+    "from52l": {"label": "52L%",      "key": "from52l",      "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": False, "kind": "num"},
+    "pe":      {"label": "PE",        "key": "pe",           "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "fwdpe":   {"label": "Fwd PE",    "key": "fwd_pe",       "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "pesect":  {"label": "PE/Sec",    "key": "pe_vs_sector", "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "peind":   {"label": "PE/Ind",    "key": "pe_vs_industry","fmt": _fmt_dash("%.2f"),   "align": "right", "colored": False, "kind": "num"},
+    "fwdpesect":{"label": "FwdPE/Sec", "key": "fwdpe_vs_sector","fmt": _fmt_dash("%.2f"),  "align": "right", "colored": False, "kind": "num"},
+    "fwdpeind":{"label": "FwdPE/Ind", "key": "fwdpe_vs_industry","fmt": _fmt_dash("%.2f"), "align": "right", "colored": False, "kind": "num"},
+    "opmgn":   {"label": "OpMgn%",    "key": "op_margin",    "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "netmgn":  {"label": "NetMgn%",   "key": "net_margin",   "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "roic":    {"label": "ROIC%",     "key": "roic",         "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "fcf":     {"label": "FCF",       "key": "fcf",          "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "ndebitda":{"label": "ND/EBITDA", "key": "nd_ebitda",    "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "evebitda":{"label": "EV/EBITDA", "key": "ev_ebitda",    "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "analysts":{"label": "Analysts",  "key": "analysts",     "fmt": _fmt_dash("%.0f"),    "align": "right", "colored": False, "kind": "num"},
+    "target":  {"label": "Target",    "key": "target",       "fmt": _fmt_dash("%.0f"),    "align": "right", "colored": False, "kind": "num"},
+    "rschg1w": {"label": "RS 1W",     "key": "rs_chg1w",     "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "rschg1m": {"label": "RS 1M",     "key": "rs_chg1m",     "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "rschg3m": {"label": "RS 3M",     "key": "rs_chg3m",     "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "eps":     {"label": "EPS",       "key": "eps_act",      "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "eps_ttm": {"label": "EPS TTM",   "key": "eps_ttm",      "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "eps_ntm": {"label": "EPS NTM",   "key": "eps_ntm",      "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "fy1":     {"label": "FY1",       "key": "eps_fy1",      "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "fy2":     {"label": "FY2",       "key": "eps_fy2",      "fmt": _fmt_dash("%.2f"),    "align": "right", "colored": False, "kind": "num"},
+    "rev_ttm": {"label": "Rev TTM",   "key": "rev_ttm",      "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "rev_ntm": {"label": "Rev NTM",   "key": "rev_ntm",      "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "rev_fy1": {"label": "Rev FY1",   "key": "rev_fy1",      "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "rev_fy2": {"label": "Rev FY2",   "key": "rev_fy2",      "fmt": _fmt_dash("%.1f"),    "align": "right", "colored": False, "kind": "num"},
+    "g_ntm_ttm":{"label": "G NTM/TTM","key": "g_ntm_ttm",    "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "g_fy2_fy1":{"label": "G FY2/FY1","key": "g_fy2_fy1",    "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "g_ttm_yoy":{"label": "G TTM YoY","key": "g_ttm_yoy",    "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "g_fq_yoy": {"label": "G FQ YoY", "key": "g_fq_yoy",     "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "rg_ntm_ttm":{"label": "RG NTM/TTM","key":"rg_ntm_ttm",  "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "rg_fy2_fy1":{"label": "RG FY2/FY1","key":"rg_fy2_fy1",  "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret1w":   {"label": "1W %",      "key": "ret1w",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret1m":   {"label": "1M %",      "key": "ret1m",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret3m":   {"label": "3M %",      "key": "ret3m",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret6m":   {"label": "6M %",      "key": "ret6m",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret12m":  {"label": "12M %",     "key": "ret12m",       "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret3y":   {"label": "3Y %",      "key": "ret3y",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+    "ret5y":   {"label": "5Y %",      "key": "ret5y",        "fmt": _fmt_dash("%+.1f"),   "align": "right", "colored": True,  "kind": "num"},
+}
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — universe percentile companion columns (table-driven, no hand entries)
+# --------------------------------------------------------------------------- #
+def _fmt_pctile(v):
+    """Percentile cell: ``P82`` (rounded), null -> dash."""
+    return ("P%.0f" % v) if v is not None else "—"
+
+
+#: Every BASE numeric metric id (FLAT_COL_SPEC kind=="num" BEFORE percentile cols
+#: are appended) — the set that gains a ``%ile`` companion + percentile filter.
+#: Snapshot the keys NOW so the percentile cols we append below never recurse
+#: (no percentile-of-percentile). Incl. the 7 returns from Slice 1.
+PCTILE_BASE_IDS = [cid for cid, spec in FLAT_COL_SPEC.items() if spec["kind"] == "num"]
+
+#: Generate one percentile companion per base numeric id, table-driven:
+#:   id        = ``{baseid}p``                (e.g. pe -> pep, ret3m -> ret3mp)
+#:   RESULT    = ``{ResultName}_Pctile``      (PE -> PE_Pctile)
+#:   label     = base label + " %ile"
+#:   row field = the RESULT name; flat ``key`` is the lowercase id
+#:   fmt       = P%.0f via _fmt_pctile ; align right ; colored False ; kind num
+for _bid in PCTILE_BASE_IDS:
+    _base_result = COL_ID_TO_RESULT[_bid]
+    _pid = _bid + "p"
+    _presult = f"{_base_result}_Pctile"
+    RESULT_COLUMNS.append(_presult)
+    COL_ID_TO_RESULT[_pid] = _presult
+    FLAT_COL_SPEC[_pid] = {
+        "label": FLAT_COL_SPEC[_bid]["label"] + " %ile",
+        "key": _pid,
+        "fmt": _fmt_pctile,
+        "align": "right",
+        "colored": False,
+        "kind": "num",
+    }
+
+#: Re-derive the id↔RESULT bridges now that the percentile cols are registered.
+RESULT_TO_COL_ID = {v: k for k, v in COL_ID_TO_RESULT.items()}
+RESULT_COL_IDS = list(COL_ID_TO_RESULT.keys())
+
+#: Percentile filter ids = the base numeric ids (filters are ``{baseid}_pmin/_pmax``).
+PCTILE_FILTER_IDS = list(PCTILE_BASE_IDS)
+
+#: base id -> the ``{ResultName}_Pctile`` row field the filter reads.
+PCTILE_RESULT_OF = {bid: f"{COL_ID_TO_RESULT[bid]}_Pctile" for bid in PCTILE_BASE_IDS}
+
+#: Form specs (Slice 3) — drive the data-driven Performance + Percentile filter rows
+#: in screener.html. RETURN row = value (_min/_max) + percentile (_pmin/_pmax) per
+#: horizon; PERCENTILE row = _pmin/_pmax for every NON-return base numeric metric
+#: (returns already carry their %ile inputs in the Performance row). Labels from spec.
+RETURN_FILTER_SPECS = [
+    {"stem": sid, "label": FLAT_COL_SPEC[sid]["label"].replace(" %", "")}
+    for sid in RETURN_RANGE_COLUMNS
+]
+PCTILE_FILTER_SPECS = [
+    {"stem": bid, "label": FLAT_COL_SPEC[bid]["label"]}
+    for bid in PCTILE_BASE_IDS if bid not in RETURN_RANGE_COLUMNS
+]
+
+
+def _stage_color(stage) -> str:
+    """Stage-cell inline color (template parity: S2 green, S4 red, S1 amber, S3 orange)."""
+    return {
+        2: "color:var(--phosphor-bright,var(--green));",
+        4: "color:var(--red,#ff3333);",
+        1: "color:var(--amber,#ffb000);",
+        3: "color:var(--orange,#ff6e27);",
+    }.get(stage, "")
+
+
+def _colored_class(v) -> str:
+    f = _f(v)
+    if f is None or f == 0:
+        return ""
+    return "positive" if f > 0 else "negative"
+
+
+def _flat_cell(pr: Dict[str, Any], cid: str) -> Dict[str, Any]:
+    """Render one flat-table cell for column ``cid`` from a ``_page_row`` dict.
+
+    Returns ``{text, cls, align, style}`` — the exact label/format/coloring the
+    template emits today, factored so server-Jinja and the client re-render share
+    one definition. Unknown ids degrade to a dash cell (never raises)."""
+    spec = FLAT_COL_SPEC.get(cid)
+    if spec is None:
+        return {"text": "—", "cls": "", "align": "right", "style": ""}
+    raw = pr.get(spec["key"])
+    text = spec["fmt"](raw)
+    cls = _colored_class(raw) if spec["colored"] else ""
+    style = _stage_color(pr.get("stage")) if cid == "stage" else ""
+    return {"text": text, "cls": cls, "align": spec["align"], "style": style}
+
+
+#: JS-friendly format token per column id (mirrors the python ``fmt`` so the client
+#: re-render produces byte-identical text). Tokens the client interprets:
+#:   "f2"=%.2f  "f1"=%.1f  "f0"=%.0f  "pct1"=%+.1f%%  "s1"=%+.1f
+#:   "turnover"=%.1fM(/1e6)  "text"=string-or-dash  "label"=decoded label (text)
+_FMT_TOKEN = {
+    _fmt_text: "text", _fmt_turnover: "turnover", _fmt_pctile: "pctile",
+}
+_FMT_DASH_TOKEN = {"%.2f": "f2", "%.1f": "f1", "%.0f": "f0",
+                   "%+.1f%%": "pct1", "%+.1f": "s1"}
+
+
+def _fmt_token(cid: str) -> str:
+    """The client-side format token for a column id (mirror of its python fmt)."""
+    spec = FLAT_COL_SPEC.get(cid, {})
+    fmt = spec.get("fmt")
+    # label columns (stage/regime/ma) read a decoded *_label off the data, but the
+    # embedded SCREENER_DATA carries the RAW code — so the client cannot reconstruct
+    # the label from the number. Mark them so the client renders the raw value's
+    # decoded label via the shared LABEL maps embedded below.
+    if cid in ("stage", "regime", "ma"):
+        return {"stage": "stage_label", "regime": "regime_label",
+                "ma": "ma_label"}[cid]
+    if fmt in _FMT_TOKEN:
+        return _FMT_TOKEN[fmt]
+    # _fmt_dash closures: identify by formatting a probe value.
+    try:
+        probe = fmt(1.0)
+        for spec_str, tok in _FMT_DASH_TOKEN.items():
+            if (spec_str % 1.0) == probe:
+                return tok
+    except Exception:  # noqa: BLE001
+        pass
+    return "text"
+
+
+def flat_col_spec_js() -> Dict[str, Any]:
+    """A JSON-serializable mirror of :data:`FLAT_COL_SPEC` for the client re-render.
+
+    Per id: ``{label, result_col, fmt, align, colored, kind}`` where ``result_col``
+    is the RESULT_COLUMNS name (the index into SCREENER_DATA.rows) and ``fmt`` is a
+    token :func:`_fmt_token` the client maps to the same formatting python applies.
+    Plus the decoded-label maps (stage/regime/ma) so label columns render off the
+    raw codes carried in SCREENER_DATA."""
+    cols = {}
+    for cid, spec in FLAT_COL_SPEC.items():
+        cols[cid] = {
+            "label": spec["label"],
+            "result_col": COL_ID_TO_RESULT.get(cid),
+            "fmt": _fmt_token(cid),
+            "align": spec["align"],
+            "colored": spec["colored"],
+            "kind": spec["kind"],
+        }
+    return {
+        "cols": cols,
+        "stage_labels": {str(k): v for k, v in _STAGE_LABELS.items()},
+        "regime_labels": {str(k): v for k, v in _REGIME_LABELS.items()},
+        "ma_labels": {str(k): v for k, v in _MA_SCREEN_LABELS.items()},
+    }
+
+
+def _flat_table(page_rows: List[Dict[str, Any]], visible_cols: List[str]) -> Dict[str, Any]:
+    """Build the server-render payload for the flat table restricted to
+    ``visible_cols``: ordered headers + one rendered cell per visible column per
+    row. ``symbol`` is carried per-row for the row-level click handler."""
+    headers = [{"cid": cid,
+                "label": FLAT_COL_SPEC.get(cid, {}).get("label", cid),
+                "align": FLAT_COL_SPEC.get(cid, {}).get("align", "right"),
+                "kind": FLAT_COL_SPEC.get(cid, {}).get("kind", "str")}
+               for cid in visible_cols]
+    rows = []
+    for pr in page_rows:
+        rows.append({
+            "symbol": pr.get("symbol"),
+            "cells": [_flat_cell(pr, cid) for cid in visible_cols],
+        })
+    return {"columns": list(visible_cols), "headers": headers, "rows": rows}
+
+
+def _screener_data(passed_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The FULL result embedded for the client (all RESULT_COLUMNS × all passed
+    rows, full precision). Independent of ``visible_cols`` — powers instant
+    client-side column toggle / sort / keep-alive without a server round-trip.
+
+    ``col_ids`` and ``col_id_of`` let the client map a visible-column id to its
+    index in each ``rows`` tuple. Reuses :func:`_results_table` (the VM table
+    shape) so the embedded numbers are byte-identical to the JSON API's."""
+    table = _results_table(passed_rows)
+    return {
+        "columns": table["columns"],
+        "rows": table["rows"],
+        "col_id_of": {RESULT_TO_COL_ID[c]: i
+                      for i, c in enumerate(table["columns"])
+                      if c in RESULT_TO_COL_ID},
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -1230,22 +1857,27 @@ def _group_medians(rows) -> Dict[str, Any]:
 def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
     """Sector→industry→stock hierarchy with sector/industry median stats.
 
-    Medians (``median_rs``, ``median_pe``, …) are computed over the **passed /
-    filtered** stocks in each sector — NOT the full universe — matching the original
-    (app.py @9631169:759-870, which groups the already-filtered ``results_df``). This
-    matters for ``median_rs``: ``RS_Rank`` is a global 0-100 percentile, so a full-
-    universe sector median sits ~50 regardless of the active preset, whereas the
-    passed-set median reflects the actual leaders/laggards that survived the filter.
+    Medians (``median_rs``, ``median_pe``, …) are computed over the **FULL universe**
+    per sector / industry — NOT the passed/filtered subset — so they are a stable
+    baseline the user can compare their filtered selection against (the medians stay
+    put regardless of the active filter). The industry-vs-sector ratio
+    (``pe_vs_sector``) is likewise full-universe over full-universe.
 
-    Counts use the FULL universe: ``total`` = symbols in the sector, ``count`` =
-    passed, ``pct_of_sector`` = count/total. (The per-stock ``PE_vs_Sector`` premium
-    is a SEPARATE, full-universe figure computed in ``_pipeline`` — unchanged.)
+    Counts and the listed ``stocks`` remain the filtered selection: ``count`` =
+    passed in the sector/industry, ``total`` = full-universe symbols in the sector,
+    ``pct_of_sector`` = count/total, and only sectors/industries that have passed
+    stocks appear. (The per-stock ``PE_vs_Sector`` premium is a SEPARATE,
+    full-universe figure computed in ``_pipeline`` — unchanged.)
     """
     full_by_sector: Dict[str, List[Dict[str, Any]]] = {}
+    full_by_industry: Dict[str, List[Dict[str, Any]]] = {}
     for r in full_rows:
         sec = r.get("Sector")
         if sec:
             full_by_sector.setdefault(sec, []).append(r)
+        ind = r.get("Industry")
+        if ind:
+            full_by_industry.setdefault(ind, []).append(r)
     passed_by_sector: Dict[str, List[Dict[str, Any]]] = {}
     for r in passed_rows:
         sec = r.get("Sector")
@@ -1264,12 +1896,13 @@ def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
             "pct_of_sector": len(prows) / total * 100 if total else 0,
             "pct_of_results": len(prows) / n_passed * 100,
         }
-        # medians over the PASSED stocks in this sector (original parity).
-        stats.update(_group_medians(prows))
+        # medians over the FULL universe in this sector (stable baseline).
+        stats.update(_group_medians(full_by_sector.get(sec, prows)))
         stats["stocks"] = sorted((_page_row(r) for r in prows),
                                  key=lambda x: x.get("rs_rank") or 0, reverse=True)
 
-        # industry breakdown — medians over the passed stocks per industry.
+        # industry breakdown — counts/stocks from passed, medians over the full
+        # universe per industry.
         passed_by_ind: Dict[str, List[Dict[str, Any]]] = {}
         for r in prows:
             ind = r.get("Industry")
@@ -1277,7 +1910,7 @@ def _sector_stats(passed_rows, full_rows) -> List[Dict[str, Any]]:
                 passed_by_ind.setdefault(ind, []).append(r)
         industries = []
         for ind, iprows in passed_by_ind.items():
-            imeds = _group_medians(iprows)
+            imeds = _group_medians(full_by_industry.get(ind, iprows))
             ind_pe, sec_pe = imeds.get("median_pe"), stats.get("median_pe")
             imeds["pe_vs_sector"] = (round(ind_pe / sec_pe, 2)
                                      if ind_pe and sec_pe and sec_pe > 0 else None)
@@ -1397,9 +2030,23 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
     import time
 
     t0 = time.time()
-    res = _pipeline(req, data, computed)
+    res = _cached_pipeline(req, data, computed)
     sectors = sorted({r["Sector"] for r in res.rows if r.get("Sector")})
     results = [_page_row(r) for r in res.passed]
+
+    # Selected columns (Slice 2): the validated, ordered visible set. ``req.cols``
+    # is already resolved (falls back to DEFAULT_VISIBLE_COLS when absent/empty).
+    visible_cols = req.cols or list(DEFAULT_VISIBLE_COLS)
+    flat_table = _flat_table(results, visible_cols)
+    # Full picker vocabulary (ordered, id + label) — server-provided so the client
+    # column picker no longer scans the DOM to discover columns.
+    all_cols = [{"cid": RESULT_TO_COL_ID[c],
+                 "label": FLAT_COL_SPEC.get(RESULT_TO_COL_ID[c], {}).get(
+                     "label", RESULT_TO_COL_ID[c])}
+                for c in RESULT_COLUMNS if c in RESULT_TO_COL_ID]
+    # The FULL result embedded once for the client (all columns, full precision),
+    # independent of visible_cols — powers client toggle/sort/keep-alive.
+    screener_data = _screener_data(res.passed)
 
     # Stage-distribution status bar + market-regime banner (stage presets only).
     stage_dist = None
@@ -1423,8 +2070,15 @@ def handle_page(req: ScreenRequest, data, computed) -> Dict[str, Any]:
     return {
         "active_section": "screener",
         "filters": _filters_dict(req),
+        "return_filter_specs": RETURN_FILTER_SPECS,
+        "pctile_filter_specs": PCTILE_FILTER_SPECS,
         "sectors": sectors,
         "results": results,
+        "visible_cols": visible_cols,
+        "all_cols": all_cols,
+        "flat_col_spec": flat_col_spec_js(),
+        "flat_table": flat_table,
+        "screener_data": screener_data,
         "sector_stats": sector_stats,
         "sector_map": sector_map,
         "stage_dist": stage_dist,

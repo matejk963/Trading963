@@ -56,12 +56,14 @@ class StubData:
     so the growth-derivation and vectorized-technicals paths can be exercised.
     """
 
-    def __init__(self, frame, quarterly=None, panel=None):
+    def __init__(self, frame, quarterly=None, panel=None, returns=None):
         self._frame = frame
         self._quarterly = quarterly
         self._panel = panel
+        self._returns = returns
         self.last_ids = None
         self.last_estimates = None
+        self.panel_returns_calls = 0
 
     def fundamentals(self, ids, fields=None, estimates=False):
         self.last_ids = list(ids)
@@ -76,6 +78,10 @@ class StubData:
 
     def panel_technicals(self, ids, **kwargs):
         return dict(self._panel or {})
+
+    def panel_returns(self, ids, **kwargs):
+        self.panel_returns_calls += 1
+        return dict(self._returns or {})
 
 
 def _cross(rows):
@@ -124,6 +130,19 @@ def test_from_query_fundamental_ranges_and_mins():
     assert "opmgn" not in req.fund_ranges
     assert req.fund_mins["rs"] == 70.0
     assert req.fund_mins["analysts"] == 3.0
+    assert req.has_fund_filters
+
+
+def test_from_query_parses_fwd_pe_premium_ranges():
+    """``fwdpe_sect_min/max`` + ``fwdpe_ind_min/max`` parse into ``fund_ranges``
+    under the new stems (auto-handled via FUND_RANGE_COLUMNS)."""
+    args = FakeArgs(single={
+        "fwdpe_sect_min": "0.5", "fwdpe_sect_max": "1.5",
+        "fwdpe_ind_max": "2.0",
+    })
+    req = ScreenRequest.from_query(args)
+    assert req.fund_ranges["fwdpe_sect"] == (0.5, 1.5)
+    assert req.fund_ranges["fwdpe_ind"] == (None, 2.0)
     assert req.has_fund_filters
 
 
@@ -262,6 +281,85 @@ def test_handle_derives_pe_and_median_premium():
     ddd = _row_by_symbol(tbl, "DDD")
     assert ddd["PE"] is None
     assert ddd["PE_vs_Sector"] is None
+
+
+# ----- Fwd PE vs Sector/Industry (mirrors trailing PE premium) ------------- #
+def test_median_pe_returns_forward_medians():
+    """``_median_pe`` returns per-sector/industry median FwdPE alongside the
+    (unchanged) trailing PE medians."""
+    rows = [
+        {"PE": 20.0, "FwdPE": 15.0, "Sector": "Tech", "Industry": "Software"},
+        {"PE": 12.0, "FwdPE": 11.0, "Sector": "Tech", "Industry": "Hardware"},
+        {"PE": 30.0, "FwdPE": 25.0, "Sector": "Energy", "Industry": "Oil"},
+        {"PE": None, "FwdPE": 5.0,  "Sector": "Energy", "Industry": "Oil"},
+    ]
+    sector_med, industry_med, sector_fwd, industry_fwd = svc._median_pe(rows)
+
+    # trailing medians unchanged: Tech -> median(20,12)=16 ; Energy -> 30 (None dropped).
+    assert_parity(sector_med["Tech"], 16.0)
+    assert_parity(sector_med["Energy"], 30.0)
+    assert_parity(industry_med["Software"], 20.0)
+
+    # forward medians: Tech -> median(15,11)=13 ; Energy -> median(25,5)=15.
+    assert_parity(sector_fwd["Tech"], 13.0)
+    assert_parity(sector_fwd["Energy"], 15.0)
+    assert_parity(industry_fwd["Software"], 15.0)
+    assert_parity(industry_fwd["Oil"], 15.0)
+
+
+def test_handle_derives_fwd_pe_median_premium():
+    """``FwdPE_vs_Sector``/``FwdPE_vs_Industry`` = FwdPE / median FwdPE for the
+    group (mirrors the trailing PE premium, reusing ``_pe_premium``)."""
+    cross, funds = _universe()
+    vm = handle(ScreenRequest.from_query(FakeArgs()),
+                StubData(funds), StubComputed(cross))
+    tbl = vm["tables"][0]
+
+    aaa = _row_by_symbol(tbl, "AAA")
+    # FwdPE = 120/8 = 15. Sector Tech FwdPE median(15, 48/4.5=10.667)=12.833.
+    # 15 / 12.833 = 1.17 (rounded 2dp).
+    assert_parity(aaa["FwdPE_vs_Sector"], 1.17)
+    # Industry Software has only AAA -> 15/15 = 1.0.
+    assert_parity(aaa["FwdPE_vs_Industry"], 1.0)
+
+
+def test_handle_fwd_pe_premium_none_when_missing():
+    """No FwdPE -> no premium (mirrors the trailing-PE None branch)."""
+    cross, funds = _universe()
+    # strip BBB's forward eps so its FwdPE is missing.
+    funds.loc["BBB", "fy1_eps_mean"] = None
+    vm = handle(ScreenRequest.from_query(FakeArgs()),
+                StubData(funds), StubComputed(cross))
+    bbb = _row_by_symbol(vm["tables"][0], "BBB")
+    assert bbb["FwdPE"] is None
+    assert bbb["FwdPE_vs_Sector"] is None
+    assert bbb["FwdPE_vs_Industry"] is None
+
+
+def test_handle_filters_fwd_pe_vs_sector_range():
+    """A ``fwdpe_sect`` range drops rows outside it, keeps those inside.
+
+    FwdPE_vs_Sector: AAA 1.17, BBB 0.83, CCC 0.42, DDD 1.58.
+    range [0.5, 1.2] -> keeps AAA, BBB.
+    """
+    cross, funds = _universe()
+    args = FakeArgs(single={"fwdpe_sect_min": "0.5", "fwdpe_sect_max": "1.2"})
+    vm = handle(ScreenRequest.from_query(args), StubData(funds), StubComputed(cross))
+    syms = {r[0] for r in vm["tables"][0]["rows"]}
+    assert syms == {"AAA", "BBB"}
+
+
+def test_handle_filters_fwd_pe_vs_industry_range():
+    """A ``fwdpe_ind`` range drops rows outside it.
+
+    FwdPE_vs_Industry: AAA 1.0, BBB 1.0, CCC 0.42, DDD 1.58 (Oil median 35.5).
+    max 1.0 -> keeps AAA, BBB, CCC (DDD 1.58 drops).
+    """
+    cross, funds = _universe()
+    args = FakeArgs(single={"fwdpe_ind_max": "1.0"})
+    vm = handle(ScreenRequest.from_query(args), StubData(funds), StubComputed(cross))
+    syms = {r[0] for r in vm["tables"][0]["rows"]}
+    assert syms == {"AAA", "BBB", "CCC"}
 
 
 # ----- parity-style filter-combo assertions (≥3) --------------------------- #
@@ -513,6 +611,220 @@ def test_panel_technicals_override_price_and_turnover():
     assert_parity(aaa["From52H"], -1.0)
 
 
+# --------------------------------------------------------------------------- #
+# Slice 1 — trailing performance returns (panel_returns -> rows + filters + cols)
+# --------------------------------------------------------------------------- #
+def test_pipeline_rows_carry_returns_from_panel_returns():
+    """_pipeline splices data.panel_returns onto each row (RetNW shape), once."""
+    cross, funds = _universe()
+    returns = {"AAA": {"Ret1W": 2.0, "Ret3M": 15.0, "Ret12M": 40.0},
+               "BBB": {"Ret3M": -8.0}}
+    data = StubData(funds, returns=returns)
+    vm = handle(ScreenRequest.from_query(FakeArgs()), data, StubComputed(cross))
+    aaa = _row_by_symbol(vm["tables"][0], "AAA")
+    assert_parity(aaa["Ret3M"], 15.0)
+    assert_parity(aaa["Ret12M"], 40.0)
+    bbb = _row_by_symbol(vm["tables"][0], "BBB")
+    assert_parity(bbb["Ret3M"], -8.0)
+    # one panel_returns call per pipeline (no N+1).
+    assert data.panel_returns_calls == 1
+
+
+def test_pipeline_without_panel_returns_provider_is_graceful():
+    """A provider lacking panel_returns (bare stub) does not blank the page."""
+    cross, funds = _universe()
+
+    class _NoReturns(StubData):
+        panel_returns = None  # attribute absent -> hasattr() is False
+
+    data = _NoReturns(funds)
+    vm = handle(ScreenRequest.from_query(FakeArgs()), data, StubComputed(cross))
+    assert vm["tables"][0]["rows"]  # still renders
+
+
+def test_return_range_filter_drops_rows_outside_band():
+    """ret3m_min/ret3m_max filter the passed set; rows outside the band drop."""
+    cross, funds = _universe()
+    returns = {"AAA": {"Ret3M": 25.0}, "BBB": {"Ret3M": 5.0},
+               "CCC": {"Ret3M": 50.0}, "DDD": {"Ret3M": -10.0}}
+    data = StubData(funds, returns=returns)
+    args = FakeArgs(single={"ret3m_min": "20", "ret3m_max": "40"})
+    vm = handle(ScreenRequest.from_query(args), data, StubComputed(cross))
+    syms = {r[vm["tables"][0]["columns"].index("Symbol")]
+            for r in vm["tables"][0]["rows"]}
+    assert syms == {"AAA"}  # only Ret3M in [20,40]
+
+
+def test_return_filter_absent_is_noop():
+    """No ret*_min/_max -> returns don't filter (all rows kept)."""
+    cross, funds = _universe()
+    returns = {"AAA": {"Ret3M": 1.0}}
+    data = StubData(funds, returns=returns)
+    vm = handle(ScreenRequest.from_query(FakeArgs()), data, StubComputed(cross))
+    assert len(vm["tables"][0]["rows"]) == 4  # full universe passes base gates
+
+
+def test_return_column_id_resolves_and_renders():
+    """Column id ret3m resolves through COL_ID_TO_RESULT/FLAT_COL_SPEC and renders."""
+    assert svc.COL_ID_TO_RESULT["ret3m"] == "Ret3M"
+    assert "ret3m" in svc.FLAT_COL_SPEC
+    cross, funds = _universe()
+    returns = {"AAA": {"Ret3M": 12.3}}
+    from sections.screener.service import handle_page
+    ctx = handle_page(ScreenRequest.from_query(FakeArgs(single={"cols": "symbol,ret3m"})),
+                      StubData(funds, returns=returns), StubComputed(cross))
+    flat = ctx["flat_table"]
+    assert "ret3m" in flat["columns"]
+    aaa = next(r for r in flat["rows"] if r["symbol"] == "AAA")
+    cell = aaa["cells"][flat["columns"].index("ret3m")]
+    assert cell["text"] == "+12.3"
+
+
+def test_return_from_query_parses_min_max():
+    """ScreenRequest.from_query parses ret*_min/ret*_max into the return-range map."""
+    args = FakeArgs(single={"ret3m_min": "10", "ret12m_max": "80"})
+    req = ScreenRequest.from_query(args)
+    assert req.return_ranges["ret3m"] == (10.0, None)
+    assert req.return_ranges["ret12m"] == (None, 80.0)
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — universe percentile for every numeric metric
+# --------------------------------------------------------------------------- #
+def test_attach_percentiles_basic_ranks():
+    """_attach_percentiles writes {ResultName}_Pctile over the rows: min≈low, max≈100,
+    null metric -> null percentile; ties stable."""
+    rows = [{"PE": 10.0}, {"PE": 20.0}, {"PE": 30.0}, {"PE": 40.0}, {"PE": None}]
+    svc._attach_percentiles(rows)
+    # pandas rank(pct=True)*100: 4 non-null values -> 25/50/75/100.
+    assert rows[0]["PE_Pctile"] == 25.0
+    assert rows[1]["PE_Pctile"] == 50.0
+    assert rows[3]["PE_Pctile"] == 100.0  # max value -> 100
+    assert rows[4]["PE_Pctile"] is None    # null value -> null percentile
+
+
+def test_attach_percentiles_ties_average():
+    """Tied metric values share the same (averaged) percentile (stable rule)."""
+    rows = [{"RS_Rank": 50.0}, {"RS_Rank": 50.0}, {"RS_Rank": 100.0}]
+    svc._attach_percentiles(rows)
+    assert rows[0]["RS_Rank_Pctile"] == rows[1]["RS_Rank_Pctile"]
+    assert rows[2]["RS_Rank_Pctile"] == 100.0
+
+
+def test_percentile_basis_is_full_universe_not_passed():
+    """A kept row's percentile is computed over the FULL universe — tightening the
+    filter (fewer passed) does not shift a kept row's percentile."""
+    cross, funds = _universe()
+    returns = {"AAA": {"Ret3M": 10.0}, "BBB": {"Ret3M": 20.0},
+               "CCC": {"Ret3M": 30.0}, "DDD": {"Ret3M": 40.0}}
+    data = StubData(funds, returns=returns)
+
+    vm_all = handle(ScreenRequest.from_query(FakeArgs()), data, StubComputed(cross))
+    aaa_all = _row_by_symbol(vm_all["tables"][0], "AAA")
+    pctile_all = aaa_all["Ret3M_Pctile"]
+
+    # tighten with a band that keeps AAA but drops some others.
+    data2 = StubData(funds, returns=returns)
+    vm_filt = handle(ScreenRequest.from_query(FakeArgs(single={"ret3m_max": "25"})),
+                     data2, StubComputed(cross))
+    aaa_filt = _row_by_symbol(vm_filt["tables"][0], "AAA")
+    # AAA's Ret3M percentile is the same in both (full-universe basis of 4 rows).
+    assert_parity(aaa_filt["Ret3M_Pctile"], pctile_all)
+    assert pctile_all == 25.0  # 10 is the lowest of [10,20,30,40] -> 25th
+
+
+def test_percentile_filter_keeps_high_percentile_rows():
+    """pe_pmin=90 keeps only rows whose PE percentile >= 90."""
+    cross, funds = _universe()
+    data = StubData(funds)
+    args = FakeArgs(single={"pe_pmin": "90"})
+    vm = handle(ScreenRequest.from_query(args), data, StubComputed(cross))
+    # Of the 4 PEs only the top (100th pct) survives a >=90 gate.
+    table = vm["tables"][0]
+    pe_idx = table["columns"].index("PE_Pctile")
+    kept = [r for r in table["rows"]]
+    assert kept and all(r[pe_idx] is not None and r[pe_idx] >= 90 for r in kept)
+
+
+def test_percentile_filter_band_on_returns():
+    """ret3m_pmin/_pmax band filters on the Ret3M percentile."""
+    cross, funds = _universe()
+    returns = {"AAA": {"Ret3M": 10.0}, "BBB": {"Ret3M": 20.0},
+               "CCC": {"Ret3M": 30.0}, "DDD": {"Ret3M": 40.0}}
+    data = StubData(funds, returns=returns)
+    # percentiles are 25/50/75/100; band [40,60] keeps only the 50th (BBB).
+    args = FakeArgs(single={"ret3m_pmin": "40", "ret3m_pmax": "60"})
+    vm = handle(ScreenRequest.from_query(args), data, StubComputed(cross))
+    syms = {r[vm["tables"][0]["columns"].index("Symbol")]
+            for r in vm["tables"][0]["rows"]}
+    assert syms == {"BBB"}
+
+
+def test_percentile_filter_excludes_null_percentile_when_bound_set():
+    """A row with a null metric (null percentile) fails when a percentile bound set."""
+    cross, funds = _universe()
+    # only AAA has a Ret3M -> others have null Ret3M_Pctile.
+    returns = {"AAA": {"Ret3M": 10.0}}
+    data = StubData(funds, returns=returns)
+    args = FakeArgs(single={"ret3m_pmin": "0"})  # 0 still requires non-null
+    vm = handle(ScreenRequest.from_query(args), data, StubComputed(cross))
+    syms = {r[vm["tables"][0]["columns"].index("Symbol")]
+            for r in vm["tables"][0]["rows"]}
+    assert syms == {"AAA"}
+
+
+def test_percentile_columns_resolvable_and_no_recursion():
+    """Every base numeric id has a {id}p column via COL_ID_TO_RESULT/FLAT_COL_SPEC;
+    percentile cols themselves are NOT in PCTILE_BASE_IDS (no pepp)."""
+    base_ids = svc.PCTILE_BASE_IDS
+    assert "pe" in base_ids and "ret3m" in base_ids
+    for bid in base_ids:
+        pid = bid + "p"
+        assert pid in svc.FLAT_COL_SPEC, f"missing flat spec for {pid}"
+        assert pid in svc.COL_ID_TO_RESULT, f"missing col-id for {pid}"
+        assert svc.COL_ID_TO_RESULT[pid].endswith("_Pctile")
+    # no percentile-of-percentile: pep not a base id (so no pepp generated).
+    assert "pep" not in base_ids
+    assert "pepp" not in svc.FLAT_COL_SPEC
+    assert svc.COL_ID_TO_RESULT["pep"] == "PE_Pctile"
+    assert svc.FLAT_COL_SPEC["pep"]["label"] == "PE %ile"
+
+
+def test_percentile_column_renders_p_format():
+    """A percentile column renders the P%.0f format (e.g. P100), null -> dash."""
+    cross, funds = _universe()
+    from sections.screener.service import handle_page
+    ctx = handle_page(ScreenRequest.from_query(FakeArgs(single={"cols": "symbol,pep"})),
+                      StubData(funds), StubComputed(cross))
+    flat = ctx["flat_table"]
+    assert "pep" in flat["columns"]
+    pe_idx = flat["columns"].index("pep")
+    texts = {r["symbol"]: r["cells"][pe_idx]["text"] for r in flat["rows"]}
+    # CCC has the highest PE (210/10=21) -> P100.
+    assert texts.get("CCC") == "P100"
+
+
+def test_percentile_filter_from_query_parses():
+    """from_query parses {baseid}_pmin/_pmax generically for every base numeric id."""
+    args = FakeArgs(single={"pe_pmin": "90", "ret3m_pmax": "50"})
+    req = ScreenRequest.from_query(args)
+    assert req.pctile_ranges["pe"] == (90.0, None)
+    assert req.pctile_ranges["ret3m"] == (None, 50.0)
+
+
+def test_cached_pipeline_percentiles_deterministic():
+    """Two identical calls return value-equal percentiles (deterministic + cached)."""
+    cross, funds = _universe()
+    data = StubData(funds)
+    computed = StubComputed(cross)
+    svc._clear_pipeline_cache()
+    vm1 = handle(ScreenRequest.from_query(FakeArgs()), data, computed)
+    vm2 = handle(ScreenRequest.from_query(FakeArgs()), data, computed)
+    a1 = _row_by_symbol(vm1["tables"][0], "AAA")
+    a2 = _row_by_symbol(vm2["tables"][0], "AAA")
+    assert a1["PE_Pctile"] == a2["PE_Pctile"]
+
+
 def test_handle_page_emits_sector_stats_and_stage_banner():
     """handle_page restores sector_stats hierarchy + stage_dist/market_regime."""
     from sections.screener.service import handle_page
@@ -529,13 +841,13 @@ def test_handle_page_emits_sector_stats_and_stage_banner():
         "Healthy Bull", "Late Bull", "Bear", "Bottoming", "Mixed"}
 
 
-def test_sector_stats_medians_over_passed_not_full_universe():
-    """Sector/industry medians must be computed over the PASSED (filtered) stocks,
-    matching the original (app.py @9631169 groups the already-filtered results_df).
+def test_sector_stats_medians_over_full_universe_not_passed():
+    """Sector/industry medians are computed over the FULL universe per sector/
+    industry, NOT the passed/filtered subset — a stable baseline the user compares
+    their filtered selection against (regardless of the active filter).
 
-    RS_Rank is a global 0-100 percentile, so a full-universe sector median sits ~50
-    regardless of the active filter — the original instead reports the median of the
-    stocks that survived the filter. Regression guard for that parity.
+    Counts and the listed stocks remain the filtered selection; only the median
+    input set changed (passed -> full).
     """
     from sections.screener.service import _sector_stats
 
@@ -543,24 +855,87 @@ def test_sector_stats_medians_over_passed_not_full_universe():
         return {"Symbol": sym, "Sector": "Tech", "Industry": ind,
                 "RS_Rank": rs, "PE": pe}
 
-    # passed: two high-RS leaders -> median_rs 85, median_pe 25
+    # passed: two high-RS leaders.
     passed = [_row("AAA", 80, 20), _row("BBB", 90, 30)]
-    # full universe adds three low-RS names -> full median_rs would be 30
+    # full universe adds three low-RS names -> full median_rs 30, median_pe 100.
     full = passed + [_row("CCC", 10, 100), _row("DDD", 20, 110),
                      _row("EEE", 30, 120)]
 
     stats = _sector_stats(passed, full)
     assert len(stats) == 1
     sec = stats[0]
-    # median over the PASSED set (85), NOT the full-universe median (30).
-    assert sec["median_rs"] == 85
-    assert sec["median_pe"] == 25
+    # median over the FULL universe (RS 30, PE 100), NOT the passed set.
+    assert sec["median_rs"] == 30
+    assert sec["median_pe"] == 100
     # counts still use the full universe: 2 passed of 5 total = 40%.
     assert sec["count"] == 2 and sec["total"] == 5
     assert sec["pct_of_sector"] == 40
-    # industry medians likewise over the passed stocks.
+    # listed stocks remain the passed selection.
+    assert {s["symbol"] for s in sec["stocks"]} == {"AAA", "BBB"}
+    # industry medians likewise over the full industry, count still passed.
     ind = sec["industries"][0]
-    assert ind["median_rs"] == 85 and ind["count"] == 2
+    assert ind["median_rs"] == 30 and ind["count"] == 2
+
+
+def test_sector_median_pe_is_full_universe_median_when_subset_passed():
+    """Sector median_pe == median over ALL stocks in the sector even when only a
+    subset passed. Full PE [10,20,30,40,50] but only [10,20] passed -> 30, not 15.
+    """
+    from sections.screener.service import _sector_stats
+
+    def _row(sym, pe):
+        return {"Symbol": sym, "Sector": "Tech", "Industry": "SoftwareCo",
+                "RS_Rank": 50, "PE": pe}
+
+    full = [_row("A", 10), _row("B", 20), _row("C", 30), _row("D", 40), _row("E", 50)]
+    passed = [full[0], full[1]]  # PE [10, 20]
+
+    sec = _sector_stats(passed, full)[0]
+    assert sec["median_pe"] == 30          # full median, not 15 (passed median)
+    assert sec["count"] == 2 and sec["total"] == 5
+
+
+def test_industry_median_pe_is_full_universe_median_when_subset_passed():
+    """Industry median_pe == median over the full industry, not the passed subset."""
+    from sections.screener.service import _sector_stats
+
+    def _row(sym, pe):
+        return {"Symbol": sym, "Sector": "Tech", "Industry": "SoftwareCo",
+                "RS_Rank": 50, "PE": pe}
+
+    full = [_row("A", 10), _row("B", 20), _row("C", 30), _row("D", 40), _row("E", 50)]
+    passed = [full[0], full[1]]  # PE [10, 20]
+
+    sec = _sector_stats(passed, full)[0]
+    ind = sec["industries"][0]
+    assert ind["industry"] == "SoftwareCo"
+    assert ind["median_pe"] == 30          # full industry median, not 15
+    assert ind["count"] == 2               # passed count unchanged
+    assert {s["symbol"] for s in ind["stocks"]} == {"A", "B"}  # passed stocks only
+
+
+def test_sector_medians_stable_when_filter_tightens():
+    """Tightening the filter (fewer passed) changes count/stocks but leaves the
+    sector AND industry medians identical — the stable full-universe baseline.
+    """
+    from sections.screener.service import _sector_stats
+
+    def _row(sym, pe):
+        return {"Symbol": sym, "Sector": "Tech", "Industry": "SoftwareCo",
+                "RS_Rank": 50, "PE": pe}
+
+    full = [_row("A", 10), _row("B", 20), _row("C", 30), _row("D", 40), _row("E", 50)]
+
+    wide = _sector_stats(full[:4], full)[0]      # 4 passed
+    tight = _sector_stats(full[:2], full)[0]     # 2 passed
+
+    # count / stocks reflect the filter.
+    assert wide["count"] == 4 and tight["count"] == 2
+    assert {s["symbol"] for s in tight["stocks"]} == {"A", "B"}
+    # medians are identical — the full-universe baseline does not move.
+    assert wide["median_pe"] == tight["median_pe"] == 30
+    assert (wide["industries"][0]["median_pe"]
+            == tight["industries"][0]["median_pe"] == 30)
 
 
 def test_stage_preset_filters_table_to_that_stage():
@@ -609,3 +984,289 @@ def test_sector_map_summary_buckets_each_dimension():
     assert m["pca_regime"]["total_stocks"] == 3
     # summary carries per-(sector,category) counts
     assert {"sector": "Energy", "dimension": "Declining", "count": 1} in m["pca_regime"]["summary"]
+
+
+# --------------------------------------------------------------------------- #
+# Slice 1 — pipeline result cache + freshness version + version endpoint
+# --------------------------------------------------------------------------- #
+class VersionedComputed(StubComputed):
+    """StubComputed that also exposes a bumpable ``cross_section_version`` and
+    counts ``cross_section`` calls (the heavy producer's first read)."""
+
+    def __init__(self, frame, asof=None, version=1):
+        super().__init__(frame, asof=asof)
+        self._version = version
+        self.cross_section_calls = 0
+
+    def cross_section(self, filters=None):
+        self.cross_section_calls += 1
+        return self._frame
+
+    def cross_section_version(self):
+        return self._version
+
+    def bump(self):
+        self._version += 1
+
+
+class VersionedData(StubData):
+    """StubData that exposes a bumpable ``price_panel_version`` and counts
+    ``fundamentals`` calls (the heavy work spy)."""
+
+    def __init__(self, frame, quarterly=None, panel=None, version=1.0):
+        super().__init__(frame, quarterly=quarterly, panel=panel)
+        self._version = version
+        self.fundamentals_calls = 0
+
+    def fundamentals(self, ids, fields=None, estimates=False):
+        self.fundamentals_calls += 1
+        return super().fundamentals(ids, fields=fields, estimates=estimates)
+
+    def price_panel_version(self):
+        return self._version
+
+    def bump(self):
+        self._version += 1.0
+
+
+@pytest.fixture(autouse=True)
+def _clear_pipeline_cache():
+    """Each cache test starts from an empty pipeline cache (no cross-test leak)."""
+    svc._clear_pipeline_cache()
+    yield
+    svc._clear_pipeline_cache()
+
+
+def test_identical_requests_skip_heavy_recompute():
+    """Two identical requests run the heavy pipeline once; the 2nd is a cache hit."""
+    cross, funds = _universe()
+    data = VersionedData(funds)
+    computed = VersionedComputed(cross)
+    req = ScreenRequest.from_query(FakeArgs())
+
+    r1 = svc._cached_pipeline(req, data, computed)
+    r2 = svc._cached_pipeline(req, data, computed)
+
+    assert data.fundamentals_calls == 1          # heavy work ran exactly once
+    assert computed.cross_section_calls == 1
+    # the cache hit returns the same passed set (value-equal).
+    assert [r["Symbol"] for r in r1.passed] == [r["Symbol"] for r in r2.passed]
+
+
+def test_cross_section_version_bump_invalidates():
+    """A cross-section version bump (simulated upsert) forces a recompute."""
+    cross, funds = _universe()
+    data = VersionedData(funds)
+    computed = VersionedComputed(cross)
+    req = ScreenRequest.from_query(FakeArgs())
+
+    svc._cached_pipeline(req, data, computed)
+    computed.bump()
+    svc._cached_pipeline(req, data, computed)
+
+    assert data.fundamentals_calls == 2          # data changed -> recompute
+
+
+def test_price_panel_version_bump_invalidates():
+    """A price-parquet mtime bump forces a recompute."""
+    cross, funds = _universe()
+    data = VersionedData(funds)
+    computed = VersionedComputed(cross)
+    req = ScreenRequest.from_query(FakeArgs())
+
+    svc._cached_pipeline(req, data, computed)
+    data.bump()
+    svc._cached_pipeline(req, data, computed)
+
+    assert data.fundamentals_calls == 2
+
+
+def test_different_requests_are_distinct_cache_entries():
+    """Different ScreenRequests do not cross-serve (distinct cache entries)."""
+    cross, funds = _universe()
+    data = VersionedData(funds)
+    computed = VersionedComputed(cross)
+
+    r_turn = ScreenRequest.from_query(FakeArgs(single={"sort_by": "turnover"}))
+    r_rs = ScreenRequest.from_query(FakeArgs(single={"sort_by": "rs"}))
+    r_preset = ScreenRequest.from_query(FakeArgs(single={"preset": "stage2"}))
+    r_min = ScreenRequest.from_query(FakeArgs(single={"min_turnover": "1000000"}))
+
+    svc._cached_pipeline(r_turn, data, computed)
+    svc._cached_pipeline(r_rs, data, computed)
+    svc._cached_pipeline(r_preset, data, computed)
+    svc._cached_pipeline(r_min, data, computed)
+    # four distinct requests -> four heavy computes (no cross-serve).
+    assert data.fundamentals_calls == 4
+    # re-running the first is now a hit (no new compute).
+    svc._cached_pipeline(r_turn, data, computed)
+    assert data.fundamentals_calls == 4
+
+
+def test_cache_hit_value_equals_fresh_compute():
+    """A cache hit must value-equal a fresh compute (no staleness, no mutation)."""
+    cross, funds = _universe()
+    data = VersionedData(funds)
+    computed = VersionedComputed(cross)
+    req = ScreenRequest.from_query(FakeArgs())
+
+    cached = svc._cached_pipeline(req, data, computed)
+    fresh = svc._pipeline(req, data, computed)   # bypass the cache
+
+    assert [r["Symbol"] for r in cached.passed] == [r["Symbol"] for r in fresh.passed]
+    assert cached.universe_total == fresh.universe_total
+    assert cached.asof == fresh.asof
+    # mutating the returned result must not corrupt the cached copy.
+    cached.passed.append({"Symbol": "ZZZ"})
+    again = svc._cached_pipeline(req, data, computed)
+    assert all(r["Symbol"] != "ZZZ" for r in again.passed)
+
+
+def test_version_endpoint_returns_combined_token(monkeypatch):
+    """GET /api/screener/version returns '<xs>:<panel>:<asset>'.
+
+    The xs/panel components change with the data; the 3rd (asset) component is the
+    newest mtime of the screener template + client JS, so a CODE/TEMPLATE deploy
+    bumps the token and invalidates a stale client keep-alive snapshot (the bug
+    where new filters didn't appear until a hard reload). Asset is stable here (the
+    files don't change during the test)."""
+    from flask import Flask
+    from sections.screener import routes
+
+    cross, funds = _universe()
+    data = VersionedData(funds, version=12.0)
+    computed = VersionedComputed(cross, version=7)
+    monkeypatch.setitem(routes._PROVIDERS, "data", data)
+    monkeypatch.setitem(routes._PROVIDERS, "computed", computed)
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.screener_bp)
+    client = app.test_client()
+
+    resp = client.get("/api/screener/version")
+    assert resp.status_code == 200
+    parts = resp.get_json()["version"].split(":")
+    assert parts[0] == "7" and parts[1] == "12.0"
+    assert len(parts) == 3 and parts[2]  # asset-version component present
+    asset = parts[2]
+
+    computed.bump()  # data change bumps xs; asset unchanged
+    assert client.get("/api/screener/version").get_json()["version"] == f"8:12.0:{asset}"
+    data.bump()
+    assert client.get("/api/screener/version").get_json()["version"] == f"8:13.0:{asset}"
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — render only selected columns + embed full result JSON
+# --------------------------------------------------------------------------- #
+def test_from_query_cols_selects_validated_ordered():
+    """`cols=symbol,price,rs` parses to that exact ordered, validated list."""
+    req = ScreenRequest.from_query(FakeArgs(single={"cols": "symbol,price,rs"}))
+    assert req.cols == ["symbol", "price", "rs"]
+
+
+def test_from_query_cols_absent_is_default_visible_set():
+    """Absent `cols` resolves to the exact default visible set screener.html shows."""
+    from sections.screener.service import DEFAULT_VISIBLE_COLS
+    req = ScreenRequest.from_query(FakeArgs())
+    assert req.cols == DEFAULT_VISIBLE_COLS
+
+
+def test_from_query_cols_drops_unknown_preserves_order():
+    """Unknown ids are dropped, requested order preserved; all-unknown -> default."""
+    from sections.screener.service import DEFAULT_VISIBLE_COLS
+    req = ScreenRequest.from_query(
+        FakeArgs(single={"cols": "rs,bogus,price,symbol"}))
+    assert req.cols == ["rs", "price", "symbol"]
+    # all-unknown (and empty) fall back to the default — never an empty table.
+    assert ScreenRequest.from_query(
+        FakeArgs(single={"cols": "nope,zzz"})).cols == DEFAULT_VISIBLE_COLS
+    assert ScreenRequest.from_query(
+        FakeArgs(single={"cols": ""})).cols == DEFAULT_VISIBLE_COLS
+
+
+def test_handle_page_visible_cols_in_context_and_restrict_table():
+    """handle_page puts the validated, ordered `visible_cols` in the context and the
+    server-rendered flat table is restricted to exactly those columns."""
+    from sections.screener.service import handle_page
+    cross, funds = _universe()
+    ctx = handle_page(
+        ScreenRequest.from_query(FakeArgs(single={"cols": "symbol,price,rs"})),
+        StubData(funds), StubComputed(cross))
+    assert ctx["visible_cols"] == ["symbol", "price", "rs"]
+    # the flat-table rendering payload is keyed by the visible_cols only.
+    table = ctx["flat_table"]
+    assert table["columns"] == ["symbol", "price", "rs"]
+    assert all(len(row["cells"]) == 3 for row in table["rows"])
+
+
+def test_handle_page_screener_data_full_regardless_of_visible_cols():
+    """screener_data carries ALL RESULT_COLUMNS + every passed row, at full
+    precision, independent of the (narrow) visible_cols."""
+    from sections.screener.service import handle_page, RESULT_COLUMNS
+    cross, funds = _universe()
+    req = ScreenRequest.from_query(FakeArgs(single={"cols": "symbol"}))
+    ctx = handle_page(req, StubData(funds), StubComputed(cross))
+    sd = ctx["screener_data"]
+    # all columns present (not just the 1 visible).
+    assert sd["columns"] == list(RESULT_COLUMNS)
+    assert len(sd["columns"]) == len(RESULT_COLUMNS)
+    # one row per passed symbol.
+    assert len(sd["rows"]) == ctx["passed"]
+    # full precision retained: AAA price 120.0, PE = 120/6 = 20.0 (not rounded away).
+    sym_i = sd["columns"].index("Symbol")
+    pe_i = sd["columns"].index("PE")
+    aaa = next(r for r in sd["rows"] if r[sym_i] == "AAA")
+    assert aaa[pe_i] == 20.0
+
+
+def test_fwd_pe_premium_registered_as_columns_and_in_screener_data():
+    """The new Fwd-PE-premium fields are registered as result columns + pickable
+    column-vocab ids, and carried (full precision) in the per-row screener_data."""
+    from sections.screener.service import (
+        handle_page, RESULT_COLUMNS, COL_ID_TO_RESULT, RESULT_TO_COL_ID,
+        FLAT_COL_SPEC,
+    )
+    # RESULT_COLUMNS + column vocab.
+    assert "FwdPE_vs_Sector" in RESULT_COLUMNS
+    assert "FwdPE_vs_Industry" in RESULT_COLUMNS
+    assert COL_ID_TO_RESULT["fwdpesect"] == "FwdPE_vs_Sector"
+    assert COL_ID_TO_RESULT["fwdpeind"] == "FwdPE_vs_Industry"
+    assert RESULT_TO_COL_ID["FwdPE_vs_Sector"] == "fwdpesect"
+    assert RESULT_TO_COL_ID["FwdPE_vs_Industry"] == "fwdpeind"
+    # FLAT_COL_SPEC entries (pickable columns, 2dp like PE/Sec).
+    assert FLAT_COL_SPEC["fwdpesect"]["key"] == "fwdpe_vs_sector"
+    assert FLAT_COL_SPEC["fwdpeind"]["key"] == "fwdpe_vs_industry"
+
+    # per-row screener_data carries the field, full precision (AAA FwdPE/Sec=1.17).
+    cross, funds = _universe()
+    ctx = handle_page(ScreenRequest.from_query(FakeArgs(single={"cols": "symbol"})),
+                      StubData(funds), StubComputed(cross))
+    sd = ctx["screener_data"]
+    sym_i = sd["columns"].index("Symbol")
+    fs_i = sd["columns"].index("FwdPE_vs_Sector")
+    aaa = next(r for r in sd["rows"] if r[sym_i] == "AAA")
+    assert_parity(aaa[fs_i], 1.17)
+
+
+def test_flat_col_spec_js_mirrors_server_format_tokens():
+    """The client render spec must mirror the server FLAT_COL_SPEC: every visible
+    column has a result_col into SCREENER_DATA and a format token matching python's
+    formatter, so a client re-render is byte-identical to the server's first paint."""
+    from sections.screener.service import flat_col_spec_js, DEFAULT_VISIBLE_COLS
+    spec = flat_col_spec_js()
+    cols = spec["cols"]
+    # representative token parity (the formats that drive "numbers identical").
+    assert cols["price"]["fmt"] == "f2"
+    assert cols["pe"]["fmt"] == "f1"
+    assert cols["rs"]["fmt"] == "f0"
+    assert cols["chg"]["fmt"] == "pct1"
+    assert cols["pct50"]["fmt"] == "s1"
+    assert cols["turnover"]["fmt"] == "turnover"
+    assert cols["symbol"]["fmt"] == "text"
+    assert cols["stage"]["fmt"] == "stage_label"
+    # every default-visible column maps to a RESULT_COLUMNS source for the client.
+    for cid in DEFAULT_VISIBLE_COLS:
+        assert cols[cid]["result_col"] is not None
+    # decoded-label maps embedded for the label columns.
+    assert spec["stage_labels"]["2"] == "Stage 2 Uptrend"

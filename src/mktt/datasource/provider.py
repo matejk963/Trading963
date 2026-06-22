@@ -199,6 +199,34 @@ class DataSource:
         return equity.panel_technicals(ids, **kwargs)
 
     # ------------------------------------------------------------------ #
+    # vectorized trailing returns — delegates to the equity submodule
+    # ------------------------------------------------------------------ #
+    def panel_returns(self, ids, **kwargs):
+        """Vectorized TOTAL cumulative trailing returns straight off the wide
+        ``close`` parquet panel (1W/1M/3M/6M/12M/3Y/5Y).
+
+        Delegates to the equity submodule (the one owner of the wide panels),
+        mirroring :meth:`panel_technicals`.
+        """
+        equity = self._equity or self._registry.resolve("time_series", "__equity_probe__")
+        return equity.panel_returns(ids, **kwargs)
+
+    # ------------------------------------------------------------------ #
+    # price_panel_version (Slice 1) — parquet mtime for the screener cache key
+    # ------------------------------------------------------------------ #
+    def price_panel_version(self) -> float:
+        """Freshness token for the price/volume parquet the technicals path reads.
+
+        Delegates to the equity submodule (the owner of the wide panels), so the
+        screener pipeline cache keys on the parquet mtime and invalidates the instant
+        the price panels are rewritten. Returns ``0.0`` if no equity submodule is
+        wired (a price-only-less DataSource) — a stable, never-raising sentinel.
+        """
+        equity = self._equity or self._registry.resolve("time_series", "__equity_probe__")
+        fn = getattr(equity, "price_panel_version", None)
+        return fn() if callable(fn) else 0.0
+
+    # ------------------------------------------------------------------ #
     # universe fetch — delegates to the single equity implementation
     # ------------------------------------------------------------------ #
     def fetch_universe(self, *args, **kwargs):

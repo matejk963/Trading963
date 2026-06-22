@@ -86,7 +86,7 @@
     </nav>
 
     <div class="container">
-        {% block content %}{% endblock %}
+        <main id="app-content">{% block content %}{% endblock %}</main>
     </div>
 
     <div class="footer">
@@ -94,19 +94,118 @@
     </div>
 
     {% block scripts %}{% endblock %}
+    <!-- Slice 3 (adr/0004): client keep-alive for instant return to the screener.
+         Scoped to /screener links only; falls back to normal navigation on any
+         uncertainty. Loaded on every page so a return-to-screener click can be
+         intercepted from anywhere (Monitor, RRG, etc.). -->
+    <script src="{{ url_for('static', filename='js/keepalive.js') }}"></script>
+    <!-- Screener render/sort/picker/view logic, extracted from the screener template's
+         inline script so it loads on EVERY page. INERT on non-screener pages (its
+         auto-init only runs when #screener-table is present); it merely DEFINES the
+         global window.initScreener / renderFlatTable / … so the keep-alive can rebuild
+         the screener's flat view from any page after an #app-content innerHTML swap. -->
+    <script src="{{ url_for('static', filename='js/screener.js') }}"></script>
     <script>
-    // Persist screener URL across tab navigation
+    // Persist screener filter selections across tab navigation AND across fresh
+    // loads / sessions. Two layers:
+    //   - sessionStorage 'mktt_screener_url' (existing): re-points the SCREENER tab
+    //     href to the last screener URL within this tab session.
+    //   - localStorage 'mktt_screener_filters' (Change B): remembers the last
+    //     screener URL that actually carried filter params, so a fresh/bare load of
+    //     /screener (or /) restores those filters via the server (location.replace).
+    // `cols` is a pure column-view concern with its own ?cols= + localStorage
+    // handling, so it is IGNORED when deciding whether a URL is "filtered" or "bare"
+    // (but preserved verbatim through any redirect). All storage access is wrapped:
+    // any quota/parse/security error degrades to a no-op (never breaks the page).
     (function() {
+        var FILTER_KEY = 'mktt_screener_filters';
         var path = window.location.pathname;
-        // If on screener page, save full URL
-        if (path === '/' || path === '/screener') {
-            sessionStorage.setItem('mktt_screener_url', window.location.href);
+        var isScreener = (path === '/' || path === '/screener');
+
+        function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+        function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+        function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+        function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+        function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
+
+        // Query (minus `cols`) is non-empty => the URL carries real filter params.
+        function hasFilterParams(search) {
+            try {
+                var p = new URLSearchParams(search || '');
+                p.delete('cols');
+                // URLSearchParams.toString() drops empty trailing markers; any
+                // remaining key (even with an empty value) counts as a filter.
+                var it = p.keys();
+                return !it.next().done;
+            } catch (e) { return false; }
         }
-        // Point screener tab to saved URL
-        var saved = sessionStorage.getItem('mktt_screener_url');
+
+        if (!isScreener) {
+            // Off the screener: just re-point the SCREENER tab at the best saved URL
+            // (session URL if present, else the persisted filtered URL).
+            var tabUrl = ssGet('mktt_screener_url') || lsGet(FILTER_KEY);
+            if (tabUrl) {
+                var t = document.getElementById('screener-tab');
+                if (t) t.href = tabUrl;
+            }
+            return;
+        }
+
+        var search = window.location.search || '';
+        var filtered = hasFilterParams(search);
+
+        if (filtered) {
+            // Explicit filtered view: persist it (session + cross-session) and keep
+            // the SCREENER tab pointed at it. Do NOT redirect (user is on an explicit
+            // query) — guards against redirect loops.
+            ssSet('mktt_screener_url', window.location.href);
+            lsSet(FILTER_KEY, window.location.href);
+        } else {
+            // Bare load (no filter params, ignoring cols). If a filtered URL was
+            // saved, restore it via the server so dropdowns + results come back.
+            // A bare submit/clear means the user wants no filters => drop the saved
+            // state so subsequent bare loads stay bare.
+            var savedUrl = lsGet(FILTER_KEY);
+            if (savedUrl && hasFilterParams(_searchOf(savedUrl)) &&
+                savedUrl !== window.location.href) {
+                // Preserve any current ?cols= through the redirect (cols is managed
+                // separately and must round-trip).
+                var target = _mergeCols(savedUrl, search);
+                if (target !== window.location.href) {
+                    window.location.replace(target);
+                    return;   // stop further work; the replace reloads the page
+                }
+            } else {
+                // Genuinely bare with no usable saved filters: ensure cleared.
+                lsDel(FILTER_KEY);
+            }
+            // Track the (bare) screener URL for in-tab tab-href continuity.
+            ssSet('mktt_screener_url', window.location.href);
+        }
+
+        // Point the SCREENER tab at the saved URL (filtered preferred for return).
+        var saved = lsGet(FILTER_KEY) || ssGet('mktt_screener_url');
         if (saved) {
             var tab = document.getElementById('screener-tab');
             if (tab) tab.href = saved;
+        }
+
+        function _searchOf(url) {
+            try { return new URL(url, window.location.origin).search || ''; }
+            catch (e) { return ''; }
+        }
+        // Carry the current ?cols= (if any) into the saved filtered URL so the
+        // column selection round-trips through the restore redirect.
+        function _mergeCols(savedUrl, curSearch) {
+            try {
+                var cur = new URLSearchParams(curSearch || '');
+                var cols = cur.get('cols');
+                var u = new URL(savedUrl, window.location.origin);
+                if (cols !== null) {
+                    u.searchParams.set('cols', cols);
+                }
+                return u.pathname + (u.search || '');
+            } catch (e) { return savedUrl; }
         }
     })();
 
@@ -114,7 +213,10 @@
     // Monitor section's /api/watchlist endpoint. `side` (long/short) rides in the
     // member note. A small in-memory cache of [{sym, side}] backs the context menu
     // (so it can show "switch side"/"remove"); the nav badge counts MKLists members.
-    var MKLIST = 'default';
+    // Active MKLists list for this page. The Monitor route passes `mklist` (e.g.
+    // `screener` when opened via /monitor?list=screener) so the rail + watchlist
+    // badge read that list; every other page falls back to `default`.
+    var MKLIST = {{ (mklist or 'default')|tojson }};
     var _wlCache = [];   // [{sym, side}] from the last /api/watchlist read
     function _entriesFromVm(vm) {
         var meta = (vm && vm.meta) || {};
@@ -171,9 +273,18 @@
         var row = e.target.closest('tr[onclick*="toggleStockChart"]');
         if (!row) return;
         e.preventDefault();
-        var symCell = row.querySelector('td[data-cid="sym"]');
-        if (!symCell) return;
-        var sym = symCell.textContent.trim();
+        // Symbol cell id differs by view (sector table = "sym", flat table = "symbol")
+        // and the flat Symbol column may be toggled off — so read the symbol from the
+        // row's onclick ("toggleStockChart('SYM', this)") first, cells as fallback.
+        var sym = '';
+        var oc = row.getAttribute('onclick') || '';
+        var m = oc.match(/toggleStockChart\('([^']+)'/);
+        if (m) sym = m[1].trim();
+        if (!sym) {
+            var symCell = row.querySelector('td[data-cid="sym"]') ||
+                          row.querySelector('td[data-cid="symbol"]');
+            if (symCell) sym = symCell.textContent.trim();
+        }
         if (!sym) return;
 
         if (_ctxMenu) _ctxMenu.remove();

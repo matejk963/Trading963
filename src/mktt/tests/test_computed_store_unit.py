@@ -104,6 +104,54 @@ def test_cross_section_cache_get_respects_ttl():
     assert store._xs_cache_get(key) is None
 
 
+class _FakeConn:
+    """Minimal conn for an empty-panel upsert (no rows -> no execute_values)."""
+
+    def cursor(self):
+        class _Cur:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *a):
+                return False
+
+            def execute(self_inner, *a, **k):
+                pass
+
+            def fetchall(self_inner):
+                return []
+
+            description = []
+
+        return _Cur()
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_cross_section_version_starts_truthy_and_bumps_on_upsert():
+    """Slice 1: the cross-section freshness token is monotonic and bumps on upsert.
+
+    Downstream result caches key on it so a Writer upsert invalidates them instantly
+    (a cached view is never staler than the data)."""
+    store = ComputedStore(conn_factory=lambda: _FakeConn(), schema="mktt_test")
+    v0 = store.cross_section_version()
+    assert v0  # truthy from the start
+
+    store.upsert(pd.DataFrame())     # an (empty) upsert still bumps the token
+    v1 = store.cross_section_version()
+    assert v1 > v0
+
+    store.upsert(pd.DataFrame())
+    assert store.cross_section_version() > v1
+
+
 def test_ensure_fresh_noop_without_refresher():
     store = _store()
     # no refresher wired → ensure_fresh is a no-op even with a stale provider.

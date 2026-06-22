@@ -13,9 +13,17 @@ with stubs; the blueprint is the wiring seam.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Blueprint, jsonify, render_template, request
 
-from .service import ScreenRequest, handle, handle_page
+from .service import (
+    ScreenRequest,
+    cross_section_version,
+    handle,
+    handle_page,
+    price_panel_version,
+)
 
 screener_bp = Blueprint(
     "screener", __name__, template_folder="templates"
@@ -58,3 +66,42 @@ def screener_api():
     data, computed = _providers()
     vm_out = handle(req, data, computed)
     return jsonify(vm_out)
+
+
+@screener_bp.route("/api/screener/version")
+def screener_version():
+    """Combined freshness token ``"<cross_section_version>:<price_panel_version>"``.
+
+    Thin: reads the two provider freshness tokens (cross-section version bumped on
+    Writer upsert + price-parquet mtime) so the client keep-alive (Slice 3) can
+    validate a cached snapshot against the live data without a heavy round-trip.
+    """
+    data, computed = _providers()
+    token = (f"{cross_section_version(computed)}:{price_panel_version(data)}"
+             f":{_asset_version()}")
+    return jsonify({"version": token})
+
+
+#: Screener client assets — the template + JS that render the page. Their newest
+#: mtime is folded into the freshness token so a CODE/TEMPLATE deploy (e.g. adding
+#: a filter) bumps the version and invalidates a stale client keep-alive snapshot
+#: (whose token would otherwise still match on unchanged DATA — the bug where new
+#: filters didn't appear until a hard reload). Best-effort; missing files skipped.
+def _asset_version() -> str:
+    here = Path(__file__).resolve()
+    root = here.parents[2]  # src/mktt
+    files = (
+        here.parent / "templates" / "screener.html",
+        root / "static" / "js" / "screener.js",
+        root / "static" / "js" / "keepalive.js",
+        root / "templates" / "base.html",
+    )
+    newest = 0.0
+    for f in files:
+        try:
+            m = f.stat().st_mtime
+            if m > newest:
+                newest = m
+        except OSError:
+            pass
+    return str(round(newest, 3))

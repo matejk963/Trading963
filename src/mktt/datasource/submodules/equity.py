@@ -43,6 +43,13 @@ _BENCHMARK_IDS = {"SPY"}
 
 _DEFAULT_FIELDS = ("close", "volume")
 
+#: Trailing-return horizons (field name -> trading-day lag) — frozen contract.
+#: Returns are TOTAL cumulative: (close[pos] / close[pos - lag] - 1) * 100.
+_DEFAULT_RETURN_LAGS = {
+    "Ret1W": 5, "Ret1M": 21, "Ret3M": 63, "Ret6M": 126,
+    "Ret12M": 252, "Ret3Y": 756, "Ret5Y": 1260,
+}
+
 US_EXCHANGES = ["NMS", "NYQ", "ASE", "NCM", "NGM"]
 
 logger = logging.getLogger("mktt.datasource.equity")
@@ -103,6 +110,26 @@ class EquitySubmodule:
         df = pd.read_parquet(path)
         self._mem_cache[key] = (mtime, df)
         return df
+
+    def price_panel_version(self) -> float:
+        """Freshness token for the price/volume parquet the technicals path reads.
+
+        The screener's live technicals (Price / Change% / ADV / 52w) derive from the
+        wide ``close.parquet`` + ``volume.parquet`` panels; this returns the **newest
+        mtime** across the present price/volume panels so the screener pipeline cache
+        invalidates the instant either panel is rewritten. Returns ``0.0`` when no
+        panel exists yet (a stable, never-raising sentinel)."""
+        mtimes = []
+        for field in _DEFAULT_FIELDS:                  # ("close", "volume")
+            fname = _FIELD_FILES.get(field)
+            if not fname:
+                continue
+            path = self._dir / fname
+            if path.exists():
+                mtimes.append(path.stat().st_mtime)
+        version = max(mtimes) if mtimes else 0.0
+        logger.debug("price_panel_version: %s", version)
+        return version
 
     def _load_field_panel(self, field: str) -> Optional[pd.DataFrame]:
         fname = _FIELD_FILES.get(field)
@@ -322,6 +349,72 @@ class EquitySubmodule:
                 rec["From52L"] = (price / float(lw) - 1.0) * 100.0
             out[str(sym)] = rec
         logger.debug("panel_technicals: %d/%d symbols", len(out), len(ids))
+        return out
+
+    # ------------------------------------------------------------------ #
+    # vectorized trailing returns (perf — no per-symbol Python loop)
+    # ------------------------------------------------------------------ #
+    def panel_returns(self, ids, as_of=None, lags=None) -> dict:
+        """Vectorized TOTAL cumulative trailing returns off the wide ``close`` panel.
+
+        Mirrors :meth:`panel_technicals`: slices the wide ``close.parquet`` to the
+        requested ``ids``, honors ``as_of`` by trimming the date index to bars
+        on/before that date, then indexes by integer position.
+
+        Returns ``{symbol: {Ret1W..Ret5Y}}`` where each value is
+        ``(close[pos] / close[pos - lag] - 1) * 100`` (total cumulative, no
+        annualization). A horizon is omitted when the symbol lacks ``lag`` bars of
+        history (insufficient history → field absent / None).
+
+        ``lags`` maps a return field name -> integer trading-day lag; defaults to
+        :data:`_DEFAULT_RETURN_LAGS` (1W=5 .. 5Y=1260).
+        """
+        if lags is None:
+            lags = _DEFAULT_RETURN_LAGS
+        close = self._load_field_panel("close")
+        if close is None or close.empty:
+            return {}
+        ids = [i for i in _normalize_ids(ids) if i in close.columns]
+        if not ids:
+            return {}
+
+        close = close[ids]
+        if as_of is not None:
+            idx = close.index
+            if getattr(idx, "tz", None) is not None:
+                close = close.copy()
+                close.index = idx.tz_localize(None)
+            close = close[close.index <= pd.Timestamp(as_of)]
+            if close.empty:
+                return {}
+
+        # ffill so the latest valid bar wins even with ragged trailing NaNs (parity
+        # with panel_technicals' last-close handling).
+        ff = close.ffill()
+        n = len(ff)
+        last = ff.iloc[-1]
+        # Precompute the past-row series per lag once (vectorized over symbols), so
+        # there is exactly one row lookup per horizon — no per-symbol Python rank.
+        past_by_field = {}
+        for fld, lag in lags.items():
+            if 0 < lag < n:
+                past_by_field[fld] = ff.iloc[-1 - lag]
+
+        out: dict = {}
+        for sym in ids:
+            cur = last.get(sym)
+            if cur is None or pd.isna(cur):
+                continue
+            cur = float(cur)
+            rec: dict = {}
+            for fld, past in past_by_field.items():
+                prev = past.get(sym)
+                if prev is None or pd.isna(prev) or float(prev) == 0.0:
+                    continue
+                rec[fld] = (cur / float(prev) - 1.0) * 100.0
+            if rec:
+                out[str(sym)] = rec
+        logger.debug("panel_returns: %d/%d symbols", len(out), len(ids))
         return out
 
     # ------------------------------------------------------------------ #
